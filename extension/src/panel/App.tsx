@@ -110,7 +110,7 @@ const PanelHeader = ({ logoSrc }: { logoSrc?: string }) => (
 
 const StatPill = ({ tokens }: { tokens: number }) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, ...badge }}>
-        <span style={{ fontWeight: 700, color: '#e5e5e5' }}>Tokeny przymiarki:</span>
+        <span style={{ fontWeight: 700, color: '#e5e5e5' }}>Tokeny stylizacji:</span>
         <span style={{ background: '#00b943', color: '#0f1a0f', fontWeight: 800, padding: '6px 10px', borderRadius: 8, minWidth: 40, textAlign: 'center' }}>{tokens}</span>
         <button
             style={{ ...actionButtonStyle, background: '#00e676', color: '#0f2e17', padding: '10px 12px', boxShadow: '0 8px 20px rgba(0,230,118,0.25)' }}
@@ -147,19 +147,40 @@ const FieldRow = ({
                         justifyContent: 'center',
                         width: 28,
                         height: 28,
-                        background: '#0f5763',
+                        background: '#0f6572',
                         borderRadius: 10,
                         cursor: 'pointer',
                         boxShadow: '0 0 0 1px rgba(255,255,255,0.08)'
                     }}
                 >
-                    <input
-                        type="checkbox"
-                        checked={Boolean(savedFlags?.[rememberKey])}
-                        onChange={() => remember(rememberKey)}
-                        style={{ width: 14, height: 14, cursor: 'pointer' }}
+                    <div
+                        style={{
+                            width: 18,
+                            height: 18,
+                            borderRadius: 6,
+                            background: '#0f6572',
+                            border: 'none',
+                            display: 'grid',
+                            placeItems: 'center'
+                        }}
+                        onClick={() => remember(rememberKey)}
+                        role="checkbox"
+                        aria-checked={Boolean(savedFlags?.[rememberKey])}
                         aria-label="Zapamiętaj"
-                    />
+                        tabIndex={0}
+                        onKeyDown={e => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                remember(rememberKey);
+                            }
+                        }}
+                    >
+                        {savedFlags?.[rememberKey] ? (
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M4 8.6 6.5 11 12 5" stroke="#f6f6f6" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                        ) : null}
+                    </div>
                 </label>
             )}
         </div>
@@ -205,13 +226,19 @@ const App: React.FC = () => {
     }
 
     function rememberField(key: StorableKey) {
+        const nextValue = !savedFlags[key];
+        setSavedFlags(prev => ({ ...prev, [key]: nextValue }));
+
         if (!chrome?.storage?.local) return;
         chrome.storage.local.get([storageKey], result => {
             const current = result?.[storageKey] ?? {};
-            const next = { ...current, [key]: form[key] };
-            chrome.storage.local.set({ [storageKey]: next }, () => {
-                setSavedFlags(prev => ({ ...prev, [key]: true }));
-            });
+            const updated = { ...current };
+            if (nextValue) {
+                updated[key] = form[key];
+            } else {
+                delete updated[key];
+            }
+            chrome.storage.local.set({ [storageKey]: updated });
         });
     }
 
