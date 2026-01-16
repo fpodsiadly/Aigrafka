@@ -1,0 +1,40 @@
+# Node / TypeScript
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.env
+.env.local
+
+# Builds / bundles
+/dist/
+**/dist/
+/build/
+**/build/
+/.parcel-cache
+/.cache
+
+# Logs
+logs/
+*.log
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
+
+# Coverage
+coverage/
+*.lcov
+
+# Prisma
+prisma/dev.db
+prisma/dev.db-journal
+
+# Generated assets
+extension/icons/*.png
+extension/icons/*.ico
+
+# TypeScript
+*.tsbuildinfo
