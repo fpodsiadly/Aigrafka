@@ -10,11 +10,13 @@ function injectPanel() {
     const host = document.createElement('div');
     host.id = CONTAINER_ID;
     host.style.position = 'fixed';
-    host.style.top = '80px';
-    host.style.right = '24px';
+    host.style.top = '64px';
+    host.style.right = '6px';
     host.style.zIndex = '2147483647';
-    host.style.width = '360px';
-    host.style.height = '640px';
+    host.style.width = 'min(330px, calc(100vw - 12px))';
+    host.style.height = 'min(720px, calc(100vh - 12px))';
+    host.style.maxHeight = 'calc(100vh - 12px)';
+    host.style.maxWidth = 'calc(100vw - 12px)';
 
     const shadow = host.attachShadow({ mode: 'open' });
     const mount = document.createElement('div');
@@ -23,15 +25,26 @@ function injectPanel() {
     const style = document.createElement('style');
     style.textContent = `
     :host { all: initial; }
-    * { box-sizing: border-box; font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&display=swap');
+    * { box-sizing: border-box; font-family: 'Space Grotesk', 'DM Sans', 'Segoe UI', sans-serif; }
     .aigrafka-shell {
-      width: 360px;
-      height: 640px;
-      border-radius: 20px;
-      background: #4a4a4a;
-      box-shadow: 0 12px 32px rgba(0,0,0,0.35);
+      width: 100%;
+      height: 100%;
+      max-width: 320px;
+      max-height: 680px;
+      border-radius: 18px;
+      background: #3a3a3a;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.38);
       overflow: hidden;
       color: #f5f5f5;
+      border: 1px solid #2a2a2a;
+      transform: scale(0.9);
+      transform-origin: top right;
+    }
+    @keyframes aigrafka-shimmer {
+      0% { transform: translateX(-30%); opacity: 0.8; }
+      50% { opacity: 1; }
+      100% { transform: translateX(30%); opacity: 0.8; }
     }
   `;
 

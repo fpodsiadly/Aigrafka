@@ -1,0 +1,11 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Aigrafka">
+  <rect width="256" height="256" fill="white" rx="32" ry="32"/>
+  <g fill="none" stroke="#0b0b0b" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M92 42c0 10-6 18-18 18H62c-8 0-14 6-14 14v148c0 18 6 34 26 34s32-18 40-44l30-104" />
+    <path d="M142 108c0 18-16 32-36 32" />
+    <circle cx="92" cy="226" r="20" />
+    <path d="M62 70c0-18 14-32 32-32s32 14 32 32v16" />
+  </g>
+  <path d="M156 128c6-20 22-32 40-32 20 0 36 16 36 36s-16 36-36 36c-8 0-16-2-22-8l-12 32h-20z" fill="#0b0b0b"/>
+  <text x="150" y="214" font-family="'Space Grotesk', 'DM Sans', 'Segoe UI', sans-serif" font-size="64" font-weight="700" fill="#0b0b0b">A</text>
+</svg>

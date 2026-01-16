@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aigrafka Preview</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&display=swap');
+      :root {
+        background: #181818;
+        color: #f5f5f5;
+      }
+      body {
+        margin: 0;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+      }
+      * {
+        box-sizing: border-box;
+        font-family: 'Space Grotesk', 'DM Sans', 'Segoe UI', sans-serif;
+      }
+      .preview-frame {
+        width: 330px;
+        height: 720px;
+        border-radius: 18px;
+        overflow: hidden;
+        border: 1px solid #2a2a2a;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+        background: #3a3a3a;
+        transform: scale(0.9);
+        transform-origin: top right;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" class="preview-frame"></div>
+    <script type="module" src="./preview.tsx"></script>
+  </body>
+</html>
