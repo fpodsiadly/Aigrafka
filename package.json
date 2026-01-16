@@ -1,0 +1,32 @@
+{
+  "name": "aigrafka",
+  "version": "1.0.0",
+  "description": "Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań z AI (virtual try-on) i zakupów tokenów. Składa się z rozszerzenia (content script + React w Shadow DOM), backendu (NestJS), modułu AI (Banana.dev + SD) oraz typów współdzielonych.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fpodsiadly/Aigrafka.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/fpodsiadly/Aigrafka/issues"
+  },
+  "homepage": "https://github.com/fpodsiadly/Aigrafka#readme",
+  "dependencies": {
+    "@prisma/client": "^6.1.0",
+    "@vercel/blob": "^2.0.0",
+    "axios": "^1.13.2",
+    "ioredis": "^5.9.2",
+    "stripe": "^20.1.2"
+  },
+  "devDependencies": {
+    "micro": "^10.0.1",
+    "prisma": "^6.1.0"
+  }
+}

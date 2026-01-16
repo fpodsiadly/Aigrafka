@@ -1,0 +1,28 @@
+{
+  "functions": {
+    "api/payments/webhook.ts": {
+      "runtime": "nodejs18.x",
+      "maxDuration": 10,
+      "memory": 256
+    },
+    "api/cron/worker.ts": {
+      "runtime": "nodejs18.x",
+      "maxDuration": 10,
+      "memory": 512
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/payments/webhook",
+      "dest": "/api/payments/webhook.ts",
+      "methods": ["POST"],
+      "headers": { "x-vercel-prefer-native": "1" }
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/worker",
+      "schedule": "*/2 * * * *"  
+    }
+  ]
+}

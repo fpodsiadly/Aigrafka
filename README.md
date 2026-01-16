@@ -34,6 +34,7 @@ Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań 
 - JWT_SECRET
 - STRIPE_SECRET_KEY, STRIPE_PRICE_STARTER, STRIPE_PRICE_PRO
 - STRIPE_WEBHOOK_SECRET, PRICE_STARTER_CENTS (map kwoty na tokeny)
+- STRIPE_DEMO_MODE (true/false) – demo bez realnego Checkout, zwraca placeholder URL i akceptuje webhook
 - CHECKOUT_SUCCESS_URL, CHECKOUT_CANCEL_URL
 - (plan) DATABASE_URL (PostgreSQL), REDIS_URL, S3/R2 credentials
 

@@ -10,13 +10,17 @@ const priceMap: Record<string, string> = {
 @Injectable()
 export class PaymentsService {
   private stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
-    apiVersion: '2024-06-20'
+    apiVersion: '2025-12-15.clover'
   });
   private logger = new Logger(PaymentsService.name);
 
   constructor(private readonly prisma: PrismaService) {}
 
   async createCheckoutSession(pack: string, userId?: string) {
+    if (process.env.STRIPE_DEMO_MODE === 'true') {
+      return { checkoutUrl: 'https://example.com/checkout-demo' };
+    }
+
     const priceId = priceMap[pack] ?? priceMap.starter;
     const session = await this.stripe.checkout.sessions.create({
       mode: 'payment',
@@ -35,6 +39,10 @@ export class PaymentsService {
   }
 
   async handleWebhook(rawBody: Buffer, signature: string | undefined) {
+    if (process.env.STRIPE_DEMO_MODE === 'true') {
+      return { received: true, demo: true };
+    }
+
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
     if (!webhookSecret) {
       throw new Error('Missing STRIPE_WEBHOOK_SECRET');

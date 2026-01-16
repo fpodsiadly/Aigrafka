@@ -1,8 +1,10 @@
 // Simple message handler for checkout/open backend actions.
+const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:4000';
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === 'OPEN_CHECKOUT') {
     // Placeholder: ask backend for Stripe Checkout URL.
-    fetch('http://localhost:4000/payments/checkout', {
+    fetch(`${apiBase}/payments/checkout`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pack: 'starter' })

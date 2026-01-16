@@ -31,6 +31,8 @@ const initialState: FormState = {
     ...initialMetrics
 };
 
+const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:4000';
+
 const fieldLabelStyle: React.CSSProperties = {
     width: '120px',
     fontWeight: 700,
@@ -113,7 +115,7 @@ const App: React.FC = () => {
                 }
             };
 
-            const response = await fetch('http://localhost:4000/ai/generate', {
+            const response = await fetch(`${apiBase}/ai/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
