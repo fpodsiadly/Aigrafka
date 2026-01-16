@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TransactionType {
+  PURCHASE
+  ADJUSTMENT
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+enum FitJobStatus {
+  QUEUED
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+model User {
+  id                String             @id @default(cuid())
+  email             String             @unique
+  tokens            Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  tokenTransactions TokenTransaction[]
+  profile           Profile?
+  fitJobs           FitJob[]
+}
+
+model TokenTransaction {
+  id            String             @id @default(cuid())
+  user          User               @relation(fields: [userId], references: [id])
+  userId        String
+  amount        Int
+  type          TransactionType
+  status        TransactionStatus  @default(PENDING)
+  stripeEventId String?            @unique
+  createdAt     DateTime           @default(now())
+}
+
+model Profile {
+  id           String   @id @default(cuid())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String   @unique
+  height       String
+  chest        String
+  waist        String
+  hips         String
+  category     String?
+  productUrl   String?
+  selfieUrl    String?
+  consentGiven Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model FitJob {
+  id          String        @id @default(cuid())
+  user        User          @relation(fields: [userId], references: [id])
+  userId      String
+  productUrl  String
+  category    String
+  metrics     Json
+  selfieUrl   String?
+  status      FitJobStatus  @default(QUEUED)
+  resultUrl   String?
+  fitNote     String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}

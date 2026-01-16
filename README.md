@@ -21,6 +21,7 @@ Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań 
 2. Dev backend: `cd backend && npm run start:dev` (domyślnie http://localhost:4000/api).
 3. Dev extension: `cd extension && npm run dev` (Vite build; dla MV3 użyj build i załaduj `extension/dist` jako „Load unpacked”).
 4. W panelu (content script) endpoint AI domyślnie wskazuje `http://localhost:4000/ai/generate` – dostosuj do środowiska.
+5. (DB) Uruchom `cd backend && npx prisma generate` przed dostępem do bazy.
 
 ## Build
 
@@ -32,6 +33,7 @@ Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań 
 - PORT (domyślnie 4000)
 - JWT_SECRET
 - STRIPE_SECRET_KEY, STRIPE_PRICE_STARTER, STRIPE_PRICE_PRO
+- STRIPE_WEBHOOK_SECRET, PRICE_STARTER_CENTS (map kwoty na tokeny)
 - CHECKOUT_SUCCESS_URL, CHECKOUT_CANCEL_URL
 - (plan) DATABASE_URL (PostgreSQL), REDIS_URL, S3/R2 credentials
 

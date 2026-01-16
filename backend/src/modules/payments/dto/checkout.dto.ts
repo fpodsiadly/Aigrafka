@@ -1,7 +1,11 @@
-import { IsIn, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsString } from 'class-validator';
 
 export class CheckoutDto {
   @IsString()
   @IsIn(['starter', 'pro'])
   pack!: 'starter' | 'pro';
+
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }
