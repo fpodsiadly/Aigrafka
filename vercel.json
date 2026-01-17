@@ -1,12 +1,12 @@
 {
   "functions": {
     "api/payments/webhook.ts": {
-      "runtime": "nodejs18.x",
+      "runtime": "nodejs18",
       "maxDuration": 10,
       "memory": 256
     },
     "api/cron/worker.ts": {
-      "runtime": "nodejs18.x",
+      "runtime": "nodejs18",
       "maxDuration": 10,
       "memory": 512
     }
