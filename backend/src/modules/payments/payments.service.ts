@@ -10,7 +10,7 @@ const priceMap: Record<string, string> = {
 @Injectable()
 export class PaymentsService {
   private stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
-    apiVersion: '2025-12-15.clover'
+    apiVersion: '2024-11-20'
   });
   private logger = new Logger(PaymentsService.name);
 
