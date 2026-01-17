@@ -19,10 +19,14 @@
       "headers": { "x-vercel-prefer-native": "1" }
     }
   ],
-  "crons": [
-    {
-      "path": "/api/cron/worker",
-      "schedule": "*/2 * * * *"  
-    }
-  ]
+  "/* CRON_DISABLED": "Hobby plan Vercel nie obsługuje cron jobs. AI worker będzie nieruchomy do upgradu Pro.",
+  "/* OPTION_3": "Alternatywa: skonfiguruj zewnętrzny serwis (cron-job.org, EasyCron, itp.) by pingował /api/cron/worker co 2 min",
+  "/* FUTURE_CRONS": {
+    "crons": [
+      {
+        "path": "/api/cron/worker",
+        "schedule": "*/2 * * * *"  
+      }
+    ]
+  }
 }

@@ -29,7 +29,33 @@ Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań 
 
 - Extension: `cd extension && npm run build` → pliki w `extension/dist`; załaduj jako unpacked (MV3).
 - Backend: `cd backend && npm run build`.
-- Vercel Functions: korzystają z kodu w `api/` (Node runtime), cron w `api/cron/worker.ts`, webhook w `api/payments/webhook.ts`.
+- Vercel Functions: korzystają z kodu w `api/` (Node runtime), webhook w `api/payments/webhook.ts`.
+
+## Deployment (Vercel)
+
+### Cron Job (wyłączony na Hobby planie)
+
+**Status:** Cron jest obecnie skomentowany w `vercel.json`, ponieważ Hobby plan Vercela nie obsługuje Cron Jobs.
+
+**Co robi cron?** Każde 2 minuty sprawdza Redis, pobiera zlecenia AI z kolejki i przetwarza je na Banana.dev. Bez niego AI styling nie będzie działać.
+
+**Plan aktywacji (Opcja 3 - External Cron Service):**
+
+1. Upgrade do Vercel Pro ($20/mc) lub
+2. Skonfiguruj zewnętrzny serwis (cron-job.org, EasyCron):
+   - URL: `https://your-aigrafka.vercel.app/api/cron/worker`
+   - Method: `POST`
+   - Schedule: `*/2 * * * *` (co 2 minuty)
+   - Header: `x-cron-secret: <wartość z .env>`
+3. Odkomentuj `"crons"` w `vercel.json` gdy przejdziesz na Pro
+
+**Pełna konfiguracja do wdrożenia:**
+
+- Root Directory: `.` (root monorepo)
+- Build Command: `cd backend && npm install && npm run build`
+- Output Directory: `backend/dist`
+- Environment: Node.js 18+
+- Zmienne `.env`: skopiuj z `.env.example`
 
 ## Konfiguracja backendu (env)
 

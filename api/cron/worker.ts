@@ -4,6 +4,14 @@ import axios from 'axios';
 import { put } from '@vercel/blob';
 
 // This function is triggered by Vercel Cron (see vercel.json).
+// CURRENTLY DISABLED on Hobby plan – see vercel.json for cron config (commented).
+// 
+// OPTION 3 - External Cron Service:
+// Set up cron-job.org or similar to POST to:
+//   https://your-domain.vercel.app/api/cron/worker
+// with header: x-cron-secret: <YOUR_CRON_SECRET_ENV>
+// Schedule: Every 2 minutes (*/2 * * * *)
+//
 // It pulls queued jobs from Redis, processes a small batch, and updates DB.
 
 const redis = new Redis(process.env.REDIS_URL || '');
