@@ -139,49 +139,41 @@ const FieldRow = ({
         <div style={{ flex: 1, display: 'flex', gap: 8, alignItems: 'center', minWidth: 0, justifyContent: 'space-between' }}>
             <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
             {rememberKey && remember && (
-                <label
-                    title="Zapamiętaj"
+                <button
+                    type="button"
+                    title="Zablokuj pole"
+                    aria-pressed={Boolean(savedFlags?.[rememberKey])}
+                    aria-label={savedFlags?.[rememberKey] ? 'Odblokuj zapamiętane pole' : 'Zablokuj i zapamiętaj pole'}
+                    onClick={() => remember(rememberKey)}
                     style={{
                         display: 'inline-flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         width: 28,
                         height: 28,
-                        background: '#0f6572',
                         borderRadius: 10,
                         cursor: 'pointer',
+                        border: '1px solid #0a3b44',
+                        background: savedFlags?.[rememberKey] ? '#0f8d9c' : '#0f6572',
                         boxShadow: '0 0 0 1px rgba(255,255,255,0.08)'
                     }}
                 >
-                    <div
-                        style={{
-                            width: 18,
-                            height: 18,
-                            borderRadius: 6,
-                            background: '#0f6572',
-                            border: 'none',
-                            display: 'grid',
-                            placeItems: 'center'
-                        }}
-                        onClick={() => remember(rememberKey)}
-                        role="checkbox"
-                        aria-checked={Boolean(savedFlags?.[rememberKey])}
-                        aria-label="Zapamiętaj"
-                        tabIndex={0}
-                        onKeyDown={e => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                remember(rememberKey);
-                            }
-                        }}
-                    >
-                        {savedFlags?.[rememberKey] ? (
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M4 8.6 6.5 11 12 5" stroke="#f6f6f6" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                        ) : null}
-                    </div>
-                </label>
+                    {savedFlags?.[rememberKey] ? (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M8 11V8a4 4 0 1 1 8 0v3" stroke="#f6f6f6" strokeWidth="2" strokeLinecap="round" />
+                            <rect x="6" y="11" width="12" height="9" rx="2" stroke="#f6f6f6" strokeWidth="2" />
+                            <path d="M12 14v3" stroke="#f6f6f6" strokeWidth="2" strokeLinecap="round" />
+                            <circle cx="12" cy="13.5" r="0.6" fill="#f6f6f6" />
+                        </svg>
+                    ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M9 11V8a3 3 0 0 1 5.83-1" stroke="#f6f6f6" strokeWidth="2" strokeLinecap="round" />
+                            <rect x="6" y="11" width="12" height="9" rx="2" stroke="#f6f6f6" strokeWidth="2" />
+                            <path d="M12 14v3" stroke="#f6f6f6" strokeWidth="2" strokeLinecap="round" />
+                            <circle cx="12" cy="13.5" r="0.6" fill="#f6f6f6" />
+                        </svg>
+                    )}
+                </button>
             )}
         </div>
     </div>
@@ -198,7 +190,8 @@ const App: React.FC = () => {
     const canSubmit = useMemo(() => form.accepted && form.tokens > 0 && !!form.productUrl, [form]);
 
     useEffect(() => {
-        chrome.storage?.local.get([storageKey], result => {
+        if (!chrome?.storage?.local) return;
+        chrome.storage.local.get([storageKey], result => {
             const stored = result?.[storageKey];
             if (stored) {
                 setForm(prev => ({ ...prev, ...stored }));
@@ -313,7 +306,7 @@ const App: React.FC = () => {
     const logoSrc = chrome?.runtime?.getURL?.('icons/logo.svg') ?? logo;
 
     return (
-        <div className="aigrafka-shell" style={{ display: 'flex', flexDirection: 'column' }}>
+        <div className="aigrafka-shell" style={{ display: 'flex', flexDirection: 'column', background: '#181818', color: '#f5f5f5', height: '100%', width: '100%' }}>
             <PanelHeader logoSrc={logoSrc} />
             <div style={{ flex: 1, padding: '12px 12px 40px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <StatPill tokens={form.tokens} />
@@ -383,19 +376,51 @@ const App: React.FC = () => {
                         </FieldRow>
 
                         <FieldRow label="Wzrost:" rememberKey="height" remember={rememberField} savedFlags={savedFlags}>
-                            <input style={inputStyle} value={form.height} onChange={e => update('height', e.target.value)} />
+                            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                <input
+                                    style={{ ...inputStyle, paddingRight: 36 }}
+                                    value={form.height}
+                                    onChange={e => update('height', e.target.value)}
+                                    inputMode="numeric"
+                                />
+                                <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
+                            </div>
                         </FieldRow>
 
                         <FieldRow label="Klatka piersiowa:" rememberKey="chest" remember={rememberField} savedFlags={savedFlags}>
-                            <input style={inputStyle} value={form.chest} onChange={e => update('chest', e.target.value)} />
+                            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                <input
+                                    style={{ ...inputStyle, paddingRight: 36 }}
+                                    value={form.chest}
+                                    onChange={e => update('chest', e.target.value)}
+                                    inputMode="numeric"
+                                />
+                                <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
+                            </div>
                         </FieldRow>
 
                         <FieldRow label="Talia:" rememberKey="waist" remember={rememberField} savedFlags={savedFlags}>
-                            <input style={inputStyle} value={form.waist} onChange={e => update('waist', e.target.value)} />
+                            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                <input
+                                    style={{ ...inputStyle, paddingRight: 36 }}
+                                    value={form.waist}
+                                    onChange={e => update('waist', e.target.value)}
+                                    inputMode="numeric"
+                                />
+                                <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
+                            </div>
                         </FieldRow>
 
                         <FieldRow label="Biodra:" rememberKey="hips" remember={rememberField} savedFlags={savedFlags}>
-                            <input style={inputStyle} value={form.hips} onChange={e => update('hips', e.target.value)} />
+                            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                <input
+                                    style={{ ...inputStyle, paddingRight: 36 }}
+                                    value={form.hips}
+                                    onChange={e => update('hips', e.target.value)}
+                                    inputMode="numeric"
+                                />
+                                <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
+                            </div>
                         </FieldRow>
 
                         <label style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0 10px', color: '#f5f5f5', fontSize: '13px' }}>
