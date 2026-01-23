@@ -70,8 +70,8 @@ Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań 
 ## API (demo)
 
 - POST `/generate` (multipart): `product_url` (reserved.com) + `selfie` (image) + opcjonalne `variants` (1–4).
-   - Zwraca: `{ status, image_base64, mime_type, model, variants: [{ image_base64, mime_type, width, height, latency_ms }] }`.
-   - Selfie normalizowane do JPEG, resize do max ~1280 px; obraz produktu pobierany z `og:image`, normalizowany do JPEG, resize do max ~1280 px; limity: selfie `MAX_SELFIE_MB`, produkt `MAX_PRODUCT_IMAGE_MB`.
+  - Zwraca: `{ status, image_base64, mime_type, model, variants: [{ image_base64, mime_type, width, height, latency_ms }] }`.
+  - Selfie normalizowane do JPEG, resize do max ~1280 px; obraz produktu pobierany z `og:image`, normalizowany do JPEG, resize do max ~1280 px; limity: selfie `MAX_SELFIE_MB`, produkt `MAX_PRODUCT_IMAGE_MB`.
 
 ## TODO (skrót głównych prac)
 

@@ -19,6 +19,30 @@ interface FormState extends BodyMetrics {
 type StorableKey = keyof Pick<FormState, 'height' | 'chest' | 'waist' | 'hips' | 'category' | 'productUrl'>;
 type SavedFlags = Partial<Record<StorableKey, boolean>>;
 
+type ApiBase64 = string | { image_base64?: string } | null | undefined;
+
+interface ApiVariant {
+    image_base64?: ApiBase64;
+    mime_type?: string | null;
+    width?: number | null;
+    height?: number | null;
+    latency_ms?: number | null;
+}
+
+interface GenerateResponse {
+    status: string;
+    image_base64?: ApiBase64;
+    mime_type?: string | null;
+    model?: string | null;
+    variants?: ApiVariant[];
+}
+
+interface VariantPreview {
+    url: string;
+    mimeType?: string;
+    latencyMs?: number;
+}
+
 const initialMetrics: BodyMetrics = {
     height: '186',
     chest: '120',
@@ -35,7 +59,7 @@ const initialState: FormState = {
     ...initialMetrics
 };
 
-const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:4000';
+const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
 const storageKey = 'aigrafka-form';
 const placeholderPreview = 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=900&q=80';
 const placeholderSelfie = 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=200&q=70';
@@ -84,6 +108,18 @@ const rowStyle: React.CSSProperties = {
     gap: '8px',
     marginBottom: '8px'
 };
+
+function extractBase64(value: ApiBase64): string | null {
+    if (typeof value === 'string') return value;
+    if (value && typeof value === 'object' && typeof value.image_base64 === 'string') return value.image_base64;
+    return null;
+}
+
+function toDataUrl(base64: string | null, mimeType?: string | null): string {
+    if (!base64) return '';
+    const mime = mimeType || 'image/jpeg';
+    return `data:${mime};base64,${base64}`;
+}
 
 const PanelHeader = ({ logoSrc }: { logoSrc?: string }) => (
     <div style={{
@@ -186,8 +222,11 @@ const App: React.FC = () => {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [savedFlags, setSavedFlags] = useState<SavedFlags>({});
     const [selfiePreview, setSelfiePreview] = useState<string>('');
+    const [variants, setVariants] = useState<VariantPreview[]>([]);
+    const [selectedVariant, setSelectedVariant] = useState<number>(0);
+    const [generationMeta, setGenerationMeta] = useState<{ model?: string; latencyMs?: number }>({});
 
-    const canSubmit = useMemo(() => form.accepted && form.tokens > 0 && !!form.productUrl, [form]);
+    const canSubmit = useMemo(() => form.accepted && form.tokens > 0 && !!form.productUrl && !!form.selfie, [form]);
 
     useEffect(() => {
         if (!chrome?.storage?.local) return;
@@ -237,38 +276,65 @@ const App: React.FC = () => {
 
     async function handleSubmit(event: React.FormEvent) {
         event.preventDefault();
-        if (!canSubmit) return;
+        if (!canSubmit || !form.selfie) return;
 
         setStatus('Przygotowujemy stylizację...');
         setIsLoading(true);
         setPreviewUrl('');
+        setVariants([]);
+        setSelectedVariant(0);
+        setGenerationMeta({});
 
-        const payload = {
-            productUrl: form.productUrl,
-            category: form.category,
-            metrics: {
-                height: form.height,
-                chest: form.chest,
-                waist: form.waist,
-                hips: form.hips
-            }
-        };
+        const formData = new FormData();
+        formData.append('product_url', form.productUrl);
+        formData.append('selfie', form.selfie);
 
         try {
-            const response = await fetch(`${apiBase}/ai/generate`, {
+            const response = await fetch(`${apiBase}/generate`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                body: formData,
             });
 
-            if (!response.ok) throw new Error('API error');
-            const data = await response.json();
-            setPreviewUrl(data.imageUrl ?? placeholderPreview);
-            setStatus(data.message ?? 'Wygenerowano podgląd.');
+            if (!response.ok) {
+                const message = await response.text();
+                throw new Error(message || 'API error');
+            }
+
+            const data: GenerateResponse = await response.json();
+            const normalizedVariants: VariantPreview[] = (data.variants ?? []).map(variant => {
+                const base64 = extractBase64(variant.image_base64);
+                return {
+                    url: toDataUrl(base64, variant.mime_type ?? data.mime_type),
+                    mimeType: variant.mime_type || data.mime_type || undefined,
+                    latencyMs: variant.latency_ms ?? undefined
+                };
+            }).filter(v => Boolean(v.url));
+
+            const fallbackBase64 = extractBase64(data.image_base64);
+            if (!normalizedVariants.length && fallbackBase64) {
+                normalizedVariants.push({
+                    url: toDataUrl(fallbackBase64, data.mime_type ?? 'image/jpeg'),
+                    mimeType: data.mime_type ?? undefined
+                });
+            }
+
+            const firstUrl = normalizedVariants[0]?.url || placeholderPreview;
+            setVariants(normalizedVariants);
+            setSelectedVariant(0);
+            setPreviewUrl(firstUrl);
+            setGenerationMeta({
+                model: data.model ?? undefined,
+                latencyMs: normalizedVariants[0]?.latencyMs
+            });
+
+            const variantCount = normalizedVariants.length || 1;
+            const latencyText = normalizedVariants[0]?.latencyMs ? ` • ${Math.round(normalizedVariants[0].latencyMs)} ms` : '';
+            const modelText = data.model ? ` • ${data.model}` : '';
+            setStatus(`Wygenerowano (${variantCount} wariant${variantCount === 1 ? '' : 'y'})${modelText}${latencyText}`);
         } catch (error) {
             console.error(error);
             setPreviewUrl(placeholderPreview);
-            setStatus('Tryb demo: używamy przykładowej stylizacji.');
+            setStatus('Nie udało się wygenerować podglądu. Upewnij się, że selfie i link są poprawne.');
         } finally {
             setIsLoading(false);
             setForm(prev => ({ ...prev, tokens: Math.max(prev.tokens - 1, 0) }));
@@ -290,7 +356,7 @@ const App: React.FC = () => {
     }
 
     async function handleCopy() {
-        const text = form.productUrl || previewUrl || 'https://aigrafka.example';
+        const text = form.productUrl || previewUrl || 'https://aigrafka.pl';
         try {
             await navigator.clipboard.writeText(text);
             setStatus('Skopiowano do schowka.');
@@ -304,6 +370,8 @@ const App: React.FC = () => {
     const rememberedHint = 'Zapamiętaj zapisuje dane lokalnie w przeglądarce.';
 
     const logoSrc = chrome?.runtime?.getURL?.('icons/logo.svg') ?? logo;
+    const thumbnails = variants.length ? variants : [{ url: placeholderPreview }];
+    const activeVariant = variants[selectedVariant];
 
     return (
         <div className="aigrafka-shell" style={{ display: 'flex', flexDirection: 'column', background: '#181818', color: '#f5f5f5', height: '100%', width: '100%' }}>
@@ -453,16 +521,47 @@ const App: React.FC = () => {
 
                     <div style={{ display: 'grid', gridTemplateColumns: '72px 1fr', gap: 10, alignItems: 'stretch' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            {[placeholderPreview, placeholderPreview, placeholderPreview, placeholderPreview].map((src, idx) => (
-                                <div key={idx} style={{ width: '100%', aspectRatio: '3 / 4', borderRadius: 12, overflow: 'hidden', border: '2px solid #3b3b3b' }}>
-                                    <img src={src} alt="mini" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                </div>
-                            ))}
+                            {thumbnails.map((variant, idx) => {
+                                const isActive = variants.length ? idx === selectedVariant : false;
+                                return (
+                                    <button
+                                        key={idx}
+                                        type="button"
+                                        onClick={() => {
+                                            if (!variants.length) return;
+                                            setSelectedVariant(idx);
+                                            setPreviewUrl(variant.url || placeholderPreview);
+                                            setGenerationMeta(prev => ({ ...prev, latencyMs: variants[idx]?.latencyMs ?? prev.latencyMs }));
+                                        }}
+                                        disabled={!variants.length || isLoading}
+                                        style={{
+                                            width: '100%',
+                                            aspectRatio: '3 / 4',
+                                            borderRadius: 12,
+                                            overflow: 'hidden',
+                                            border: isActive ? '2px solid #00b0ff' : '2px solid #3b3b3b',
+                                            padding: 0,
+                                            cursor: variants.length ? 'pointer' : 'default',
+                                            background: '#1a1a1a',
+                                            opacity: variants.length ? 1 : 0.7
+                                        }}
+                                    >
+                                        <img src={variant.url || placeholderPreview} alt="mini" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                    </button>
+                                );
+                            })}
                         </div>
 
                         <div style={{ position: 'relative', borderRadius: 16, overflow: 'hidden', border: '2px solid #3f3f3f', background: '#1a1a1a', minHeight: 360 }}>
                             {isLoading && (
                                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(120deg, rgba(255,255,255,0.04), rgba(255,255,255,0.08), rgba(255,255,255,0.04))', animation: 'aigrafka-shimmer 1.4s linear infinite', zIndex: 2 }} />
+                            )}
+                            {activeVariant && (
+                                <div style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(0,0,0,0.55)', color: '#f5f5f5', padding: '8px 10px', borderRadius: 12, fontSize: 12, border: '1px solid rgba(255,255,255,0.08)', zIndex: 3 }}>
+                                    <span>{generationMeta.model ?? 'Gemini'}</span>
+                                    {variants.length ? <span style={{ marginLeft: 8 }}>• {selectedVariant + 1}/{variants.length}</span> : null}
+                                    {activeVariant.latencyMs ? <span style={{ marginLeft: 8 }}>{Math.round(activeVariant.latencyMs)} ms</span> : null}
+                                </div>
                             )}
                             <img
                                 src={previewUrl || placeholderPreview}
