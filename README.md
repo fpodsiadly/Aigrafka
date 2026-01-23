@@ -13,7 +13,7 @@ Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań 
 ## Stack
 
 - Frontend: WebExtensions API, React, TypeScript, Vite, Shadow DOM, CSS (bez Tailwind).
-- Backend (demo): FastAPI, httpx, Pillow; proxy do Gemini (Nano Banana Pro) z promptem OpenVTO, image-to-image (selfie + produkt reserved.com).
+- Backend (demo): FastAPI, httpx, Pillow; proxy do Gemini (`imagegeneration` domyślnie) z promptem OpenVTO, image-to-image (selfie + produkt reserved.com).
 - (Deprecated) NestJS: poprzedni backend z JWT/Stripe/Prisma – nieużywany w demie.
 - AI: Gemini (Nano Banana Pro) jako generator; prompt oparty o OpenVTO; pobieranie produktu z reserved.com (`og:image`).
 

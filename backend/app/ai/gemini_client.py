@@ -8,6 +8,10 @@ from app.core.config import get_settings
 
 
 class GeminiClient:
+    FALLBACK_IMAGE_BASE64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Yg3FdQAAAAASUVORK5CYII="
+    )
+
     def __init__(self, api_key: Optional[str] = None, timeout: Optional[float] = None) -> None:
         settings = get_settings()
         self.api_key = api_key or settings.gemini_api_key
@@ -46,10 +50,24 @@ class GeminiClient:
                 except httpx.HTTPError as exc:
                     last_exc = exc
                     if attempt == 2:
-                        raise
+                        # fall back to a tiny placeholder instead of crashing the flow
+                        return {
+                            "image_base64": self.FALLBACK_IMAGE_BASE64,
+                            "mime_type": "image/png",
+                            "status": "fallback",
+                            "model": self.model,
+                            "error": str(exc),
+                        }
                     await asyncio.sleep(0.5 * (attempt + 1))
             else:
-                raise last_exc or RuntimeError("Gemini request failed")
+                # Should not reach, but guard anyway
+                return {
+                    "image_base64": self.FALLBACK_IMAGE_BASE64,
+                    "mime_type": "image/png",
+                    "status": "fallback",
+                    "model": self.model,
+                    "error": str(last_exc) if last_exc else "Gemini request failed",
+                }
 
         # Expecting { "image_base64": "..." } shape for demo purposes
         image_b64 = data.get("image_base64") or data.get("image") or data
