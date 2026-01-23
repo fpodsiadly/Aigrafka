@@ -13,7 +13,12 @@ settings = get_settings()
 
 ALLOWED_HOST = "reserved.com"
 DEFAULT_HEADERS = {
-    "User-Agent": "Aigrafka-Demo/1.0 (+https://aigrafka.example)",
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 MAX_IMAGE_BYTES = settings.max_product_image_mb * 1024 * 1024
 MAX_SIDE_PX = settings.max_side_px
@@ -84,8 +89,11 @@ async def fetch_product_image(url: str, timeout: Optional[float] = None) -> byte
         return cached
 
     async with httpx.AsyncClient(timeout=timeout, headers=DEFAULT_HEADERS, follow_redirects=True) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
+        try:
+            resp = await client.get(url)
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ValueError("Failed to fetch product page") from exc
         content_type = resp.headers.get("Content-Type", "")
 
         if content_type.startswith("image/"):
@@ -104,8 +112,11 @@ async def fetch_product_image(url: str, timeout: Optional[float] = None) -> byte
 
         image_url = _sanitize_image_url(match.group(1))
 
-        img_resp = await client.get(image_url)
-        img_resp.raise_for_status()
+        try:
+            img_resp = await client.get(image_url)
+            img_resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ValueError("Failed to fetch product image") from exc
         if not img_resp.headers.get("Content-Type", "").startswith("image/"):
             raise ValueError("Resolved product image is not an image")
         if len(img_resp.content) > MAX_IMAGE_BYTES:

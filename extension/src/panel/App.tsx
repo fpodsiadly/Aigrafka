@@ -19,6 +19,7 @@ interface FormState extends BodyMetrics {
 
 type StorableKey = keyof Pick<FormState, 'height' | 'chest' | 'waist' | 'hips' | 'category' | 'productUrl'>;
 type SavedFlags = Partial<Record<StorableKey, boolean>>;
+const storableKeys: StorableKey[] = ['height', 'chest', 'waist', 'hips', 'category', 'productUrl'];
 
 type ApiBase64 = string | { image_base64?: string } | null | undefined;
 
@@ -62,7 +63,7 @@ const initialState: FormState = {
 };
 
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
-const storageKey = 'aigrafka-form';
+const storageKey = 'aigrafka-form-v2';
 const placeholderPreview = 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=900&q=80';
 const placeholderSelfie = 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=200&q=70';
 
@@ -125,6 +126,34 @@ function extractBase64(value: ApiBase64): string | null {
     if (value && typeof value === 'object' && typeof value.image_base64 === 'string') return value.image_base64;
     return null;
 }
+
+const storage = {
+    async get(): Promise<Partial<FormState>> {
+        if (chrome?.storage?.local) {
+            return new Promise(resolve => {
+                chrome.storage.local.get([storageKey], result => resolve(result?.[storageKey] ?? {}));
+            });
+        }
+        try {
+            const raw = localStorage.getItem(storageKey);
+            return raw ? (JSON.parse(raw) as Partial<FormState>) : {};
+        } catch (e) {
+            return {};
+        }
+    },
+    async set(data: Partial<FormState>): Promise<void> {
+        if (chrome?.storage?.local) {
+            return new Promise(resolve => {
+                chrome.storage.local.set({ [storageKey]: data }, () => resolve());
+            });
+        }
+        try {
+            localStorage.setItem(storageKey, JSON.stringify(data));
+        } catch (e) {
+            /* ignore */
+        }
+    }
+};
 
 function toDataUrl(base64: string | null, mimeType?: string | null): string {
     if (!base64) return '';
@@ -240,9 +269,7 @@ const App: React.FC = () => {
     const canSubmit = useMemo(() => form.accepted && form.tokens > 0 && !!form.productUrl && !!form.selfie, [form]);
 
     useEffect(() => {
-        if (!chrome?.storage?.local) return;
-        chrome.storage.local.get([storageKey], result => {
-            const stored = result?.[storageKey];
+        storage.get().then(stored => {
             if (stored) {
                 setForm(prev => ({ ...prev, ...stored }));
                 const marks = Object.keys(stored).reduce<SavedFlags>((acc, key) => ({
@@ -268,20 +295,29 @@ const App: React.FC = () => {
         setForm(prev => ({ ...prev, [key]: value }));
     }
 
+    // Auto-sync locked fields to storage whenever they change
+    useEffect(() => {
+        const toPersist: Partial<FormState> = {};
+        storableKeys.forEach(k => {
+            if (savedFlags[k]) {
+                toPersist[k] = form[k];
+            }
+        });
+        storage.set(toPersist);
+    }, [form, savedFlags]);
+
     function rememberField(key: StorableKey) {
         const nextValue = !savedFlags[key];
         setSavedFlags(prev => ({ ...prev, [key]: nextValue }));
 
-        if (!chrome?.storage?.local) return;
-        chrome.storage.local.get([storageKey], result => {
-            const current = result?.[storageKey] ?? {};
-            const updated = { ...current };
+        storage.get().then(current => {
+            const updated = { ...current } as Partial<FormState>;
             if (nextValue) {
                 updated[key] = form[key];
             } else {
                 delete updated[key];
             }
-            chrome.storage.local.set({ [storageKey]: updated });
+            storage.set(updated);
         });
     }
 
