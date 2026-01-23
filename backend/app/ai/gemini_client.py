@@ -57,4 +57,5 @@ class GeminiClient:
             "image_base64": image_b64,
             "mime_type": "image/jpeg",
             "status": "generated",
+            "model": self.model,
         }

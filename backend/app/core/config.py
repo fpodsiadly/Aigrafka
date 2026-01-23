@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     max_selfie_mb: int = Field(default=8, ge=1, le=32)
     max_product_image_mb: int = Field(default=10, ge=1, le=64)
     product_image_timeout: float = Field(default=15.0, ge=1.0)
+    max_side_px: int = Field(default=1280, ge=256, le=4096)
+    variants: int = Field(default=1, ge=1, le=4)
 
     class Config:
         env_file = ".env"

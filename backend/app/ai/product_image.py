@@ -1,5 +1,6 @@
 import re
 import time
+from io import BytesIO
 from typing import Optional
 from urllib.parse import urlparse, urlunparse
 
@@ -15,6 +16,7 @@ DEFAULT_HEADERS = {
     "User-Agent": "Aigrafka-Demo/1.0 (+https://aigrafka.example)",
 }
 MAX_IMAGE_BYTES = settings.max_product_image_mb * 1024 * 1024
+MAX_SIDE_PX = settings.max_side_px
 CACHE_TTL = 300  # seconds
 _CACHE: dict[str, tuple[float, bytes]] = {}
 
@@ -29,6 +31,18 @@ def _verify_image(content: bytes) -> bytes:
     image = Image.open(io.BytesIO(content))
     image.verify()
     return content
+
+
+def _normalize_image(content: bytes) -> bytes:
+    image = Image.open(BytesIO(content)).convert("RGB")
+    w, h = image.size
+    longer = max(w, h)
+    if longer > MAX_SIDE_PX:
+        scale = MAX_SIDE_PX / longer
+        image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+    buffer = BytesIO()
+    image.save(buffer, format="JPEG", quality=90)
+    return buffer.getvalue()
 
 
 def _sanitize_image_url(image_url: str) -> str:
@@ -78,6 +92,7 @@ async def fetch_product_image(url: str, timeout: Optional[float] = None) -> byte
             if len(resp.content) > MAX_IMAGE_BYTES:
                 raise ValueError("Product image too large")
             data = _verify_image(resp.content)
+            data = _normalize_image(data)
             _set_cache(url, data)
             return data
 
@@ -97,5 +112,6 @@ async def fetch_product_image(url: str, timeout: Optional[float] = None) -> byte
             raise ValueError("Product image too large")
 
         data = _verify_image(img_resp.content)
+        data = _normalize_image(data)
         _set_cache(url, data)
         return data
