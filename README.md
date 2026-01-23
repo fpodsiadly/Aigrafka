@@ -6,7 +6,7 @@ Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań 
 
 - extension/ – WebExtension (Vite, React, TS, MV3), content script wstrzykuje panel „Przymierzator” w Shadow DOM, background service worker obsługuje komunikację/płatności.
 - backend/ – FastAPI (demo try-on proxy do Gemini/OpenVTO); **stary NestJS backend jest zdeprecjonowany i nieużywany w demie**.
-- api/ – Vercel Functions: Stripe webhook (raw body) i cron worker Redis/Blob.
+- api/ – (opcjonalnie) serverless funkcje Stripe/cron (jeśli wrócą); w demie nieużywane przy deployu na Render.
 - ai/ – worker dev (pętla BRPOP; w prod używamy cron function w api/cron/worker).
 - shared/ – wspólne typy (BodyMetrics, GenerateRequest).
 
@@ -24,39 +24,21 @@ Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań 
    - Skopiuj `.env.example` → `.env`, ustaw `GEMINI_API_KEY`.
    - `uvicorn app.main:app --reload --port 8000` lub `make dev`.
 3. Połącz front-back: ustaw `VITE_API_BASE=http://localhost:8000` w extension.
-4. (Vercel) `vercel.json` zawiera cron i route webhooka; cron worker w `api/cron/worker.ts`.
+4. Deployment: patrz sekcja „Render”.
 
 ## Build
 
 - Extension: `cd extension && npm run build` → pliki w `extension/dist`; załaduj jako unpacked (MV3).
 - Backend FastAPI: brak kompilacji; uruchom `uvicorn app.main:app --reload --port 8000`.
-- Vercel Functions: korzystają z kodu w `api/` (Node runtime), webhook w `api/payments/webhook.ts`.
+- (opcjonalne) `api/` może służyć jako serverless na innej platformie; w demie główny backend to FastAPI.
 
-## Deployment (Vercel)
+## Deployment (Render)
 
-### Cron Job (wyłączony na Hobby planie)
-
-**Status:** Cron jest obecnie skomentowany w `vercel.json`, ponieważ Hobby plan Vercela nie obsługuje Cron Jobs.
-
-**Co robi cron?** Każde 2 minuty sprawdza Redis, pobiera zlecenia AI z kolejki i przetwarza je na Banana.dev. Bez niego AI styling nie będzie działać.
-
-**Plan aktywacji (Opcja 3 - External Cron Service):**
-
-1. Upgrade do Vercel Pro ($20/mc) lub
-2. Skonfiguruj zewnętrzny serwis (cron-job.org, EasyCron):
-   - URL: `https://your-aigrafka.vercel.app/api/cron/worker`
-   - Method: `POST`
-   - Schedule: `*/2 * * * *` (co 2 minuty)
-   - Header: `x-cron-secret: <wartość z .env>`
-3. Odkomentuj `"crons"` w `vercel.json` gdy przejdziesz na Pro
-
-**Pełna konfiguracja do wdrożenia:**
-
-- Root Directory: `.` (root monorepo)
-- Build Command: `cd backend && npm install && npm run build`
-- Output Directory: `backend/dist`
-- Environment: Node.js 18+
-- Zmienne `.env`: skopiuj z `.env.example`
+- Root: `backend/`
+- Build Command: `pip install -r requirements.txt`
+- Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Env (przykład): `PYTHON_VERSION=3.11`, `GEMINI_API_KEY=...`, `CORS_ORIGINS=https://aigrafka.pl,https://api.aigrafka.pl`, opcjonalnie limity `MAX_SELFIE_MB`, `MAX_PRODUCT_IMAGE_MB`, `MAX_SIDE_PX`, `VARIANTS`, `HTTP_TIMEOUT`, `PRODUCT_IMAGE_TIMEOUT`.
+- Health check: GET `/health`.
 
 ## Konfiguracja backendu FastAPI (env)
 

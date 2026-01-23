@@ -14,6 +14,7 @@ interface FormState extends BodyMetrics {
     productUrl: string;
     tokens: number;
     accepted: boolean;
+    variantCount: number;
 }
 
 type StorableKey = keyof Pick<FormState, 'height' | 'chest' | 'waist' | 'hips' | 'category' | 'productUrl'>;
@@ -56,6 +57,7 @@ const initialState: FormState = {
     productUrl: '',
     tokens: 5,
     accepted: false,
+    variantCount: 2,
     ...initialMetrics
 };
 
@@ -81,6 +83,15 @@ const inputStyle: React.CSSProperties = {
     borderRadius: 10,
     fontSize: '13px',
     color: '#1e1e1e'
+};
+
+const validReserved = (url: string) => {
+    try {
+        const u = new URL(url);
+        return u.hostname.endsWith('reserved.com');
+    } catch (e) {
+        return false;
+    }
 };
 
 const actionButtonStyle: React.CSSProperties = {
@@ -278,6 +289,11 @@ const App: React.FC = () => {
         event.preventDefault();
         if (!canSubmit || !form.selfie) return;
 
+        if (!validReserved(form.productUrl)) {
+            setStatus('Podaj link z domeny reserved.com.');
+            return;
+        }
+
         setStatus('Przygotowujemy stylizację...');
         setIsLoading(true);
         setPreviewUrl('');
@@ -288,6 +304,7 @@ const App: React.FC = () => {
         const formData = new FormData();
         formData.append('product_url', form.productUrl);
         formData.append('selfie', form.selfie);
+        formData.append('variants', String(form.variantCount));
 
         try {
             const response = await fetch(`${apiBase}/generate`, {
@@ -296,8 +313,15 @@ const App: React.FC = () => {
             });
 
             if (!response.ok) {
-                const message = await response.text();
-                throw new Error(message || 'API error');
+                const text = await response.text();
+                let message = text || 'API error';
+                try {
+                    const parsed = JSON.parse(text);
+                    if (parsed?.detail) message = typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail);
+                } catch (e) {
+                    /* ignore parse */
+                }
+                throw new Error(message);
             }
 
             const data: GenerateResponse = await response.json();
@@ -333,8 +357,9 @@ const App: React.FC = () => {
             setStatus(`Wygenerowano (${variantCount} wariant${variantCount === 1 ? '' : 'y'})${modelText}${latencyText}`);
         } catch (error) {
             console.error(error);
+            const message = error instanceof Error ? error.message : 'Nie udało się wygenerować podglądu.';
             setPreviewUrl(placeholderPreview);
-            setStatus('Nie udało się wygenerować podglądu. Upewnij się, że selfie i link są poprawne.');
+            setStatus(message);
         } finally {
             setIsLoading(false);
             setForm(prev => ({ ...prev, tokens: Math.max(prev.tokens - 1, 0) }));
@@ -440,6 +465,17 @@ const App: React.FC = () => {
                                 placeholder="https://sklep/..."
                                 type="url"
                                 required
+                            />
+                        </FieldRow>
+
+                        <FieldRow label="Warianty AI:">
+                            <input
+                                style={{ ...inputStyle, maxWidth: 120 }}
+                                type="number"
+                                min={1}
+                                max={4}
+                                value={form.variantCount}
+                                onChange={e => update('variantCount', Math.min(4, Math.max(1, Number(e.target.value) || 1)))}
                             />
                         </FieldRow>
 
