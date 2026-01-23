@@ -23,7 +23,7 @@ Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań 
 2. Backend (FastAPI): `cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`.
    - Skopiuj `.env.example` → `.env`, ustaw `GEMINI_API_KEY`.
    - `uvicorn app.main:app --reload --port 8000` lub `make dev`.
-3. Połącz front-back: ustaw `VITE_API_BASE=http://localhost:8000` w extension.
+3. Połącz front-back: ustaw `VITE_API_BASE=https://aigrafka.onrender.com` w extension (lub `http://localhost:8000` przy dev backendzie).
 4. Deployment: patrz sekcja „Render”.
 
 ## Build
@@ -37,7 +37,7 @@ Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań 
 - Root: `backend/`
 - Build Command: `pip install -r requirements.txt`
 - Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- Env (przykład): `PYTHON_VERSION=3.11`, `GEMINI_API_KEY=...`, `CORS_ORIGINS=https://aigrafka.pl,https://api.aigrafka.pl`, opcjonalnie limity `MAX_SELFIE_MB`, `MAX_PRODUCT_IMAGE_MB`, `MAX_SIDE_PX`, `VARIANTS`, `HTTP_TIMEOUT`, `PRODUCT_IMAGE_TIMEOUT`.
+- Env (przykład): `PYTHON_VERSION=3.11`, `GEMINI_API_KEY=...`, `CORS_ORIGINS=https://aigrafka.onrender.com,https://aigrafka.pl,https://api.aigrafka.pl,http://localhost:5173`, opcjonalnie limity `MAX_SELFIE_MB`, `MAX_PRODUCT_IMAGE_MB`, `MAX_SIDE_PX`, `VARIANTS`, `HTTP_TIMEOUT`, `PRODUCT_IMAGE_TIMEOUT`.
 - Health check: GET `/health`.
 
 ## Konfiguracja backendu FastAPI (env)

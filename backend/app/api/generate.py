@@ -2,7 +2,7 @@ from io import BytesIO
 from time import perf_counter
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, HttpUrl
 from PIL import Image
 
@@ -74,7 +74,11 @@ def _validate_and_normalize_selfie(upload: UploadFile) -> bytes:
 
 
 @router.post("/generate", response_model=GenerateResponse)
-async def generate_tryon(product_url: HttpUrl, selfie: UploadFile = File(...), variants: int | None = None) -> GenerateResponse:
+async def generate_tryon(
+    product_url: HttpUrl = Form(...),
+    selfie: UploadFile = File(...),
+    variants: int | None = Form(None)
+) -> GenerateResponse:
     _ensure_reserved(str(product_url))
     selfie_bytes = _validate_and_normalize_selfie(selfie)
     try:
