@@ -15,7 +15,9 @@ class GeminiClient:
     def __init__(self, api_key: Optional[str] = None, timeout: Optional[float] = None) -> None:
         settings = get_settings()
         self.api_key = api_key or settings.gemini_api_key
-        self.model = settings.gemini_model
+        # primary from env; default to pro image preview; secondary fallback without pro suffix
+        self.model = settings.gemini_model or "gemini-3-pro-image-preview"
+        self.fallback_models = [self.model, "gemini-2.5-flash-image"]
         self.timeout = timeout or settings.http_timeout
         self._base_url = "https://generativelanguage.googleapis.com/v1beta/models"
 
@@ -36,31 +38,31 @@ class GeminiClient:
         # NOTE: This is a demo stub; real Gemini image endpoint may differ.
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             last_exc: Optional[Exception] = None
-            for attempt in range(3):
-                try:
-                    response = await client.post(
-                        f"{self._base_url}/{self.model}:generateImage",
-                        headers=headers,
-                        params=params,
-                        json=payload,
-                    )
-                    response.raise_for_status()
-                    data = response.json()
+            data = None
+
+            for model_name in self.fallback_models:
+                for attempt in range(3):
+                    try:
+                        response = await client.post(
+                            f"{self._base_url}/{model_name}:generateImage",
+                            headers=headers,
+                            params=params,
+                            json=payload,
+                        )
+                        response.raise_for_status()
+                        data = response.json()
+                        self.model = model_name
+                        break
+                    except httpx.HTTPError as exc:
+                        last_exc = exc
+                        if attempt == 2:
+                            await asyncio.sleep(0.5 * (attempt + 1))
+                        else:
+                            await asyncio.sleep(0.5 * (attempt + 1))
+                if data:
                     break
-                except httpx.HTTPError as exc:
-                    last_exc = exc
-                    if attempt == 2:
-                        # fall back to a tiny placeholder instead of crashing the flow
-                        return {
-                            "image_base64": self.FALLBACK_IMAGE_BASE64,
-                            "mime_type": "image/png",
-                            "status": "fallback",
-                            "model": self.model,
-                            "error": str(exc),
-                        }
-                    await asyncio.sleep(0.5 * (attempt + 1))
-            else:
-                # Should not reach, but guard anyway
+
+            if data is None:
                 return {
                     "image_base64": self.FALLBACK_IMAGE_BASE64,
                     "mime_type": "image/png",

@@ -398,6 +398,8 @@ const App: React.FC = () => {
                 };
             }).filter(v => Boolean(v.url));
 
+            const isFallback = data.status === 'fallback' || normalizedVariants.length === 0;
+
             const fallbackBase64 = extractBase64(data.image_base64);
             if (!normalizedVariants.length && fallbackBase64) {
                 normalizedVariants.push({
@@ -418,8 +420,14 @@ const App: React.FC = () => {
             const variantCount = normalizedVariants.length || 1;
             const latencyText = normalizedVariants[0]?.latencyMs ? ` • ${Math.round(normalizedVariants[0].latencyMs)} ms` : '';
             const modelText = data.model ? ` • ${data.model}` : '';
-            setStatus(`Wygenerowano (${variantCount} wariant${variantCount === 1 ? '' : 'y'})${modelText}${latencyText}`);
-            succeeded = true;
+            if (isFallback) {
+                setStatus(`Generacja nie powiodła się (model: ${data.model ?? 'brak'}). Sprawdź klucz/model i spróbuj ponownie.`);
+                succeeded = false;
+                setPreviewUrl(placeholderPreview);
+            } else {
+                setStatus(`Wygenerowano (${variantCount} wariant${variantCount === 1 ? '' : 'y'})${modelText}${latencyText}`);
+                succeeded = true;
+            }
         } catch (error) {
             console.error(error);
             const message = error instanceof DOMException && error.name === 'AbortError'
