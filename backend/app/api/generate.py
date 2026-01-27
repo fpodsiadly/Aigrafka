@@ -148,7 +148,9 @@ async def generate_tryon(
     variant_count = max(1, min(variants or settings.variants, settings.variants))
 
     client = GeminiClient()
-    results: list[ImageVariant] = []
+    successful: list[ImageVariant] = []
+    fallbacks: list[ImageVariant] = []
+
     for _ in range(variant_count):
         started = perf_counter()
         result = await client.generate_image(
@@ -170,21 +172,27 @@ async def generate_tryon(
         except Exception:
             width = height = None
 
-        results.append(
-            ImageVariant(
-                image_base64=result.get("image_base64"),
-                mime_type=result.get("mime_type", "image/jpeg"),
-                width=width,
-                height=height,
-                latency_ms=latency_ms,
-            )
+        variant = ImageVariant(
+            image_base64=result.get("image_base64"),
+            mime_type=result.get("mime_type", "image/jpeg"),
+            width=width,
+            height=height,
+            latency_ms=latency_ms,
         )
 
-    first = results[0] if results else None
+        if result.get("status") == "generated" and variant.image_base64:
+            successful.append(variant)
+        else:
+            fallbacks.append(variant)
+
+    variants_payload = successful or fallbacks
+    first = variants_payload[0] if variants_payload else None
+    overall_status = "generated" if successful else "fallback" if variants_payload else "failed"
+
     return GenerateResponse(
-        status="generated" if results else "failed",
+        status=overall_status,
         image_base64=first.image_base64 if first else None,
         mime_type=first.mime_type if first else None,
-        variants=results,
+        variants=variants_payload,
         model=client.model,
     )

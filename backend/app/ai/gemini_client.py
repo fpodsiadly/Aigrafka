@@ -1,8 +1,10 @@
 import asyncio
 import base64
+import io
 from typing import Any, Optional
 
-import httpx
+from google import genai
+from google.genai import types
 
 from app.core.config import get_settings
 
@@ -15,75 +17,97 @@ class GeminiClient:
     def __init__(self, api_key: Optional[str] = None, timeout: Optional[float] = None) -> None:
         settings = get_settings()
         self.api_key = api_key or settings.gemini_api_key
-        # Primary and only model: pro image preview
+        # Primary model: Gemini 3 image generation (generateContent)
         self.model = settings.gemini_model or "gemini-3-pro-image-preview"
         self.timeout = timeout or settings.http_timeout
-        self._base_url = "https://generativelanguage.googleapis.com/v1beta/models"
+        # Reuse a single genai client; mirrors OpenVTO reference behavior
+        self._client = genai.Client(api_key=self.api_key)
 
     async def generate_image(self, prompt: str, selfie_bytes: bytes, product_image_bytes: bytes) -> dict[str, Any]:
         headers = {"Content-Type": "application/json"}
         params = {"key": self.api_key}
 
-        payload = {
-            "prompt": prompt,
-            "model": self.model,
-            "inputs": [
-                {"mime_type": "image/jpeg", "data": base64.b64encode(selfie_bytes).decode()},
-                {"mime_type": "image/jpeg", "data": base64.b64encode(product_image_bytes).decode()}
-            ],
-            "output": {"format": "base64"}
-        }
+        # Build parts: selfie (reference/body), product (clothing), prompt last
+        parts = [
+            types.Part(
+                inline_data=types.Blob(
+                    mime_type="image/jpeg",
+                    data=selfie_bytes,
+                )
+            ),
+            types.Part(
+                inline_data=types.Blob(
+                    mime_type="image/jpeg",
+                    data=product_image_bytes,
+                )
+            ),
+            types.Part(text=prompt),
+        ]
 
-        # NOTE: This is a demo stub; real Gemini image endpoint may differ.
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            last_exc: Optional[Exception] = None
-            data = None
+        config = types.GenerateContentConfig(
+            temperature=1.0,
+            top_p=0.95,
+            response_modalities=["IMAGE"],
+            image_config=types.ImageConfig(
+                aspect_ratio="3:4",
+                image_size="1K",
+            ),
+        )
 
-            for attempt in range(3):
-                try:
-                    response = await client.post(
-                        f"{self._base_url}/{self.model}:generateImage",
-                        headers=headers,
-                        params=params,
-                        json=payload,
-                    )
-                    response.raise_for_status()
-                    data = response.json()
-                    break
-                except httpx.HTTPError as exc:
-                    last_exc = exc
-                    await asyncio.sleep(0.5 * (attempt + 1))
+        # Run the sync SDK call off the event loop to respect async interface
+        def _do_generate() -> Any:
+            return self._client.models.generate_content(
+                model=self.model,
+                contents=[types.Content(role="user", parts=parts)],
+                config=config,
+            )
 
-            if data is None:
-                return {
-                    "image_base64": self.FALLBACK_IMAGE_BASE64,
-                    "mime_type": "image/png",
-                    "status": "fallback",
-                    "model": self.model,
-                    "error": str(last_exc) if last_exc else "Gemini request failed",
-                }
-
-        # Expecting { "image_base64": "..." } shape for demo purposes
-        image_b64 = data.get("image_base64") or data.get("image") or data
-
-        # If response does not contain a usable base64 string, mark fallback
-        if not isinstance(image_b64, str):
+        try:
+            response = await asyncio.wait_for(asyncio.to_thread(_do_generate), timeout=self.timeout)
+        except Exception as exc:
             return {
                 "image_base64": self.FALLBACK_IMAGE_BASE64,
                 "mime_type": "image/png",
                 "status": "fallback",
                 "model": self.model,
-                "error": "Missing image_base64 in Gemini response",
+                "error": str(exc),
             }
+
+        # Extract first inline_data bytes from candidates
+        def extract_inline_data(resp: Any) -> tuple[Optional[bytes], Optional[str]]:
+            try:
+                candidates = getattr(resp, "candidates", []) or []
+                if not candidates:
+                    return None, None
+                parts_resp = getattr(candidates[0], "content", None)
+                parts_list = getattr(parts_resp, "parts", []) if parts_resp else []
+                for part in parts_list:
+                    inline = getattr(part, "inline_data", None)
+                    if inline and getattr(inline, "data", None):
+                        return inline.data, getattr(inline, "mime_type", "image/png")
+                return None, None
+            except Exception:
+                return None, None
+
+        image_bytes, mime = extract_inline_data(response)
+
+        # If response does not contain a usable base64 string, mark fallback
+        if not image_bytes:
+            return {
+                "image_base64": self.FALLBACK_IMAGE_BASE64,
+                "mime_type": "image/png",
+                "status": "fallback",
+                "model": self.model,
+                "error": "Missing image data in Gemini response",
+            }
+
+        image_b64 = base64.b64encode(image_bytes).decode()
 
         # Decode to inspect dimensions; if tiny (1x1), treat as failure
         try:
-            from base64 import b64decode
             from PIL import Image
-            import io
 
-            img_bytes = b64decode(image_b64)
-            with Image.open(io.BytesIO(img_bytes)) as img:
+            with Image.open(io.BytesIO(image_bytes)) as img:
                 w, h = img.size
                 if w <= 1 and h <= 1:
                     return {
@@ -99,7 +123,7 @@ class GeminiClient:
 
         return {
             "image_base64": image_b64,
-            "mime_type": "image/jpeg",
+            "mime_type": mime or "image/jpeg",
             "status": "generated",
             "model": self.model,
         }
