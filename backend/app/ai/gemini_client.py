@@ -15,9 +15,8 @@ class GeminiClient:
     def __init__(self, api_key: Optional[str] = None, timeout: Optional[float] = None) -> None:
         settings = get_settings()
         self.api_key = api_key or settings.gemini_api_key
-        # primary from env; default to pro image preview; secondary fallback without pro suffix
+        # Primary and only model: pro image preview
         self.model = settings.gemini_model or "gemini-3-pro-image-preview"
-        self.fallback_models = [self.model, "gemini-2.5-flash-image"]
         self.timeout = timeout or settings.http_timeout
         self._base_url = "https://generativelanguage.googleapis.com/v1beta/models"
 
@@ -40,27 +39,20 @@ class GeminiClient:
             last_exc: Optional[Exception] = None
             data = None
 
-            for model_name in self.fallback_models:
-                for attempt in range(3):
-                    try:
-                        response = await client.post(
-                            f"{self._base_url}/{model_name}:generateImage",
-                            headers=headers,
-                            params=params,
-                            json=payload,
-                        )
-                        response.raise_for_status()
-                        data = response.json()
-                        self.model = model_name
-                        break
-                    except httpx.HTTPError as exc:
-                        last_exc = exc
-                        if attempt == 2:
-                            await asyncio.sleep(0.5 * (attempt + 1))
-                        else:
-                            await asyncio.sleep(0.5 * (attempt + 1))
-                if data:
+            for attempt in range(3):
+                try:
+                    response = await client.post(
+                        f"{self._base_url}/{self.model}:generateImage",
+                        headers=headers,
+                        params=params,
+                        json=payload,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
                     break
+                except httpx.HTTPError as exc:
+                    last_exc = exc
+                    await asyncio.sleep(0.5 * (attempt + 1))
 
             if data is None:
                 return {
@@ -73,6 +65,38 @@ class GeminiClient:
 
         # Expecting { "image_base64": "..." } shape for demo purposes
         image_b64 = data.get("image_base64") or data.get("image") or data
+
+        # If response does not contain a usable base64 string, mark fallback
+        if not isinstance(image_b64, str):
+            return {
+                "image_base64": self.FALLBACK_IMAGE_BASE64,
+                "mime_type": "image/png",
+                "status": "fallback",
+                "model": self.model,
+                "error": "Missing image_base64 in Gemini response",
+            }
+
+        # Decode to inspect dimensions; if tiny (1x1), treat as failure
+        try:
+            from base64 import b64decode
+            from PIL import Image
+            import io
+
+            img_bytes = b64decode(image_b64)
+            with Image.open(io.BytesIO(img_bytes)) as img:
+                w, h = img.size
+                if w <= 1 and h <= 1:
+                    return {
+                        "image_base64": self.FALLBACK_IMAGE_BASE64,
+                        "mime_type": "image/png",
+                        "status": "fallback",
+                        "model": self.model,
+                        "error": "Gemini returned 1x1 placeholder",
+                    }
+        except Exception:
+            # If inspection fails, still return what we got
+            pass
+
         return {
             "image_base64": image_b64,
             "mime_type": "image/jpeg",

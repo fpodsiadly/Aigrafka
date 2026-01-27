@@ -424,6 +424,7 @@ const App: React.FC = () => {
                 setStatus(`Generacja nie powiodła się (model: ${data.model ?? 'brak'}). Sprawdź klucz/model i spróbuj ponownie.`);
                 succeeded = false;
                 setPreviewUrl(placeholderPreview);
+                setVariants([]);
             } else {
                 setStatus(`Wygenerowano (${variantCount} wariant${variantCount === 1 ? '' : 'y'})${modelText}${latencyText}`);
                 succeeded = true;
