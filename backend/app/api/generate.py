@@ -38,6 +38,7 @@ def _ensure_reserved(product_url: str) -> None:
 
 settings = get_settings()
 MAX_UPLOAD_BYTES = settings.max_selfie_mb * 1024 * 1024
+MAX_PRODUCT_BYTES = settings.max_product_image_mb * 1024 * 1024
 MAX_SIDE_PX = settings.max_side_px
 
 
@@ -73,19 +74,77 @@ def _validate_and_normalize_selfie(upload: UploadFile) -> bytes:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid image upload") from exc
 
 
+def _validate_and_normalize_product(upload: UploadFile) -> bytes:
+    try:
+        if not upload.content_type or not upload.content_type.startswith("image/"):
+            raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Product must be an image")
+
+        content = upload.file.read(MAX_PRODUCT_BYTES + 1)
+        if len(content) > MAX_PRODUCT_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"Product image too large (max {settings.max_product_image_mb}MB)"
+            )
+
+        image = Image.open(BytesIO(content))
+        image.verify()
+
+        image = Image.open(BytesIO(content)).convert("RGB")
+        w, h = image.size
+        longer = max(w, h)
+        if longer > MAX_SIDE_PX:
+            scale = MAX_SIDE_PX / longer
+            image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        buffer = BytesIO()
+        image.save(buffer, format="JPEG", quality=92)
+        return buffer.getvalue()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid product image upload") from exc
+
+
 @router.post("/generate", response_model=GenerateResponse)
 async def generate_tryon(
-    product_url: HttpUrl = Form(...),
+    product_url: HttpUrl | None = Form(None),
     selfie: UploadFile = File(...),
-    variants: int | None = Form(None)
+    variants: int | None = Form(None),
+    product_image_1: UploadFile | None = File(None),
+    product_image_2: UploadFile | None = File(None),
 ) -> GenerateResponse:
-    _ensure_reserved(str(product_url))
+    if not product_url and not product_image_1 and not product_image_2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide product_url or upload a product image."
+        )
+
     selfie_bytes = _validate_and_normalize_selfie(selfie)
-    try:
-        product_image_bytes = await fetch_product_image(str(product_url))
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    prompt = build_openvto_prompt(str(product_url))
+
+    used_upload = False
+    product_image_bytes: bytes | None = None
+
+    for candidate in (product_image_1, product_image_2):
+        if candidate is None:
+            continue
+        if candidate.filename:
+            product_image_bytes = _validate_and_normalize_product(candidate)
+            used_upload = True
+            break
+
+    if product_image_bytes is None:
+        if not product_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Product image not provided"
+            )
+        _ensure_reserved(str(product_url))
+        try:
+            product_image_bytes = await fetch_product_image(str(product_url))
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    product_ref = "uploaded product image" if used_upload else str(product_url)
+    prompt = build_openvto_prompt(product_ref, is_upload=used_upload)
     variant_count = max(1, min(variants or settings.variants, settings.variants))
 
     client = GeminiClient()

@@ -12,6 +12,8 @@ interface FormState extends BodyMetrics {
     selfie: File | null;
     category: string;
     productUrl: string;
+    productImage1: File | null;
+    productImage2: File | null;
     tokens: number;
     accepted: boolean;
     variantCount: number;
@@ -56,6 +58,8 @@ const initialState: FormState = {
     selfie: null,
     category: 'Komplet dresowy',
     productUrl: '',
+    productImage1: null,
+    productImage2: null,
     tokens: 5,
     accepted: false,
     variantCount: 2,
@@ -267,7 +271,10 @@ const App: React.FC = () => {
     const [selectedVariant, setSelectedVariant] = useState<number>(0);
     const [generationMeta, setGenerationMeta] = useState<{ model?: string; latencyMs?: number }>({});
 
-    const canSubmit = useMemo(() => form.accepted && form.tokens > 0 && !!form.productUrl && !!form.selfie, [form]);
+    const canSubmit = useMemo(() => {
+        const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
+        return form.accepted && form.tokens > 0 && hasProduct && !!form.selfie;
+    }, [form]);
 
     useEffect(() => {
         storage.get().then(stored => {
@@ -326,7 +333,13 @@ const App: React.FC = () => {
         event.preventDefault();
         if (!canSubmit || !form.selfie) return;
 
-        if (!validReserved(form.productUrl)) {
+        const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
+        if (!hasProduct) {
+            setStatus('Podaj link z reserved.com lub wgraj zdjęcie produktu (1-2).');
+            return;
+        }
+
+        if (form.productUrl && !validReserved(form.productUrl)) {
             setStatus('Podaj link z domeny reserved.com.');
             return;
         }
@@ -339,9 +352,17 @@ const App: React.FC = () => {
         setGenerationMeta({});
 
         const formData = new FormData();
-        formData.append('product_url', form.productUrl);
+        if (form.productUrl) {
+            formData.append('product_url', form.productUrl);
+        }
         formData.append('selfie', form.selfie);
         formData.append('variants', String(form.variantCount));
+        if (form.productImage1) {
+            formData.append('product_image_1', form.productImage1);
+        }
+        if (form.productImage2) {
+            formData.append('product_image_2', form.productImage2);
+        }
 
         const controller = new AbortController();
         const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -508,10 +529,69 @@ const App: React.FC = () => {
                                 style={inputStyle}
                                 value={form.productUrl}
                                 onChange={e => update('productUrl', e.target.value)}
-                                placeholder="https://sklep/..."
+                                placeholder="https://reserved.com/... (opcjonalne jeśli wgrasz zdjęcia)"
                                 type="url"
-                                required
                             />
+                        </FieldRow>
+
+                        <div style={{ margin: '4px 0 10px', color: '#cfcfcf', fontSize: 12 }}>
+                            Możesz podać link <strong>lub</strong> wgrać 1-2 zdjęcia produktu, aby przyspieszyć generowanie.
+                        </div>
+
+                        <FieldRow label="Zdjęcie produktu 1:">
+                            <label
+                                style={{
+                                    ...actionButtonStyle,
+                                    background: '#0f6572',
+                                    color: '#f5f5f5',
+                                    padding: '10px 12px',
+                                    border: '1px solid #0a3b44',
+                                    borderRadius: 10,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    minWidth: 140,
+                                    justifyContent: 'center'
+                                }}
+                            >
+                                <span>{form.productImage1 ? form.productImage1.name : 'Dodaj zdjęcie'}</span>
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={e => update('productImage1', e.target.files?.[0] ?? null)}
+                                    style={{ display: 'none' }}
+                                />
+                            </label>
+                        </FieldRow>
+
+                        <FieldRow label="Zdjęcie produktu 2:">
+                            <label
+                                style={{
+                                    ...actionButtonStyle,
+                                    background: '#0f6572',
+                                    color: '#f5f5f5',
+                                    padding: '10px 12px',
+                                    border: '1px solid #0a3b44',
+                                    borderRadius: 10,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    minWidth: 140,
+                                    justifyContent: 'center'
+                                }}
+                            >
+                                <span>{form.productImage2 ? form.productImage2.name : 'Dodaj zdjęcie'}</span>
+                                <input
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={e => update('productImage2', e.target.files?.[0] ?? null)}
+                                    style={{ display: 'none' }}
+                                />
+                            </label>
                         </FieldRow>
 
                         <FieldRow label="Warianty AI:">
