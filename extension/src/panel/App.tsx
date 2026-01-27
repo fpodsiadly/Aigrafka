@@ -70,7 +70,7 @@ const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
 const storageKey = 'aigrafka-form-v2';
 const placeholderPreview = 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=900&q=80';
 const placeholderSelfie = 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=200&q=70';
-const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 70_000; // Render free tier cold start can be slow; give more headroom
 
 const badge = {
     background: '#232323',
@@ -367,6 +367,8 @@ const App: React.FC = () => {
         const controller = new AbortController();
         const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
+        let succeeded = false;
+
         try {
             const response = await fetch(`${apiBase}/generate`, {
                 method: 'POST',
@@ -417,10 +419,11 @@ const App: React.FC = () => {
             const latencyText = normalizedVariants[0]?.latencyMs ? ` • ${Math.round(normalizedVariants[0].latencyMs)} ms` : '';
             const modelText = data.model ? ` • ${data.model}` : '';
             setStatus(`Wygenerowano (${variantCount} wariant${variantCount === 1 ? '' : 'y'})${modelText}${latencyText}`);
+            succeeded = true;
         } catch (error) {
             console.error(error);
             const message = error instanceof DOMException && error.name === 'AbortError'
-                ? 'Przekroczono limit czasu (30s). Spróbuj ponownie lub sprawdź łącze.'
+                ? 'Przekroczono limit czasu (70s). Backend może się wybudzać (Render free), spróbuj ponownie.'
                 : error instanceof Error
                     ? error.message || 'Nie udało się wygenerować podglądu.'
                     : 'Nie udało się wygenerować podglądu.';
@@ -429,7 +432,9 @@ const App: React.FC = () => {
         } finally {
             clearTimeout(timeoutId);
             setIsLoading(false);
-            setForm(prev => ({ ...prev, tokens: Math.max(prev.tokens - 1, 0) }));
+            if (succeeded) {
+                setForm(prev => ({ ...prev, tokens: Math.max(prev.tokens - 1, 0) }));
+            }
         }
     }
 
