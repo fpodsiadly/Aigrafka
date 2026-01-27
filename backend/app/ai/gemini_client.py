@@ -127,3 +127,40 @@ class GeminiClient:
             "status": "generated",
             "model": self.model,
         }
+
+    async def generate_fit_note(self, prompt: str) -> Optional[str]:
+        """Generate a short Polish fit note based on the styling prompt."""
+
+        instruction = (
+            "Na podstawie opisu stylizacji oceń, czy produkt pasuje do sylwetki i rozmiaru. "
+            "Napisz jedno zwięzłe zdanie po polsku, maks 200 znaków, bez emoji, bez wtrętów technicznych. "
+            f"Opis: {prompt}"
+        )
+
+        config = types.GenerateContentConfig(
+            temperature=0.4,
+            top_p=0.9,
+            response_modalities=["TEXT"],
+        )
+
+        def _do_generate() -> Any:
+            return self._client.models.generate_content(
+                model=self.model,
+                contents=[types.Content(role="user", parts=[types.Part(text=instruction)])],
+                config=config,
+            )
+
+        try:
+            response = await asyncio.wait_for(asyncio.to_thread(_do_generate), timeout=self.timeout)
+            candidates = getattr(response, "candidates", []) or []
+            if not candidates:
+                return None
+            content = getattr(candidates[0], "content", None)
+            parts_list = getattr(content, "parts", []) if content else []
+            for part in parts_list:
+                if getattr(part, "text", None):
+                    return part.text.strip()
+        except Exception:
+            return None
+
+        return None

@@ -28,6 +28,7 @@ class GenerateResponse(BaseModel):
     mime_type: str | None = None  # backwards compatibility
     variants: list[ImageVariant]
     model: str | None = None
+    note: str | None = None
 
 
 def _ensure_reserved(product_url: str) -> None:
@@ -148,6 +149,7 @@ async def generate_tryon(
     variant_count = max(1, min(variants or settings.variants, settings.variants))
 
     client = GeminiClient()
+    fit_note = await client.generate_fit_note(prompt)
     successful: list[ImageVariant] = []
     fallbacks: list[ImageVariant] = []
 
@@ -195,4 +197,5 @@ async def generate_tryon(
         mime_type=first.mime_type if first else None,
         variants=variants_payload,
         model=client.model,
+        note=fit_note,
     )

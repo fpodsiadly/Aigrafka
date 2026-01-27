@@ -39,6 +39,7 @@ interface GenerateResponse {
     mime_type?: string | null;
     model?: string | null;
     variants?: ApiVariant[];
+    note?: string | null;
 }
 
 interface VariantPreview {
@@ -270,6 +271,7 @@ const App: React.FC = () => {
     const [variants, setVariants] = useState<VariantPreview[]>([]);
     const [selectedVariant, setSelectedVariant] = useState<number>(0);
     const [generationMeta, setGenerationMeta] = useState<{ model?: string; latencyMs?: number }>({});
+    const [fitNote, setFitNote] = useState<string>('');
 
     const canSubmit = useMemo(() => {
         const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
@@ -350,6 +352,9 @@ const App: React.FC = () => {
         setVariants([]);
         setSelectedVariant(0);
         setGenerationMeta({});
+        setFitNote('');
+
+        const startedAt = performance.now();
 
         const formData = new FormData();
         if (form.productUrl) {
@@ -416,6 +421,16 @@ const App: React.FC = () => {
                 model: data.model ?? undefined,
                 latencyMs: normalizedVariants[0]?.latencyMs
             });
+            setFitNote(data.note ?? '');
+
+            const totalMs = performance.now() - startedAt;
+            const backendMs = normalizedVariants[0]?.latencyMs ?? null;
+            console.log('[Aigrafka] render complete', {
+                total_s: Number((totalMs / 1000).toFixed(2)),
+                backend_s: backendMs !== null ? Number((backendMs / 1000).toFixed(2)) : null,
+                variants: normalizedVariants.length,
+                model: data.model ?? 'unknown'
+            });
 
             const variantCount = normalizedVariants.length || 1;
             const latencyText = normalizedVariants[0]?.latencyMs ? ` • ${Math.round(normalizedVariants[0].latencyMs)} ms` : '';
@@ -476,8 +491,7 @@ const App: React.FC = () => {
     const rememberedHint = 'Zapamiętaj zapisuje dane lokalnie w przeglądarce.';
 
     const logoSrc = chrome?.runtime?.getURL?.('icons/logo.svg') ?? logo;
-    const thumbnails = variants.length ? variants : [{ url: placeholderPreview }];
-    const activeVariant = variants[selectedVariant];
+    const activeVariant = variants[selectedVariant] || variants[0];
 
     return (
         <div className="aigrafka-shell" style={{ display: 'flex', flexDirection: 'column', background: '#181818', color: '#f5f5f5', height: '100%', width: '100%' }}>
@@ -695,48 +709,16 @@ const App: React.FC = () => {
                         {isLoading && <span style={{ fontSize: 12, color: '#cfcfcf' }}>Renderowanie...</span>}
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '72px 1fr', gap: 10, alignItems: 'stretch' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            {thumbnails.map((variant, idx) => {
-                                const isActive = variants.length ? idx === selectedVariant : false;
-                                return (
-                                    <button
-                                        key={idx}
-                                        type="button"
-                                        onClick={() => {
-                                            if (!variants.length) return;
-                                            setSelectedVariant(idx);
-                                            setPreviewUrl(variant.url || placeholderPreview);
-                                            setGenerationMeta(prev => ({ ...prev, latencyMs: variants[idx]?.latencyMs ?? prev.latencyMs }));
-                                        }}
-                                        disabled={!variants.length || isLoading}
-                                        style={{
-                                            width: '100%',
-                                            aspectRatio: '3 / 4',
-                                            borderRadius: 12,
-                                            overflow: 'hidden',
-                                            border: isActive ? '2px solid #00b0ff' : '2px solid #3b3b3b',
-                                            padding: 0,
-                                            cursor: variants.length ? 'pointer' : 'default',
-                                            background: '#1a1a1a',
-                                            opacity: variants.length ? 1 : 0.7
-                                        }}
-                                    >
-                                        <img src={variant.url || placeholderPreview} alt="mini" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                                    </button>
-                                );
-                            })}
-                        </div>
-
-                        <div style={{ position: 'relative', borderRadius: 16, overflow: 'hidden', border: '2px solid #3f3f3f', background: '#1a1a1a', minHeight: 360 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <div style={{ position: 'relative', borderRadius: 16, overflow: 'hidden', border: '2px solid #3f3f3f', background: '#1a1a1a', minHeight: 360, aspectRatio: '3 / 4' }}>
                             {isLoading && (
                                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(120deg, rgba(255,255,255,0.04), rgba(255,255,255,0.08), rgba(255,255,255,0.04))', animation: 'aigrafka-shimmer 1.4s linear infinite', zIndex: 2 }} />
                             )}
                             {activeVariant && (
                                 <div style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(0,0,0,0.55)', color: '#f5f5f5', padding: '8px 10px', borderRadius: 12, fontSize: 12, border: '1px solid rgba(255,255,255,0.08)', zIndex: 3 }}>
                                     <span>{generationMeta.model ?? 'Gemini'}</span>
-                                    {variants.length ? <span style={{ marginLeft: 8 }}>• {selectedVariant + 1}/{variants.length}</span> : null}
-                                    {activeVariant.latencyMs ? <span style={{ marginLeft: 8 }}>{Math.round(activeVariant.latencyMs)} ms</span> : null}
+                                    {variants.length > 1 ? <span style={{ marginLeft: 8 }}>• {selectedVariant + 1}/{variants.length}</span> : null}
+                                    {activeVariant?.latencyMs ? <span style={{ marginLeft: 8 }}>{Math.round(activeVariant.latencyMs)} ms</span> : null}
                                 </div>
                             )}
                             <img
@@ -782,9 +764,11 @@ const App: React.FC = () => {
                         </div>
                     </div>
 
-                    <div style={{ marginTop: 12, background: '#f9f9f9', color: '#181818', borderRadius: 14, padding: '12px 14px', fontSize: 13, lineHeight: 1.5 }}>
-                        Wyglądasz doskonale w tej stylizacji, szczególnie w sportowej scenerii. Jednak wybrany produkt nie pasuje do Twoich wymiarów. Zobacz podobne produkty w rozmiarze XXL na stronie tego sklepu.
-                    </div>
+                    {(fitNote || status) ? (
+                        <div style={{ marginTop: 12, background: '#f9f9f9', color: '#181818', borderRadius: 14, padding: '12px 14px', fontSize: 13, lineHeight: 1.5, boxShadow: '0 6px 14px rgba(0,0,0,0.08)' }}>
+                            {fitNote || status}
+                        </div>
+                    ) : null}
 
                     <button
                         type="button"
@@ -801,11 +785,6 @@ const App: React.FC = () => {
                     </button>
                 </div>
 
-                {status && (
-                    <div style={{ marginTop: 4, background: '#2d2d2d', padding: '10px 12px', borderRadius: 12, fontSize: '13px', color: '#f0f0f0', border: '1px solid #373737' }}>
-                        {status}
-                    </div>
-                )}
             </div>
         </div>
     );
