@@ -10,15 +10,30 @@ def build_openvto_prompt(product_ref: str, is_upload: bool = False) -> str:
     )
 
     return (
-        "You are an AI virtual try-on system following OpenVTO principles. "
-        "Inputs: (1) user selfie image; (2) product garment image from the e-commerce page or upload. "
-        "Generate ONE photorealistic portrait of the user wearing the product. "
-        "Keep camera similar to the selfie: upper-body portrait, straight-on or slight 3/4, aspect ratio about 3:4. "
-        "Strictly preserve the user's face identity, hairstyle, and skin tone; no body morphing, no slimming or enlarging. "
-        "Fit the garment naturally: correct scale, seams, collar/neck alignment, realistic draping and fabric physics. "
-        "Merge lighting and color so the garment matches the selfie lighting; avoid mismatched shadows or highlights. "
-        "Do not add logos, text, watermarks, borders, extra garments, accessories, or extra fingers/limbs. "
-        "Background: keep simple/clean and consistent with the selfie; do not invent busy scenes. "
-        "Return only the final rendered image. "
-        f"{source_text}"
+    "You are an AI virtual try-on system following OpenVTO principles. "
+    "Inputs: (1) user selfie image; (2) product garment image from the e-commerce page or upload. "
+    "Generate ONE photorealistic full-body portrait of the user wearing the product. "
+
+    "Pose: user standing upright, relaxed neutral stance, body and face oriented straight toward the camera. "
+    "Camera/framing: ensure full body is fully visible in frame, including shoes, with slight headroom; straight-on preferred or very subtle 3/4 view; no profile, no close crop. "
+    "Aspect ratio approximately 3:4 (allow up to 2:3 if needed to keep feet visible). "
+
+    "Strictly preserve the user's face identity, facial features, hairstyle, and skin tone. "
+    "User identity preservation has higher priority than garment transformation. "
+    "Maintain original body proportions and posture; no slimming, enlarging, or reshaping. "
+
+    "Fit the garment naturally and realistically: correct scale, accurate seams, proper collar/neck alignment, "
+    "realistic draping, folds, and fabric physics consistent with the material. "
+
+    "Merge lighting and color so the garment matches the selfie lighting conditions; "
+    "avoid mismatched shadows, highlights, or color casts. "
+
+    "Do not add or remove anything: no logos, text, watermarks, borders, accessories, extra garments, "
+    "extra fingers or limbs. "
+
+    "Background: keep simple, clean, and consistent with the selfie; do not invent busy or stylized scenes. "
+    "No cinematic grading, no fashion editorial stylization. "
+
+    "Return only the final rendered image. "
+    f"{source_text}"
     )
