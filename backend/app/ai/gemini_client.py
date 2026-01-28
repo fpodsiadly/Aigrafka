@@ -44,14 +44,17 @@ class GeminiClient:
             types.Part(text=prompt),
         ]
 
+        # Model-specific image config: 2.5-flash cannot take image_size
+        if self.model == "gemini-2.5-flash-image":
+            image_config = types.ImageConfig(aspect_ratio="3:4")
+        else:
+            image_config = types.ImageConfig(aspect_ratio="3:4", image_size="1K")
+
         config = types.GenerateContentConfig(
             temperature=1.0,
             top_p=0.95,
             response_modalities=["IMAGE"],
-            image_config=types.ImageConfig(
-                aspect_ratio="3:4",
-                image_size="1K",
-            ),
+            image_config=image_config,
         )
 
         # Run the sync SDK call off the event loop to respect async interface
