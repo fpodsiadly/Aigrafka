@@ -469,17 +469,44 @@ const App: React.FC = () => {
         } catch (error) {
             console.error(error);
         }
-        await handleCopy();
+        await handleCopyLink();
     }
 
-    async function handleCopy() {
+    async function handleCopyLink() {
         const text = form.productUrl || previewUrl || 'https://aigrafka.pl';
         try {
             await navigator.clipboard.writeText(text);
-            setStatus('Skopiowano do schowka.');
+            setStatus('Link skopiowany do schowka.');
         } catch (error) {
             console.error(error);
-            setStatus('Nie udało się skopiować.');
+            setStatus('Nie udało się skopiować linku.');
+        }
+    }
+
+    async function handleCopyImage() {
+        const target = activeVariant?.url || previewUrl || placeholderPreview;
+        if (!target) {
+            setStatus('Brak obrazu do skopiowania.');
+            return;
+        }
+
+        try {
+            const response = await fetch(target);
+            const blob = await response.blob();
+            const mimeType = blob.type || activeVariant?.mimeType || 'image/png';
+            await navigator.clipboard.write([
+                new ClipboardItem({ [mimeType]: blob })
+            ]);
+            setStatus('Obraz skopiowany do schowka.');
+        } catch (error) {
+            console.error(error);
+            try {
+                await navigator.clipboard.writeText(target);
+                setStatus('Nie udało się skopiować obrazu, skopiowano adres.');
+            } catch (textError) {
+                console.error(textError);
+                setStatus('Nie udało się skopiować.');
+            }
         }
     }
 
@@ -743,7 +770,7 @@ const App: React.FC = () => {
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={handleCopy}
+                                        onClick={handleCopyImage}
                                         style={{
                                             ...actionButtonStyle,
                                             background: '#0fb361',
