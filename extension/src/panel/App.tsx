@@ -39,7 +39,6 @@ interface GenerateResponse {
     mime_type?: string | null;
     model?: string | null;
     variants?: ApiVariant[];
-    note?: string | null;
 }
 
 interface VariantPreview {
@@ -271,7 +270,6 @@ const App: React.FC = () => {
     const [variants, setVariants] = useState<VariantPreview[]>([]);
     const [selectedVariant, setSelectedVariant] = useState<number>(0);
     const [generationMeta, setGenerationMeta] = useState<{ model?: string; latencyMs?: number }>({});
-    const [fitNote, setFitNote] = useState<string>('');
 
     const canSubmit = useMemo(() => {
         const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
@@ -352,7 +350,6 @@ const App: React.FC = () => {
         setVariants([]);
         setSelectedVariant(0);
         setGenerationMeta({});
-        setFitNote('');
 
         const startedAt = performance.now();
 
@@ -421,7 +418,6 @@ const App: React.FC = () => {
                 model: data.model ?? undefined,
                 latencyMs: normalizedVariants[0]?.latencyMs
             });
-            setFitNote(data.note ?? '');
 
             const totalMs = performance.now() - startedAt;
             const backendMs = normalizedVariants[0]?.latencyMs ?? null;
@@ -764,9 +760,9 @@ const App: React.FC = () => {
                         </div>
                     </div>
 
-                    {(fitNote || status) ? (
+                    {status ? (
                         <div style={{ marginTop: 12, background: '#f9f9f9', color: '#181818', borderRadius: 14, padding: '12px 14px', fontSize: 13, lineHeight: 1.5, boxShadow: '0 6px 14px rgba(0,0,0,0.08)' }}>
-                            {fitNote || status}
+                            {status}
                         </div>
                     ) : null}
 

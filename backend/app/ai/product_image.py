@@ -46,7 +46,7 @@ def _normalize_image(content: bytes) -> bytes:
         scale = MAX_SIDE_PX / longer
         image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
     buffer = BytesIO()
-    image.save(buffer, format="JPEG", quality=90)
+    image.save(buffer, format="JPEG", quality=85)
     return buffer.getvalue()
 
 
