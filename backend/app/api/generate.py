@@ -1,3 +1,4 @@
+import logging
 from io import BytesIO
 from time import perf_counter
 from urllib.parse import urlparse
@@ -12,6 +13,7 @@ from app.ai.product_image import fetch_product_image
 from app.core.config import get_settings
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class ImageVariant(BaseModel):
@@ -108,10 +110,17 @@ def _validate_and_normalize_product(upload: UploadFile) -> bytes:
 async def generate_tryon(
     product_url: HttpUrl | None = Form(None),
     selfie: UploadFile = File(...),
+    category: str | None = Form(None),
+    fit_style: str | None = Form(None),
+    height_cm: str | None = Form(None),
+    chest_cm: str | None = Form(None),
+    waist_cm: str | None = Form(None),
+    hips_cm: str | None = Form(None),
     variants: int | None = Form(None),
     product_image_1: UploadFile | None = File(None),
     product_image_2: UploadFile | None = File(None),
 ) -> GenerateResponse:
+    t_enter = perf_counter()
     if not product_url and not product_image_1 and not product_image_2:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -144,12 +153,30 @@ async def generate_tryon(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     product_ref = "uploaded product image" if used_upload else str(product_url)
-    prompt = build_openvto_prompt(product_ref, is_upload=used_upload)
+    prompt = build_openvto_prompt(
+        product_ref,
+        is_upload=used_upload,
+        category=category,
+        fit_style=fit_style,
+        height_cm=height_cm,
+        chest_cm=chest_cm,
+        waist_cm=waist_cm,
+        hips_cm=hips_cm,
+    )
     variant_count = max(1, min(variants or settings.variants, settings.variants))
 
     client = GeminiClient()
     successful: list[ImageVariant] = []
     fallbacks: list[ImageVariant] = []
+    first_model_ms: float | None = None
+
+    logger.info(
+        "generate_tryon start product_url=%s used_upload=%s variants=%d model=%s",
+        product_url,
+        used_upload,
+        variant_count,
+        client.model,
+    )
 
     for _ in range(variant_count):
         started = perf_counter()
@@ -159,6 +186,8 @@ async def generate_tryon(
             product_image_bytes=product_image_bytes,
         )
         latency_ms = (perf_counter() - started) * 1000.0
+        if first_model_ms is None:
+            first_model_ms = latency_ms
 
         width = height = None
         try:
@@ -188,6 +217,16 @@ async def generate_tryon(
     variants_payload = successful or fallbacks
     first = variants_payload[0] if variants_payload else None
     overall_status = "generated" if successful else "fallback" if variants_payload else "failed"
+
+    total_ms = (perf_counter() - t_enter) * 1000.0
+    logger.info(
+        "generate_tryon done status=%s variants=%d model=%s total_ms=%.1f first_model_ms=%.1f",
+        overall_status,
+        len(variants_payload),
+        client.model,
+        total_ms,
+        first_model_ms or -1.0,
+    )
 
     return GenerateResponse(
         status=overall_status,

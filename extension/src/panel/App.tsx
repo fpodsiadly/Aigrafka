@@ -11,6 +11,7 @@ interface BodyMetrics {
 interface FormState extends BodyMetrics {
     selfie: File | null;
     category: string;
+    fitStyle: 'masculine' | 'feminine' | 'unisex';
     productUrl: string;
     productImage1: File | null;
     productImage2: File | null;
@@ -19,9 +20,9 @@ interface FormState extends BodyMetrics {
     variantCount: number;
 }
 
-type StorableKey = keyof Pick<FormState, 'height' | 'chest' | 'waist' | 'hips' | 'category' | 'productUrl'>;
+type StorableKey = keyof Pick<FormState, 'height' | 'chest' | 'waist' | 'hips' | 'category' | 'productUrl' | 'fitStyle'>;
 type SavedFlags = Partial<Record<StorableKey, boolean>>;
-const storableKeys: StorableKey[] = ['height', 'chest', 'waist', 'hips', 'category', 'productUrl'];
+const storableKeys: StorableKey[] = ['height', 'chest', 'waist', 'hips', 'category', 'productUrl', 'fitStyle'];
 
 type ApiBase64 = string | { image_base64?: string } | null | undefined;
 
@@ -57,6 +58,7 @@ const initialMetrics: BodyMetrics = {
 const initialState: FormState = {
     selfie: null,
     category: 'Komplet dresowy',
+    fitStyle: 'masculine',
     productUrl: '',
     productImage1: null,
     productImage2: null,
@@ -357,6 +359,17 @@ const App: React.FC = () => {
         if (form.productUrl) {
             formData.append('product_url', form.productUrl);
         }
+        if (form.category) {
+            formData.append('category', form.category);
+        }
+        if (form.fitStyle) {
+            formData.append('fit_style', form.fitStyle);
+        }
+        if (form.height) formData.append('height_cm', form.height);
+        if (form.chest) formData.append('chest_cm', form.chest);
+        if (form.waist) formData.append('waist_cm', form.waist);
+        if (form.hips) formData.append('hips_cm', form.hips);
+
         formData.append('selfie', form.selfie);
         formData.append('variants', String(form.variantCount));
         if (form.productImage1) {
@@ -573,6 +586,18 @@ const App: React.FC = () => {
                                 onChange={e => update('category', e.target.value)}
                                 placeholder="np. kurtka narciarska"
                             />
+                        </FieldRow>
+
+                        <FieldRow label="Styl kroju:" rememberKey="fitStyle" remember={rememberField} savedFlags={savedFlags}>
+                            <select
+                                style={{ ...inputStyle, paddingRight: 10 }}
+                                value={form.fitStyle}
+                                onChange={e => update('fitStyle', e.target.value as FormState['fitStyle'])}
+                            >
+                                <option value="masculine">Męski / masculine</option>
+                                <option value="feminine">Damski / feminine</option>
+                                <option value="unisex">Unisex</option>
+                            </select>
                         </FieldRow>
 
                         <FieldRow label="Link do produktu:" rememberKey="productUrl" remember={rememberField} savedFlags={savedFlags}>
