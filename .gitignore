@@ -15,6 +15,11 @@ pnpm-debug.log*
 /.parcel-cache
 /.cache
 
+# Release packages
+*.zip
+*.crx
+aigrafka-extension-*.zip
+
 # Logs
 logs/
 *.log

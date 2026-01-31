@@ -1,13 +1,16 @@
 {
   "name": "aigrafka-extension",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "postbuild": "cp manifest.json dist/manifest.json && cp -R icons dist/icons",
-    "lint": "echo 'add lint'"
+    "lint": "echo 'add lint'",
+    "release:patch": "cd .. && bash scripts/build-and-release.sh patch",
+    "release:minor": "cd .. && bash scripts/build-and-release.sh minor",
+    "release:major": "cd .. && bash scripts/build-and-release.sh major"
   },
   "dependencies": {
     "react": "^18.3.1",

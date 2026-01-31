@@ -1,0 +1,27 @@
+# Build outputs
+extension/dist/
+extension/node_modules/
+
+# Release archives (keep in local, don't commit)
+releases/
+*.zip
+
+# Environment
+.env
+.env.local
+extension/.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+
+# Cache
+.cache/

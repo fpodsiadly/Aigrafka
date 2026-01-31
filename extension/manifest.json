@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Aigrafka",
   "description": "Virtual try-on and styling assistant for online fashion stores.",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "action": {
     "default_title": "Aigrafka"
   },
@@ -12,12 +12,22 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["storage", "activeTab", "scripting"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["contentScript.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "contentScript.js"
+      ],
       "run_at": "document_idle"
     }
   ],
@@ -27,8 +37,14 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["*.js", "*.css", "icons/*"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "*.js",
+        "*.css",
+        "icons/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }
