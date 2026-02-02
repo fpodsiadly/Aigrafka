@@ -116,6 +116,7 @@ async def generate_tryon(
     chest_cm: str | None = Form(None),
     waist_cm: str | None = Form(None),
     hips_cm: str | None = Form(None),
+    model_choice: str | None = Form(None),
     variants: int | None = Form(None),
     product_image_1: UploadFile | None = File(None),
     product_image_2: UploadFile | None = File(None),
@@ -165,7 +166,13 @@ async def generate_tryon(
     )
     variant_count = max(1, min(variants or settings.variants, settings.variants))
 
-    client = GeminiClient()
+    model_map = {
+        "banana": "gemini-2.5-flash-image",
+        "banana-pro": "gemini-3-pro-image-preview",
+    }
+    chosen_model = model_map.get(model_choice) if model_choice else None
+
+    client = GeminiClient(model=chosen_model)
     successful: list[ImageVariant] = []
     fallbacks: list[ImageVariant] = []
     first_model_ms: float | None = None

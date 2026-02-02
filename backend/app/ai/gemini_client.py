@@ -14,11 +14,11 @@ class GeminiClient:
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Yg3FdQAAAAASUVORK5CYII="
     )
 
-    def __init__(self, api_key: Optional[str] = None, timeout: Optional[float] = None) -> None:
+    def __init__(self, api_key: Optional[str] = None, timeout: Optional[float] = None, model: Optional[str] = None) -> None:
         settings = get_settings()
         self.api_key = api_key or settings.gemini_api_key
         # Primary model: Gemini 3 image generation (generateContent)
-        self.model = settings.gemini_model or "gemini-3-pro-image-preview"
+        self.model = model or settings.gemini_model or "gemini-3-pro-image-preview"
         self.timeout = timeout or settings.http_timeout
         # Reuse a single genai client; mirrors OpenVTO reference behavior
         self._client = genai.Client(api_key=self.api_key)

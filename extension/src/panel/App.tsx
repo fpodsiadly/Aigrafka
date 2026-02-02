@@ -18,11 +18,13 @@ interface FormState extends BodyMetrics {
     tokens: number;
     accepted: boolean;
     variantCount: number;
+    modelChoice: 'banana' | 'banana-pro';
 }
 
-type StorableKey = keyof Pick<FormState, 'height' | 'chest' | 'waist' | 'hips' | 'category' | 'productUrl' | 'fitStyle'>;
+type StorableKey = keyof Pick<FormState, 'height' | 'chest' | 'waist' | 'hips' | 'category' | 'productUrl' | 'fitStyle' | 'modelChoice'>;
 type SavedFlags = Partial<Record<StorableKey, boolean>>;
-const storableKeys: StorableKey[] = ['height', 'chest', 'waist', 'hips', 'category', 'productUrl', 'fitStyle'];
+type Persistable = Pick<FormState, StorableKey>;
+const storableKeys: StorableKey[] = ['height', 'chest', 'waist', 'hips', 'category', 'productUrl', 'fitStyle', 'modelChoice'];
 
 type ApiBase64 = string | { image_base64?: string } | null | undefined;
 
@@ -59,6 +61,7 @@ const initialState: FormState = {
     selfie: null,
     category: 'Komplet dresowy',
     fitStyle: 'masculine',
+    modelChoice: 'banana',
     productUrl: '',
     productImage1: null,
     productImage2: null,
@@ -135,7 +138,7 @@ function extractBase64(value: ApiBase64): string | null {
 }
 
 const storage = {
-    async get(): Promise<Partial<FormState>> {
+    async get(): Promise<Partial<Persistable>> {
         if (chrome?.storage?.local) {
             return new Promise(resolve => {
                 chrome.storage.local.get([storageKey], result => resolve(result?.[storageKey] ?? {}));
@@ -143,12 +146,12 @@ const storage = {
         }
         try {
             const raw = localStorage.getItem(storageKey);
-            return raw ? (JSON.parse(raw) as Partial<FormState>) : {};
+            return raw ? (JSON.parse(raw) as Partial<Persistable>) : {};
         } catch (e) {
             return {};
         }
     },
-    async set(data: Partial<FormState>): Promise<void> {
+    async set(data: Partial<Persistable>): Promise<void> {
         if (chrome?.storage?.local) {
             return new Promise(resolve => {
                 chrome.storage.local.set({ [storageKey]: data }, () => resolve());
@@ -307,10 +310,10 @@ const App: React.FC = () => {
 
     // Auto-sync locked fields to storage whenever they change
     useEffect(() => {
-        const toPersist: Partial<FormState> = {};
+        const toPersist: Partial<Persistable> = {};
         storableKeys.forEach(k => {
             if (savedFlags[k]) {
-                toPersist[k] = form[k];
+                (toPersist as any)[k] = form[k];
             }
         });
         storage.set(toPersist);
@@ -321,9 +324,9 @@ const App: React.FC = () => {
         setSavedFlags(prev => ({ ...prev, [key]: nextValue }));
 
         storage.get().then(current => {
-            const updated = { ...current } as Partial<FormState>;
+            const updated = { ...current } as Partial<Persistable>;
             if (nextValue) {
-                updated[key] = form[key];
+                (updated as any)[key] = form[key];
             } else {
                 delete updated[key];
             }
@@ -364,6 +367,9 @@ const App: React.FC = () => {
         }
         if (form.fitStyle) {
             formData.append('fit_style', form.fitStyle);
+        }
+        if (form.modelChoice) {
+            formData.append('model_choice', form.modelChoice);
         }
         if (form.height) formData.append('height_cm', form.height);
         if (form.chest) formData.append('chest_cm', form.chest);
@@ -594,10 +600,35 @@ const App: React.FC = () => {
                                 value={form.fitStyle}
                                 onChange={e => update('fitStyle', e.target.value as FormState['fitStyle'])}
                             >
-                                <option value="masculine">Męski / masculine</option>
-                                <option value="feminine">Damski / feminine</option>
+                                <option value="masculine">Męski</option>
+                                <option value="feminine">Damski</option>
                                 <option value="unisex">Unisex</option>
                             </select>
+                        </FieldRow>
+
+                        <FieldRow label="Model AI:" rememberKey="modelChoice" remember={rememberField} savedFlags={savedFlags}>
+                            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                    <input
+                                        type="radio"
+                                        name="modelChoice"
+                                        value="banana"
+                                        checked={form.modelChoice === 'banana'}
+                                        onChange={e => update('modelChoice', e.target.value as FormState['modelChoice'])}
+                                    />
+                                    <span>Banana</span>
+                                </label>
+                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                    <input
+                                        type="radio"
+                                        name="modelChoice"
+                                        value="banana-pro"
+                                        checked={form.modelChoice === 'banana-pro'}
+                                        onChange={e => update('modelChoice', e.target.value as FormState['modelChoice'])}
+                                    />
+                                    <span>Banana Pro</span>
+                                </label>
+                            </div>
                         </FieldRow>
 
                         <FieldRow label="Link do produktu:" rememberKey="productUrl" remember={rememberField} savedFlags={savedFlags}>
