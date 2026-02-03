@@ -275,11 +275,15 @@ const App: React.FC = () => {
     const [variants, setVariants] = useState<VariantPreview[]>([]);
     const [selectedVariant, setSelectedVariant] = useState<number>(0);
     const [generationMeta, setGenerationMeta] = useState<{ model?: string; latencyMs?: number }>({});
+    const [auth, setAuth] = useState<{ loggedIn: boolean; tokens: number }>({ loggedIn: false, tokens: 0 });
+    const [view, setView] = useState<'form' | 'result'>('form');
 
     const canSubmit = useMemo(() => {
         const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
-        return form.accepted && form.tokens > 0 && hasProduct && !!form.selfie;
-    }, [form]);
+        const hasSelfie = !!form.selfie;
+        if (!form.accepted || !hasProduct || !hasSelfie) return false;
+        return auth.loggedIn ? auth.tokens > 0 : true;
+    }, [form, auth]);
 
     useEffect(() => {
         storage.get().then(stored => {
@@ -306,6 +310,30 @@ const App: React.FC = () => {
 
     function update<K extends keyof FormState>(key: K, value: FormState[K]) {
         setForm(prev => ({ ...prev, [key]: value }));
+    }
+
+    function handleLogin() {
+        setAuth({ loggedIn: true, tokens: 5 });
+        setStatus('Zalogowano (demo).');
+    }
+
+    function handleLogout() {
+        setAuth({ loggedIn: false, tokens: 0 });
+        setStatus('Wylogowano.');
+    }
+
+    function handleTopUpTokens() {
+        setAuth(prev => ({ ...prev, tokens: prev.tokens + 10 }));
+        setStatus('Dodano 10 tokenów (demo).');
+    }
+
+    function getModelCostText() {
+        return form.modelChoice === 'banana-pro' ? 'BLIK: 1,00 zł (Banana Pro)' : 'BLIK: 0,50 zł (Banana)';
+    }
+
+    async function handlePayBlik() {
+        // Placeholder for real payment integration
+        setStatus(`Opłata ${getModelCostText()} (symulacja BLIK)...`);
     }
 
     // Auto-sync locked fields to storage whenever they change
@@ -348,6 +376,17 @@ const App: React.FC = () => {
             setStatus('Podaj link z domeny reserved.com.');
             return;
         }
+
+        if (auth.loggedIn && auth.tokens <= 0) {
+            setStatus('Brak tokenów. Dokup tokeny, aby kontynuować.');
+            return;
+        }
+
+        if (!auth.loggedIn) {
+            await handlePayBlik();
+        }
+
+        setView('result');
 
         setStatus('Przygotowujemy stylizację...');
         setIsLoading(true);
@@ -471,8 +510,8 @@ const App: React.FC = () => {
         } finally {
             clearTimeout(timeoutId);
             setIsLoading(false);
-            if (succeeded) {
-                setForm(prev => ({ ...prev, tokens: Math.max(prev.tokens - 1, 0) }));
+            if (succeeded && auth.loggedIn) {
+                setAuth(prev => ({ ...prev, tokens: Math.max(prev.tokens - 1, 0) }));
             }
         }
     }
@@ -529,6 +568,21 @@ const App: React.FC = () => {
         }
     }
 
+    function displayFileName(file: File | null, fallback: string) {
+        if (!file) return fallback;
+        const name = file.name;
+        return name.length > 10 ? `${name.slice(0, 10)}…` : name;
+    }
+
+    function handleChangeParams() {
+        setView('form');
+        setStatus('Zmień parametry i wygeneruj ponownie.');
+        setTimeout(() => {
+            const formEl = document.querySelector('form');
+            formEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 0);
+    }
+
     const canShare = Boolean(form.productUrl || previewUrl);
     const rememberedHint = 'Zapamiętaj zapisuje dane lokalnie w przeglądarce.';
 
@@ -539,15 +593,57 @@ const App: React.FC = () => {
         <div className="aigrafka-shell" style={{ display: 'flex', flexDirection: 'column', background: '#181818', color: '#f5f5f5', height: '100%', width: '100%' }}>
             <PanelHeader logoSrc={logoSrc} />
             <div style={{ flex: 1, padding: '12px 12px 40px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <StatPill tokens={form.tokens} />
+                {view === 'form' && auth.loggedIn ? <StatPill tokens={auth.tokens} /> : null}
 
-                <div style={{ ...badge, background: '#2f2f2f', border: '1px solid #3a3a3a', boxShadow: '0 12px 30px rgba(0,0,0,0.28)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                        <div style={{ fontWeight: 800, color: '#f4f4f4' }}>Twoje dane</div>
-                        <span style={{ fontSize: '12px', color: '#c7c7c7' }}>{rememberedHint}</span>
+                {view === 'form' && (
+                    <div style={{ ...badge, background: '#262626', border: '1px solid #333', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div style={{ fontWeight: 800, color: '#f4f4f4' }}>Konto</div>
+                            {auth.loggedIn ? (
+                                <span style={{ fontSize: 12, color: '#cfcfcf' }}>Zalogowany (demo). Tokeny: {auth.tokens}</span>
+                            ) : (
+                                <span style={{ fontSize: 12, color: '#cfcfcf' }}>Bez logowania: płatność BLIK per generacja.</span>
+                            )}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            {auth.loggedIn ? (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={handleTopUpTokens}
+                                        style={{ ...actionButtonStyle, background: '#00b943', color: '#0f1a0f', padding: '10px 12px' }}
+                                    >
+                                        Dokup tokeny
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleLogout}
+                                        style={{ ...actionButtonStyle, background: '#7a0606', color: '#f7f7f7', padding: '10px 12px' }}
+                                    >
+                                        Wyloguj
+                                    </button>
+                                </>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={handleLogin}
+                                    style={{ ...actionButtonStyle, background: '#0066d6', color: '#f7f7f7', padding: '10px 12px' }}
+                                >
+                                    Zaloguj / Rejestruj (OAuth)
+                                </button>
+                            )}
+                        </div>
                     </div>
+                )}
 
-                    <form onSubmit={handleSubmit}>
+                {view === 'form' && (
+                    <div style={{ ...badge, background: '#2f2f2f', border: '1px solid #3a3a3a', boxShadow: '0 12px 30px rgba(0,0,0,0.28)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ fontWeight: 800, color: '#f4f4f4' }}>Twoje dane</div>
+                            <span style={{ fontSize: '12px', color: '#c7c7c7' }}>{rememberedHint}</span>
+                        </div>
+
+                        <form onSubmit={handleSubmit}>
                         <FieldRow label="Selfie:">
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                                 <div style={{ width: 72, height: 72, borderRadius: 12, overflow: 'hidden', border: '2px solid #4a4a4a', background: '#1c1c1c' }}>
@@ -663,7 +759,7 @@ const App: React.FC = () => {
                                     justifyContent: 'center'
                                 }}
                             >
-                                <span>{form.productImage1 ? form.productImage1.name : 'Dodaj zdjęcie'}</span>
+                                <span>{displayFileName(form.productImage1, 'Dodaj zdjęcie')}</span>
                                 <input
                                     type="file"
                                     accept="image/*"
@@ -691,7 +787,7 @@ const App: React.FC = () => {
                                     justifyContent: 'center'
                                 }}
                             >
-                                <span>{form.productImage2 ? form.productImage2.name : 'Dodaj zdjęcie'}</span>
+                                <span>{displayFileName(form.productImage2, 'Dodaj zdjęcie')}</span>
                                 <input
                                     type="file"
                                     accept="image/*"
@@ -782,7 +878,10 @@ const App: React.FC = () => {
                     </form>
                 </div>
 
-                <div style={{ ...badge, background: '#2c2c2c', border: '1px solid #363636', boxShadow: '0 10px 26px rgba(0,0,0,0.24)' }}>
+                )}
+
+                {view === 'result' && (
+                    <div style={{ ...badge, background: '#2c2c2c', border: '1px solid #363636', boxShadow: '0 10px 26px rgba(0,0,0,0.24)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                         <div style={{ fontWeight: 800, color: '#f3f3f3' }}>Podgląd stylizacji</div>
                         {isLoading && <span style={{ fontSize: 12, color: '#cfcfcf' }}>Renderowanie...</span>}
@@ -862,7 +961,24 @@ const App: React.FC = () => {
                     >
                         Zobacz dopasowane produkty
                     </button>
-                </div>
+
+                    <button
+                        type="button"
+                        onClick={handleChangeParams}
+                        style={{
+                            ...actionButtonStyle,
+                            background: '#2b2b2b',
+                            color: '#f5f5f5',
+                            width: '100%',
+                            marginTop: 8,
+                            border: '1px solid #3c3c3c',
+                            boxShadow: 'none'
+                        }}
+                    >
+                        Zmień parametry
+                    </button>
+                    </div>
+                )}
 
             </div>
         </div>
