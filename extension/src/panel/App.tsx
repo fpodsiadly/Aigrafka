@@ -593,8 +593,6 @@ const App: React.FC = () => {
         <div className="aigrafka-shell" style={{ display: 'flex', flexDirection: 'column', background: '#181818', color: '#f5f5f5', height: '100%', width: '100%' }}>
             <PanelHeader logoSrc={logoSrc} />
             <div style={{ flex: 1, padding: '12px 12px 40px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {view === 'form' && auth.loggedIn ? <StatPill tokens={auth.tokens} /> : null}
-
                 {view === 'form' && (
                     <div style={{ ...badge, background: '#262626', border: '1px solid #333', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
