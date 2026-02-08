@@ -12,9 +12,12 @@
       }
       body {
         margin: 0;
-        display: grid;
-        place-items: center;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
         min-height: 100vh;
+        padding: 0;
+        overflow-y: auto;
         background: #181818;
       }
       * {
@@ -23,7 +26,8 @@
       }
       #root {
         width: 330px;
-        height: 720px;
+        height: auto;
+        max-height: none;
         border-radius: 18px;
         overflow: hidden;
         border: 1px solid #2a2a2a;
