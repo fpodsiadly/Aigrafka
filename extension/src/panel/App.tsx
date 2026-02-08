@@ -61,7 +61,7 @@ const initialState: FormState = {
     selfie: null,
     category: 'Komplet dresowy',
     fitStyle: 'masculine',
-    modelChoice: 'banana',
+    modelChoice: 'banana-pro',
     productUrl: '',
     productImage1: null,
     productImage2: null,
@@ -804,7 +804,7 @@ const App: React.FC = () => {
                                     <div
                                         onDragOver={e => e.preventDefault()}
                                         onDrop={e => handleDropProduct('productImage1', e)}
-                                        style={{ flex: 1 }}
+                                        style={{ flex: '0 0 120px', width: 120, maxWidth: 120 }}
                                     >
                                         <label
                                             style={{
@@ -821,13 +821,17 @@ const App: React.FC = () => {
                                                 gap: 6,
                                                 minWidth: 0,
                                                 width: '100%',
+                                                maxWidth: 120,
+                                                flexShrink: 0,
                                                 justifyContent: 'center',
                                                 fontSize: 12,
                                                 minHeight: 34,
-                                                whiteSpace: 'nowrap'
+                                                whiteSpace: 'nowrap',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis'
                                             }}
                                         >
-                                            + Dodaj pierwsze
+                                            {form.productImage1 ? 'Dodano' : '+ Dodaj pierwsze'}
                                             <input
                                                 type="file"
                                                 accept="image/*"
@@ -839,7 +843,7 @@ const App: React.FC = () => {
                                     <div
                                         onDragOver={e => e.preventDefault()}
                                         onDrop={e => handleDropProduct('productImage2', e)}
-                                        style={{ flex: 1 }}
+                                        style={{ flex: '0 0 120px', width: 120, maxWidth: 120 }}
                                     >
                                         <label
                                             style={{
@@ -856,13 +860,17 @@ const App: React.FC = () => {
                                                 gap: 6,
                                                 minWidth: 0,
                                                 width: '100%',
+                                                maxWidth: 120,
+                                                flexShrink: 0,
                                                 justifyContent: 'center',
                                                 fontSize: 12,
                                                 minHeight: 34,
-                                                whiteSpace: 'nowrap'
+                                                whiteSpace: 'nowrap',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis'
                                             }}
                                         >
-                                            + Dodaj drugie
+                                            {form.productImage2 ? 'Dodano' : '+ Dodaj drugie'}
                                             <input
                                                 type="file"
                                                 accept="image/*"
