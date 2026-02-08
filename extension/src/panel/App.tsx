@@ -302,14 +302,6 @@ const App: React.FC = () => {
     const hasSelfie = Boolean(form.selfie);
     const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
 
-    const stepLabels = ['Selfie', 'Produkt', 'Parametry', 'Podgląd'];
-    const currentStep = useMemo(() => {
-        if (view === 'result') return 3;
-        if (!hasSelfie) return 0;
-        if (!hasProduct) return 1;
-        return 2;
-    }, [view, hasSelfie, hasProduct]);
-
     useEffect(() => {
         storage.get().then(stored => {
             if (stored) {
@@ -662,32 +654,6 @@ const App: React.FC = () => {
             <PanelHeader logoSrc={logoSrc} />
             <div style={{ flex: 1, padding: '12px 12px 140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {view === 'form' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${stepLabels.length}, 1fr)`, gap: 8, marginBottom: 4 }}>
-                        {stepLabels.map((label, idx) => {
-                            const isActive = idx === currentStep;
-                            const isDone = idx < currentStep;
-                            return (
-                                <div
-                                    key={label}
-                                    style={{
-                                        padding: '10px 8px',
-                                        borderRadius: 10,
-                                        border: '1px solid #2f2f2f',
-                                        background: isActive ? '#0f6572' : isDone ? '#2f2f2f' : '#232323',
-                                        color: '#f7f7f7',
-                                        textAlign: 'center',
-                                        fontSize: 12,
-                                        fontWeight: 700,
-                                        boxShadow: isActive ? '0 8px 18px rgba(0,140,160,0.25)' : 'none'
-                                    }}
-                                >
-                                    {label}
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-                {view === 'form' && (
                     <div style={{ ...badge, background: '#262626', border: '1px solid #333', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                             <div style={{ fontWeight: 800, color: '#f4f4f4' }}>Konto</div>
@@ -736,415 +702,420 @@ const App: React.FC = () => {
                         </div>
 
                         <form id="aigrafka-form" onSubmit={handleSubmit}>
-                        <FieldRow label="Selfie:">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                                <div style={{ width: 72, height: 72, borderRadius: 12, overflow: 'hidden', border: '2px solid #4a4a4a', background: '#1c1c1c' }}>
-                                    <img
-                                        src={selfiePreview || placeholderSelfie}
-                                        alt="Selfie"
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                    />
+                            <FieldRow label="Selfie:">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                                    <div style={{ width: 72, height: 72, borderRadius: 12, overflow: 'hidden', border: '2px solid #4a4a4a', background: '#1c1c1c' }}>
+                                        <img
+                                            src={selfiePreview || placeholderSelfie}
+                                            alt="Selfie"
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                        />
+                                    </div>
+                                    <label
+                                        style={{
+                                            ...actionButtonStyle,
+                                            background: '#0f5763',
+                                            color: '#f5f5f5',
+                                            padding: '10px 12px',
+                                            border: '1px solid #0a3b44',
+                                            borderRadius: 10,
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 8,
+                                            minWidth: 120,
+                                            justifyContent: 'center'
+                                        }}
+                                    >
+                                        <span>{form.selfie ? 'Zmień selfie' : 'Dodaj selfie'}</span>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={e => update('selfie', e.target.files?.[0] ?? null)}
+                                            style={{ display: 'none' }}
+                                        />
+                                    </label>
                                 </div>
-                                <label
-                                    style={{
-                                        ...actionButtonStyle,
-                                        background: '#0f5763',
-                                        color: '#f5f5f5',
-                                        padding: '10px 12px',
-                                        border: '1px solid #0a3b44',
-                                        borderRadius: 10,
-                                        fontWeight: 700,
-                                        cursor: 'pointer',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 8,
-                                        minWidth: 120,
-                                        justifyContent: 'center'
-                                    }}
+                            </FieldRow>
+
+                            <FieldRow label="Kategoria ubioru:" rememberKey="category" remember={rememberField} savedFlags={savedFlags}>
+                                <input
+                                    style={inputStyle}
+                                    value={form.category}
+                                    onChange={e => update('category', e.target.value)}
+                                    placeholder="np. kurtka narciarska"
+                                />
+                            </FieldRow>
+
+                            <FieldRow label="Styl kroju:" rememberKey="fitStyle" remember={rememberField} savedFlags={savedFlags}>
+                                <select
+                                    style={{ ...inputStyle, paddingRight: 10 }}
+                                    value={form.fitStyle}
+                                    onChange={e => update('fitStyle', e.target.value as FormState['fitStyle'])}
                                 >
-                                    <span>{form.selfie ? 'Zmień selfie' : 'Dodaj selfie'}</span>
-                                    <input
-                                        type="file"
-                                        accept="image/*"
-                                        onChange={e => update('selfie', e.target.files?.[0] ?? null)}
-                                        style={{ display: 'none' }}
-                                    />
-                                </label>
-                            </div>
-                        </FieldRow>
+                                    <option value="masculine">Męski</option>
+                                    <option value="feminine">Damski</option>
+                                    <option value="unisex">Unisex</option>
+                                </select>
+                            </FieldRow>
 
-                        <FieldRow label="Kategoria ubioru:" rememberKey="category" remember={rememberField} savedFlags={savedFlags}>
-                            <input
-                                style={inputStyle}
-                                value={form.category}
-                                onChange={e => update('category', e.target.value)}
-                                placeholder="np. kurtka narciarska"
-                            />
-                        </FieldRow>
-
-                        <FieldRow label="Styl kroju:" rememberKey="fitStyle" remember={rememberField} savedFlags={savedFlags}>
-                            <select
-                                style={{ ...inputStyle, paddingRight: 10 }}
-                                value={form.fitStyle}
-                                onChange={e => update('fitStyle', e.target.value as FormState['fitStyle'])}
-                            >
-                                <option value="masculine">Męski</option>
-                                <option value="feminine">Damski</option>
-                                <option value="unisex">Unisex</option>
-                            </select>
-                        </FieldRow>
-
-                        <FieldRow label="Model AI:" rememberKey="modelChoice" remember={rememberField} savedFlags={savedFlags}>
-                            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                                    <input
-                                        type="radio"
-                                        name="modelChoice"
-                                        value="banana"
-                                        checked={form.modelChoice === 'banana'}
-                                        onChange={e => update('modelChoice', e.target.value as FormState['modelChoice'])}
-                                    />
-                                    <span>Banana</span>
-                                </label>
-                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                                    <input
-                                        type="radio"
-                                        name="modelChoice"
-                                        value="banana-pro"
-                                        checked={form.modelChoice === 'banana-pro'}
-                                        onChange={e => update('modelChoice', e.target.value as FormState['modelChoice'])}
-                                    />
-                                    <span>Banana Pro</span>
-                                </label>
-                            </div>
-                        </FieldRow>
-
-                        <FieldRow label="Link do produktu:" rememberKey="productUrl" remember={rememberField} savedFlags={savedFlags}>
-                            <input
-                                style={inputStyle}
-                                value={form.productUrl}
-                                onChange={e => update('productUrl', e.target.value)}
-                                placeholder="https://reserved.com/... (opcjonalne jeśli wgrasz zdjęcia)"
-                                type="url"
-                            />
-                        </FieldRow>
-
-                        <div style={{ margin: '4px 0 10px', color: '#cfcfcf', fontSize: 12 }}>
-                            Możesz podać link <strong>lub</strong> wgrać 1-2 zdjęcia produktu, aby przyspieszyć generowanie.
-                        </div>
-
-                        <FieldRow label="Zdjęcie produktu 1:">
-                            <div
-                                onDragOver={e => e.preventDefault()}
-                                onDrop={e => handleDropProduct('productImage1', e)}
-                                style={{ ...dropZoneStyle, minHeight: 48 }}
-                                role="button"
-                                aria-label="Upuść obraz lub kliknij, aby dodać pierwsze zdjęcie produktu"
-                            >
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                                    <span style={{ fontWeight: 700 }}>{displayFileName(form.productImage1, 'Dodaj zdjęcie')}</span>
-                                    <span style={{ fontSize: 11, color: '#d6f3f7' }}>Przeciągnij plik lub obraz z sieci</span>
+                            <FieldRow label="Model AI:" rememberKey="modelChoice" remember={rememberField} savedFlags={savedFlags}>
+                                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                        <input
+                                            type="radio"
+                                            name="modelChoice"
+                                            value="banana"
+                                            checked={form.modelChoice === 'banana'}
+                                            onChange={e => update('modelChoice', e.target.value as FormState['modelChoice'])}
+                                        />
+                                        <span>Banana</span>
+                                    </label>
+                                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                        <input
+                                            type="radio"
+                                            name="modelChoice"
+                                            value="banana-pro"
+                                            checked={form.modelChoice === 'banana-pro'}
+                                            onChange={e => update('modelChoice', e.target.value as FormState['modelChoice'])}
+                                        />
+                                        <span>Banana Pro</span>
+                                    </label>
                                 </div>
-                                <label
+                            </FieldRow>
+
+                            <FieldRow label="Link do produktu:" rememberKey="productUrl" remember={rememberField} savedFlags={savedFlags}>
+                                <input
+                                    style={inputStyle}
+                                    value={form.productUrl}
+                                    onChange={e => update('productUrl', e.target.value)}
+                                    placeholder="https://reserved.com/... (opcjonalne jeśli wgrasz zdjęcia)"
+                                    type="url"
+                                />
+                            </FieldRow>
+
+                            <div style={{ margin: '4px 0 8px', color: '#cfcfcf', fontSize: 12 }}>
+                                Możesz podać link <strong>lub</strong> wgrać 1-2 zdjęcia produktu, aby przyspieszyć generowanie.
+                            </div>
+                            <div style={{ margin: '0 0 8px', color: '#d6f3f7', fontSize: 11 }}>
+                                Przeciągnij plik lub obraz z sieci w pola poniżej albo kliknij „Wybierz".
+                            </div>
+
+                            <FieldRow label="Zdjęcie produktu 1:">
+                                <div
+                                    onDragOver={e => e.preventDefault()}
+                                    onDrop={e => handleDropProduct('productImage1', e)}
+                                    style={{ ...dropZoneStyle, minHeight: 40, padding: '8px 10px' }}
+                                    role="button"
+                                    aria-label="Upuść obraz lub kliknij, aby dodać pierwsze zdjęcie produktu"
+                                >
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
+                                        <span style={{ fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayFileName(form.productImage1, 'Upuść tutaj')}</span>
+                                    </div>
+                                    <label
+                                        style={{
+                                            ...actionButtonStyle,
+                                            background: '#1ea293',
+                                            color: '#0f1a0f',
+                                            padding: '7px 10px',
+                                            border: '1px solid #0f8d3c',
+                                            borderRadius: 9,
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                            minWidth: 80,
+                                            justifyContent: 'center',
+                                            flex: '0 0 auto',
+                                            fontSize: 12
+                                        }}
+                                    >
+                                        <span>Wybierz</span>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={e => handleFileSelect('productImage1', e.target.files?.[0] ?? null)}
+                                            style={{ display: 'none' }}
+                                        />
+                                    </label>
+                                </div>
+                            </FieldRow>
+
+                            <FieldRow label="Zdjęcie produktu 2:">
+                                <div
+                                    onDragOver={e => e.preventDefault()}
+                                    onDrop={e => handleDropProduct('productImage2', e)}
+                                    style={{ ...dropZoneStyle, minHeight: 40, padding: '8px 10px' }}
+                                    role="button"
+                                    aria-label="Upuść obraz lub kliknij, aby dodać drugie zdjęcie produktu"
+                                >
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
+                                        <span style={{ fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayFileName(form.productImage2, 'Upuść tutaj')}</span>
+                                    </div>
+                                    <label
+                                        style={{
+                                            ...actionButtonStyle,
+                                            background: '#1ea293',
+                                            color: '#0f1a0f',
+                                            padding: '7px 10px',
+                                            border: '1px solid #0f8d3c',
+                                            borderRadius: 9,
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                            minWidth: 80,
+                                            justifyContent: 'center',
+                                            flex: '0 0 auto',
+                                            fontSize: 12
+                                        }}
+                                    >
+                                        <span>Wybierz</span>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={e => handleFileSelect('productImage2', e.target.files?.[0] ?? null)}
+                                            style={{ display: 'none' }}
+                                        />
+                                    </label>
+                                </div>
+                            </FieldRow>
+
+                            <FieldRow label="Warianty AI:">
+                                <input
+                                    style={{ ...inputStyle, maxWidth: 120 }}
+                                    type="number"
+                                    min={1}
+                                    max={4}
+                                    value={form.variantCount}
+                                    onChange={e => update('variantCount', Math.min(4, Math.max(1, Number(e.target.value) || 1)))}
+                                />
+                            </FieldRow>
+
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '12px 0 6px' }}>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', color: '#f5f5f5' }}>
+                                    <div style={{ fontWeight: 800, fontSize: 13 }}>Wymiary</div>
+                                    {!showMeasurements && (
+                                        <span style={{ fontSize: 12, color: '#c7c7c7' }}>{measurementSummary}</span>
+                                    )}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowMeasurements(prev => !prev)}
                                     style={{
                                         ...actionButtonStyle,
-                                        background: '#0f6572',
+                                        background: '#1e1e1e',
                                         color: '#f5f5f5',
                                         padding: '8px 10px',
-                                        border: '1px solid #0a3b44',
-                                        borderRadius: 10,
-                                        fontWeight: 700,
-                                        cursor: 'pointer',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 8,
-                                        minWidth: 120,
-                                        justifyContent: 'center'
+                                        border: '1px solid #3a3a3a',
+                                        boxShadow: 'none'
                                     }}
+                                    aria-expanded={showMeasurements}
                                 >
-                                    <span>Wybierz</span>
-                                    <input
-                                        type="file"
-                                        accept="image/*"
-                                        onChange={e => handleFileSelect('productImage1', e.target.files?.[0] ?? null)}
-                                        style={{ display: 'none' }}
-                                    />
-                                </label>
+                                    {showMeasurements ? 'Schowaj' : 'Pokaż'}
+                                </button>
                             </div>
-                        </FieldRow>
 
-                        <FieldRow label="Zdjęcie produktu 2:">
-                            <div
-                                onDragOver={e => e.preventDefault()}
-                                onDrop={e => handleDropProduct('productImage2', e)}
-                                style={{ ...dropZoneStyle, minHeight: 48 }}
-                                role="button"
-                                aria-label="Upuść obraz lub kliknij, aby dodać drugie zdjęcie produktu"
-                            >
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                                    <span style={{ fontWeight: 700 }}>{displayFileName(form.productImage2, 'Dodaj zdjęcie')}</span>
-                                    <span style={{ fontSize: 11, color: '#d6f3f7' }}>Przeciągnij plik lub obraz z sieci</span>
-                                </div>
-                                <label
-                                    style={{
-                                        ...actionButtonStyle,
-                                        background: '#0f6572',
-                                        color: '#f5f5f5',
-                                        padding: '8px 10px',
-                                        border: '1px solid #0a3b44',
-                                        borderRadius: 10,
-                                        fontWeight: 700,
-                                        cursor: 'pointer',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 8,
-                                        minWidth: 120,
-                                        justifyContent: 'center'
-                                    }}
-                                >
-                                    <span>Wybierz</span>
-                                    <input
-                                        type="file"
-                                        accept="image/*"
-                                        onChange={e => handleFileSelect('productImage2', e.target.files?.[0] ?? null)}
-                                        style={{ display: 'none' }}
-                                    />
-                                </label>
-                            </div>
-                        </FieldRow>
+                            {showMeasurements && (
+                                <>
+                                    <FieldRow label="Wzrost:" rememberKey="height" remember={rememberField} savedFlags={savedFlags}>
+                                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                            <input
+                                                style={{ ...inputStyle, paddingRight: 36 }}
+                                                value={form.height}
+                                                onChange={e => update('height', e.target.value)}
+                                                inputMode="numeric"
+                                            />
+                                            <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
+                                        </div>
+                                    </FieldRow>
 
-                        <FieldRow label="Warianty AI:">
-                            <input
-                                style={{ ...inputStyle, maxWidth: 120 }}
-                                type="number"
-                                min={1}
-                                max={4}
-                                value={form.variantCount}
-                                onChange={e => update('variantCount', Math.min(4, Math.max(1, Number(e.target.value) || 1)))}
-                            />
-                        </FieldRow>
+                                    <FieldRow label="Klatka piersiowa:" rememberKey="chest" remember={rememberField} savedFlags={savedFlags}>
+                                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                            <input
+                                                style={{ ...inputStyle, paddingRight: 36 }}
+                                                value={form.chest}
+                                                onChange={e => update('chest', e.target.value)}
+                                                inputMode="numeric"
+                                            />
+                                            <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
+                                        </div>
+                                    </FieldRow>
 
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '12px 0 6px' }}>
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', color: '#f5f5f5' }}>
-                                <div style={{ fontWeight: 800, fontSize: 13 }}>Wymiary</div>
-                                {!showMeasurements && (
-                                    <span style={{ fontSize: 12, color: '#c7c7c7' }}>{measurementSummary}</span>
-                                )}
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setShowMeasurements(prev => !prev)}
-                                style={{
-                                    ...actionButtonStyle,
-                                    background: '#1e1e1e',
-                                    color: '#f5f5f5',
-                                    padding: '8px 10px',
-                                    border: '1px solid #3a3a3a',
-                                    boxShadow: 'none'
-                                }}
-                                aria-expanded={showMeasurements}
-                            >
-                                {showMeasurements ? 'Schowaj' : 'Pokaż'}
-                            </button>
-                        </div>
+                                    <FieldRow label="Talia:" rememberKey="waist" remember={rememberField} savedFlags={savedFlags}>
+                                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                            <input
+                                                style={{ ...inputStyle, paddingRight: 36 }}
+                                                value={form.waist}
+                                                onChange={e => update('waist', e.target.value)}
+                                                inputMode="numeric"
+                                            />
+                                            <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
+                                        </div>
+                                    </FieldRow>
 
-                        {showMeasurements && (
-                            <>
-                                <FieldRow label="Wzrost:" rememberKey="height" remember={rememberField} savedFlags={savedFlags}>
-                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                        <input
-                                            style={{ ...inputStyle, paddingRight: 36 }}
-                                            value={form.height}
-                                            onChange={e => update('height', e.target.value)}
-                                            inputMode="numeric"
-                                        />
-                                        <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
-                                    </div>
-                                </FieldRow>
+                                    <FieldRow label="Biodra:" rememberKey="hips" remember={rememberField} savedFlags={savedFlags}>
+                                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                            <input
+                                                style={{ ...inputStyle, paddingRight: 36 }}
+                                                value={form.hips}
+                                                onChange={e => update('hips', e.target.value)}
+                                                inputMode="numeric"
+                                            />
+                                            <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
+                                        </div>
+                                    </FieldRow>
+                                </>
+                            )}
 
-                                <FieldRow label="Klatka piersiowa:" rememberKey="chest" remember={rememberField} savedFlags={savedFlags}>
-                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                        <input
-                                            style={{ ...inputStyle, paddingRight: 36 }}
-                                            value={form.chest}
-                                            onChange={e => update('chest', e.target.value)}
-                                            inputMode="numeric"
-                                        />
-                                        <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
-                                    </div>
-                                </FieldRow>
-
-                                <FieldRow label="Talia:" rememberKey="waist" remember={rememberField} savedFlags={savedFlags}>
-                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                        <input
-                                            style={{ ...inputStyle, paddingRight: 36 }}
-                                            value={form.waist}
-                                            onChange={e => update('waist', e.target.value)}
-                                            inputMode="numeric"
-                                        />
-                                        <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
-                                    </div>
-                                </FieldRow>
-
-                                <FieldRow label="Biodra:" rememberKey="hips" remember={rememberField} savedFlags={savedFlags}>
-                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                        <input
-                                            style={{ ...inputStyle, paddingRight: 36 }}
-                                            value={form.hips}
-                                            onChange={e => update('hips', e.target.value)}
-                                            inputMode="numeric"
-                                        />
-                                        <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
-                                    </div>
-                                </FieldRow>
-                            </>
-                        )}
-
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0 10px', color: '#f5f5f5', fontSize: '13px' }}>
-                            <input type="checkbox" checked={form.accepted} onChange={e => update('accepted', e.target.checked)} />
-                            Akceptuję regulamin usługi i potwierdzam prawo do wykorzystania danych.
-                        </label>
-                    </form>
-                </div>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0 10px', color: '#f5f5f5', fontSize: '13px' }}>
+                                <input type="checkbox" checked={form.accepted} onChange={e => update('accepted', e.target.checked)} />
+                                Akceptuję regulamin usługi i potwierdzam prawo do wykorzystania danych.
+                            </label>
+                        </form>
+                    </div>
 
                 )}
 
                 {view === 'result' && (
                     <div style={{ ...badge, background: '#2c2c2c', border: '1px solid #363636', boxShadow: '0 10px 26px rgba(0,0,0,0.24)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                        <div style={{ fontWeight: 800, color: '#f3f3f3' }}>Podgląd stylizacji</div>
-                        {isLoading && <span style={{ fontSize: 12, color: '#cfcfcf' }}>Renderowanie...</span>}
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        <div style={{ position: 'relative', borderRadius: 16, overflow: 'hidden', border: '2px solid #3f3f3f', background: '#1a1a1a', minHeight: 360, aspectRatio: '3 / 4' }}>
-                            {isLoading && (
-                                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(120deg, rgba(255,255,255,0.04), rgba(255,255,255,0.08), rgba(255,255,255,0.04))', animation: 'aigrafka-shimmer 1.4s linear infinite', zIndex: 2 }} />
-                            )}
-                            {variants.length > 1 && (
-                                <div style={{ position: 'absolute', top: '50%', left: 10, transform: 'translateY(-50%)', zIndex: 4, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                    <button
-                                        type="button"
-                                        onClick={() => setSelectedVariant(prev => (prev - 1 + variants.length) % variants.length)}
-                                        style={{ ...actionButtonStyle, padding: '8px 10px', background: '#1e1e1e', boxShadow: 'none' }}
-                                    >
-                                        ←
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setSelectedVariant(prev => (prev + 1) % variants.length)}
-                                        style={{ ...actionButtonStyle, padding: '8px 10px', background: '#1e1e1e', boxShadow: 'none' }}
-                                    >
-                                        →
-                                    </button>
-                                </div>
-                            )}
-                            {activeVariant && (
-                                <div style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(0,0,0,0.55)', color: '#f5f5f5', padding: '8px 10px', borderRadius: 12, fontSize: 12, border: '1px solid rgba(255,255,255,0.08)', zIndex: 3 }}>
-                                    <span>{generationMeta.model ?? 'Gemini'}</span>
-                                    {variants.length > 1 ? <span style={{ marginLeft: 8 }}>• {selectedVariant + 1}/{variants.length}</span> : null}
-                                    {activeVariant?.latencyMs ? <span style={{ marginLeft: 8 }}>{Math.round(activeVariant.latencyMs)} ms</span> : null}
-                                </div>
-                            )}
-                            <img
-                                src={mainImage}
-                                alt="Wygenerowana stylizacja"
-                                style={{ width: '100%', height: '100%', objectFit: 'cover', filter: isLoading ? 'blur(3px)' : 'none', opacity: isLoading ? 0.7 : 1 }}
-                            />
-                            {!isLoading && (
-                                <div style={{ position: 'absolute', bottom: 14, left: 14, display: 'flex', gap: 10 }}>
-                                    <button
-                                        type="button"
-                                        onClick={handleShare}
-                                        disabled={!canShare}
-                                        style={{
-                                            ...actionButtonStyle,
-                                            background: '#f5f5f5',
-                                            color: '#111',
-                                            padding: '12px 14px',
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: 8,
-                                            opacity: canShare ? 1 : 0.6
-                                        }}
-                                    >
-                                        <span>Udostępnij</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={handleCopyImage}
-                                        style={{
-                                            ...actionButtonStyle,
-                                            background: '#0fb361',
-                                            padding: '12px 14px',
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: 8
-                                        }}
-                                    >
-                                        <span>Do schowka</span>
-                                    </button>
-                                </div>
-                            )}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <div style={{ fontWeight: 800, color: '#f3f3f3' }}>Podgląd stylizacji</div>
+                            {isLoading && <span style={{ fontSize: 12, color: '#cfcfcf' }}>Renderowanie...</span>}
                         </div>
 
-                        {variants.length > 1 && (
-                            <div style={{ display: 'flex', gap: 8, marginTop: 10, overflowX: 'auto', paddingBottom: 4 }}>
-                                {variants.map((variant, idx) => (
-                                    <button
-                                        key={variant.url}
-                                        type="button"
-                                        onClick={() => setSelectedVariant(idx)}
-                                        style={{
-                                            border: idx === selectedVariant ? '2px solid #00b0ff' : '2px solid #3a3a3a',
-                                            borderRadius: 10,
-                                            padding: 2,
-                                            background: 'transparent',
-                                            cursor: 'pointer'
-                                        }}
-                                    >
-                                        <img src={variant.url} alt={`Wariant ${idx + 1}`} style={{ width: 72, height: 96, objectFit: 'cover', borderRadius: 6 }} />
-                                    </button>
-                                ))}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <div style={{ position: 'relative', borderRadius: 16, overflow: 'hidden', border: '2px solid #3f3f3f', background: '#1a1a1a', minHeight: 360, aspectRatio: '3 / 4' }}>
+                                {isLoading && (
+                                    <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(120deg, rgba(255,255,255,0.04), rgba(255,255,255,0.08), rgba(255,255,255,0.04))', animation: 'aigrafka-shimmer 1.4s linear infinite', zIndex: 2 }} />
+                                )}
+                                {variants.length > 1 && (
+                                    <div style={{ position: 'absolute', top: '50%', left: 10, transform: 'translateY(-50%)', zIndex: 4, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedVariant(prev => (prev - 1 + variants.length) % variants.length)}
+                                            style={{ ...actionButtonStyle, padding: '8px 10px', background: '#1e1e1e', boxShadow: 'none' }}
+                                        >
+                                            ←
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedVariant(prev => (prev + 1) % variants.length)}
+                                            style={{ ...actionButtonStyle, padding: '8px 10px', background: '#1e1e1e', boxShadow: 'none' }}
+                                        >
+                                            →
+                                        </button>
+                                    </div>
+                                )}
+                                {activeVariant && (
+                                    <div style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(0,0,0,0.55)', color: '#f5f5f5', padding: '8px 10px', borderRadius: 12, fontSize: 12, border: '1px solid rgba(255,255,255,0.08)', zIndex: 3 }}>
+                                        <span>{generationMeta.model ?? 'Gemini'}</span>
+                                        {variants.length > 1 ? <span style={{ marginLeft: 8 }}>• {selectedVariant + 1}/{variants.length}</span> : null}
+                                        {activeVariant?.latencyMs ? <span style={{ marginLeft: 8 }}>{Math.round(activeVariant.latencyMs)} ms</span> : null}
+                                    </div>
+                                )}
+                                <img
+                                    src={mainImage}
+                                    alt="Wygenerowana stylizacja"
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover', filter: isLoading ? 'blur(3px)' : 'none', opacity: isLoading ? 0.7 : 1 }}
+                                />
+                                {!isLoading && (
+                                    <div style={{ position: 'absolute', bottom: 14, left: 14, display: 'flex', gap: 10 }}>
+                                        <button
+                                            type="button"
+                                            onClick={handleShare}
+                                            disabled={!canShare}
+                                            style={{
+                                                ...actionButtonStyle,
+                                                background: '#f5f5f5',
+                                                color: '#111',
+                                                padding: '12px 14px',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 8,
+                                                opacity: canShare ? 1 : 0.6
+                                            }}
+                                        >
+                                            <span>Udostępnij</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleCopyImage}
+                                            style={{
+                                                ...actionButtonStyle,
+                                                background: '#0fb361',
+                                                padding: '12px 14px',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 8
+                                            }}
+                                        >
+                                            <span>Do schowka</span>
+                                        </button>
+                                    </div>
+                                )}
                             </div>
-                        )}
-                    </div>
 
-                    {status ? (
-                        <div style={{ marginTop: 12, background: '#f9f9f9', color: '#181818', borderRadius: 14, padding: '12px 14px', fontSize: 13, lineHeight: 1.5, boxShadow: '0 6px 14px rgba(0,0,0,0.08)' }}>
-                            {status}
+                            {variants.length > 1 && (
+                                <div style={{ display: 'flex', gap: 8, marginTop: 10, overflowX: 'auto', paddingBottom: 4 }}>
+                                    {variants.map((variant, idx) => (
+                                        <button
+                                            key={variant.url}
+                                            type="button"
+                                            onClick={() => setSelectedVariant(idx)}
+                                            style={{
+                                                border: idx === selectedVariant ? '2px solid #00b0ff' : '2px solid #3a3a3a',
+                                                borderRadius: 10,
+                                                padding: 2,
+                                                background: 'transparent',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            <img src={variant.url} alt={`Wariant ${idx + 1}`} style={{ width: 72, height: 96, objectFit: 'cover', borderRadius: 6 }} />
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </div>
-                    ) : null}
 
-                    <button
-                        type="button"
-                        onClick={() => form.productUrl && window.open(form.productUrl, '_blank')}
-                        style={{
-                            ...actionButtonStyle,
-                            background: '#00b0ff',
-                            width: '100%',
-                            marginTop: 10,
-                            boxShadow: '0 12px 26px rgba(0,176,255,0.25)'
-                        }}
-                    >
-                        Zobacz dopasowane produkty
-                    </button>
+                        {status ? (
+                            <div style={{ marginTop: 12, background: '#f9f9f9', color: '#181818', borderRadius: 14, padding: '12px 14px', fontSize: 13, lineHeight: 1.5, boxShadow: '0 6px 14px rgba(0,0,0,0.08)' }}>
+                                {status}
+                            </div>
+                        ) : null}
 
-                    <button
-                        type="button"
-                        onClick={handleChangeParams}
-                        style={{
-                            ...actionButtonStyle,
-                            background: '#2b2b2b',
-                            color: '#f5f5f5',
-                            width: '100%',
-                            marginTop: 8,
-                            border: '1px solid #3c3c3c',
-                            boxShadow: 'none'
-                        }}
-                    >
-                        Zmień parametry
-                    </button>
+                        <button
+                            type="button"
+                            onClick={() => form.productUrl && window.open(form.productUrl, '_blank')}
+                            style={{
+                                ...actionButtonStyle,
+                                background: '#00b0ff',
+                                width: '100%',
+                                marginTop: 10,
+                                boxShadow: '0 12px 26px rgba(0,176,255,0.25)'
+                            }}
+                        >
+                            Zobacz dopasowane produkty
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={handleChangeParams}
+                            style={{
+                                ...actionButtonStyle,
+                                background: '#2b2b2b',
+                                color: '#f5f5f5',
+                                width: '100%',
+                                marginTop: 8,
+                                border: '1px solid #3c3c3c',
+                                boxShadow: 'none'
+                            }}
+                        >
+                            Zmień parametry
+                        </button>
                     </div>
                 )}
 
