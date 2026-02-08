@@ -277,6 +277,7 @@ const App: React.FC = () => {
     const [generationMeta, setGenerationMeta] = useState<{ model?: string; latencyMs?: number }>({});
     const [auth, setAuth] = useState<{ loggedIn: boolean; tokens: number }>({ loggedIn: false, tokens: 0 });
     const [view, setView] = useState<'form' | 'result'>('form');
+    const [showMeasurements, setShowMeasurements] = useState<boolean>(false);
 
     const canSubmit = useMemo(() => {
         const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
@@ -284,6 +285,17 @@ const App: React.FC = () => {
         if (!form.accepted || !hasProduct || !hasSelfie) return false;
         return auth.loggedIn ? auth.tokens > 0 : true;
     }, [form, auth]);
+
+    const hasSelfie = Boolean(form.selfie);
+    const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
+
+    const stepLabels = ['Selfie', 'Produkt', 'Parametry', 'Podgląd'];
+    const currentStep = useMemo(() => {
+        if (view === 'result') return 3;
+        if (!hasSelfie) return 0;
+        if (!hasProduct) return 1;
+        return 2;
+    }, [view, hasSelfie, hasProduct]);
 
     useEffect(() => {
         storage.get().then(stored => {
@@ -330,6 +342,8 @@ const App: React.FC = () => {
     function getModelCostText() {
         return form.modelChoice === 'banana-pro' ? 'BLIK: 1,00 zł (Banana Pro)' : 'BLIK: 0,50 zł (Banana)';
     }
+
+    const measurementSummary = `${form.height || '-'} / ${form.chest || '-'} / ${form.waist || '-'} / ${form.hips || '-'} cm`;
 
     async function handlePayBlik() {
         // Placeholder for real payment integration
@@ -588,11 +602,44 @@ const App: React.FC = () => {
 
     const logoSrc = chrome?.runtime?.getURL?.('icons/logo.svg') ?? logo;
     const activeVariant = variants[selectedVariant] || variants[0];
+    const mainImage = activeVariant?.url || previewUrl || placeholderPreview;
+
+    useEffect(() => {
+        if (selectedVariant > 0 && selectedVariant >= variants.length) {
+            setSelectedVariant(0);
+        }
+    }, [variants, selectedVariant]);
 
     return (
         <div className="aigrafka-shell" style={{ display: 'flex', flexDirection: 'column', background: '#181818', color: '#f5f5f5', height: '100%', width: '100%' }}>
             <PanelHeader logoSrc={logoSrc} />
-            <div style={{ flex: 1, padding: '12px 12px 40px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ flex: 1, padding: '12px 12px 140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {view === 'form' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${stepLabels.length}, 1fr)`, gap: 8, marginBottom: 4 }}>
+                        {stepLabels.map((label, idx) => {
+                            const isActive = idx === currentStep;
+                            const isDone = idx < currentStep;
+                            return (
+                                <div
+                                    key={label}
+                                    style={{
+                                        padding: '10px 8px',
+                                        borderRadius: 10,
+                                        border: '1px solid #2f2f2f',
+                                        background: isActive ? '#0f6572' : isDone ? '#2f2f2f' : '#232323',
+                                        color: '#f7f7f7',
+                                        textAlign: 'center',
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        boxShadow: isActive ? '0 8px 18px rgba(0,140,160,0.25)' : 'none'
+                                    }}
+                                >
+                                    {label}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
                 {view === 'form' && (
                     <div style={{ ...badge, background: '#262626', border: '1px solid #333', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -641,7 +688,7 @@ const App: React.FC = () => {
                             <span style={{ fontSize: '12px', color: '#c7c7c7' }}>{rememberedHint}</span>
                         </div>
 
-                        <form onSubmit={handleSubmit}>
+                        <form id="aigrafka-form" onSubmit={handleSubmit}>
                         <FieldRow label="Selfie:">
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                                 <div style={{ width: 72, height: 72, borderRadius: 12, overflow: 'hidden', border: '2px solid #4a4a4a', background: '#1c1c1c' }}>
@@ -806,73 +853,86 @@ const App: React.FC = () => {
                             />
                         </FieldRow>
 
-                        <FieldRow label="Wzrost:" rememberKey="height" remember={rememberField} savedFlags={savedFlags}>
-                            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                <input
-                                    style={{ ...inputStyle, paddingRight: 36 }}
-                                    value={form.height}
-                                    onChange={e => update('height', e.target.value)}
-                                    inputMode="numeric"
-                                />
-                                <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '12px 0 6px' }}>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', color: '#f5f5f5' }}>
+                                <div style={{ fontWeight: 800, fontSize: 13 }}>Wymiary</div>
+                                {!showMeasurements && (
+                                    <span style={{ fontSize: 12, color: '#c7c7c7' }}>{measurementSummary}</span>
+                                )}
                             </div>
-                        </FieldRow>
+                            <button
+                                type="button"
+                                onClick={() => setShowMeasurements(prev => !prev)}
+                                style={{
+                                    ...actionButtonStyle,
+                                    background: '#1e1e1e',
+                                    color: '#f5f5f5',
+                                    padding: '8px 10px',
+                                    border: '1px solid #3a3a3a',
+                                    boxShadow: 'none'
+                                }}
+                                aria-expanded={showMeasurements}
+                            >
+                                {showMeasurements ? 'Schowaj' : 'Pokaż'}
+                            </button>
+                        </div>
 
-                        <FieldRow label="Klatka piersiowa:" rememberKey="chest" remember={rememberField} savedFlags={savedFlags}>
-                            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                <input
-                                    style={{ ...inputStyle, paddingRight: 36 }}
-                                    value={form.chest}
-                                    onChange={e => update('chest', e.target.value)}
-                                    inputMode="numeric"
-                                />
-                                <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
-                            </div>
-                        </FieldRow>
+                        {showMeasurements && (
+                            <>
+                                <FieldRow label="Wzrost:" rememberKey="height" remember={rememberField} savedFlags={savedFlags}>
+                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                        <input
+                                            style={{ ...inputStyle, paddingRight: 36 }}
+                                            value={form.height}
+                                            onChange={e => update('height', e.target.value)}
+                                            inputMode="numeric"
+                                        />
+                                        <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
+                                    </div>
+                                </FieldRow>
 
-                        <FieldRow label="Talia:" rememberKey="waist" remember={rememberField} savedFlags={savedFlags}>
-                            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                <input
-                                    style={{ ...inputStyle, paddingRight: 36 }}
-                                    value={form.waist}
-                                    onChange={e => update('waist', e.target.value)}
-                                    inputMode="numeric"
-                                />
-                                <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
-                            </div>
-                        </FieldRow>
+                                <FieldRow label="Klatka piersiowa:" rememberKey="chest" remember={rememberField} savedFlags={savedFlags}>
+                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                        <input
+                                            style={{ ...inputStyle, paddingRight: 36 }}
+                                            value={form.chest}
+                                            onChange={e => update('chest', e.target.value)}
+                                            inputMode="numeric"
+                                        />
+                                        <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
+                                    </div>
+                                </FieldRow>
 
-                        <FieldRow label="Biodra:" rememberKey="hips" remember={rememberField} savedFlags={savedFlags}>
-                            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                <input
-                                    style={{ ...inputStyle, paddingRight: 36 }}
-                                    value={form.hips}
-                                    onChange={e => update('hips', e.target.value)}
-                                    inputMode="numeric"
-                                />
-                                <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
-                            </div>
-                        </FieldRow>
+                                <FieldRow label="Talia:" rememberKey="waist" remember={rememberField} savedFlags={savedFlags}>
+                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                        <input
+                                            style={{ ...inputStyle, paddingRight: 36 }}
+                                            value={form.waist}
+                                            onChange={e => update('waist', e.target.value)}
+                                            inputMode="numeric"
+                                        />
+                                        <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
+                                    </div>
+                                </FieldRow>
+
+                                <FieldRow label="Biodra:" rememberKey="hips" remember={rememberField} savedFlags={savedFlags}>
+                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                        <input
+                                            style={{ ...inputStyle, paddingRight: 36 }}
+                                            value={form.hips}
+                                            onChange={e => update('hips', e.target.value)}
+                                            inputMode="numeric"
+                                        />
+                                        <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
+                                    </div>
+                                </FieldRow>
+                            </>
+                        )}
 
                         <label style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0 10px', color: '#f5f5f5', fontSize: '13px' }}>
                             <input type="checkbox" checked={form.accepted} onChange={e => update('accepted', e.target.checked)} />
                             Akceptuję regulamin usługi i potwierdzam prawo do wykorzystania danych.
                         </label>
-
-                        <button
-                            type="submit"
-                            style={{
-                                ...actionButtonStyle,
-                                width: '100%',
-                                padding: '12px 10px',
-                                background: canSubmit ? '#00b0ff' : '#5a5a5a',
-                                cursor: canSubmit ? 'pointer' : 'not-allowed',
-                                boxShadow: canSubmit ? '0 12px 28px rgba(0,176,255,0.25)' : 'none'
-                            }}
-                            disabled={!canSubmit || isLoading}
-                        >
-                            {isLoading ? 'Generowanie...' : 'Generuj stylizację'}
-                        </button>
                     </form>
                 </div>
 
@@ -890,6 +950,24 @@ const App: React.FC = () => {
                             {isLoading && (
                                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(120deg, rgba(255,255,255,0.04), rgba(255,255,255,0.08), rgba(255,255,255,0.04))', animation: 'aigrafka-shimmer 1.4s linear infinite', zIndex: 2 }} />
                             )}
+                            {variants.length > 1 && (
+                                <div style={{ position: 'absolute', top: '50%', left: 10, transform: 'translateY(-50%)', zIndex: 4, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedVariant(prev => (prev - 1 + variants.length) % variants.length)}
+                                        style={{ ...actionButtonStyle, padding: '8px 10px', background: '#1e1e1e', boxShadow: 'none' }}
+                                    >
+                                        ←
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedVariant(prev => (prev + 1) % variants.length)}
+                                        style={{ ...actionButtonStyle, padding: '8px 10px', background: '#1e1e1e', boxShadow: 'none' }}
+                                    >
+                                        →
+                                    </button>
+                                </div>
+                            )}
                             {activeVariant && (
                                 <div style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(0,0,0,0.55)', color: '#f5f5f5', padding: '8px 10px', borderRadius: 12, fontSize: 12, border: '1px solid rgba(255,255,255,0.08)', zIndex: 3 }}>
                                     <span>{generationMeta.model ?? 'Gemini'}</span>
@@ -898,7 +976,7 @@ const App: React.FC = () => {
                                 </div>
                             )}
                             <img
-                                src={previewUrl || placeholderPreview}
+                                src={mainImage}
                                 alt="Wygenerowana stylizacja"
                                 style={{ width: '100%', height: '100%', objectFit: 'cover', filter: isLoading ? 'blur(3px)' : 'none', opacity: isLoading ? 0.7 : 1 }}
                             />
@@ -938,6 +1016,27 @@ const App: React.FC = () => {
                                 </div>
                             )}
                         </div>
+
+                        {variants.length > 1 && (
+                            <div style={{ display: 'flex', gap: 8, marginTop: 10, overflowX: 'auto', paddingBottom: 4 }}>
+                                {variants.map((variant, idx) => (
+                                    <button
+                                        key={variant.url}
+                                        type="button"
+                                        onClick={() => setSelectedVariant(idx)}
+                                        style={{
+                                            border: idx === selectedVariant ? '2px solid #00b0ff' : '2px solid #3a3a3a',
+                                            borderRadius: 10,
+                                            padding: 2,
+                                            background: 'transparent',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        <img src={variant.url} alt={`Wariant ${idx + 1}`} style={{ width: 72, height: 96, objectFit: 'cover', borderRadius: 6 }} />
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {status ? (
@@ -979,6 +1078,31 @@ const App: React.FC = () => {
                 )}
 
             </div>
+            {view === 'form' && (
+                <div style={{ position: 'sticky', bottom: 0, left: 0, right: 0, padding: '12px 12px 16px', background: 'linear-gradient(180deg, rgba(24,24,24,0.1), #181818 40%)', borderTop: '1px solid #2a2a2a' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#dcdcdc', fontSize: 12 }}>
+                            <span>Koszt: {getModelCostText()}</span>
+                            <span>{form.variantCount} warianty</span>
+                        </div>
+                        <button
+                            type="submit"
+                            form="aigrafka-form"
+                            style={{
+                                ...actionButtonStyle,
+                                width: '100%',
+                                padding: '14px 12px',
+                                background: canSubmit ? '#00b0ff' : '#5a5a5a',
+                                cursor: canSubmit ? 'pointer' : 'not-allowed',
+                                boxShadow: canSubmit ? '0 14px 30px rgba(0,176,255,0.28)' : 'none'
+                            }}
+                            disabled={!canSubmit || isLoading}
+                        >
+                            {isLoading ? 'Generowanie...' : 'Generuj stylizację'}
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

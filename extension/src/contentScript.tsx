@@ -1,29 +1,42 @@
 import React from 'react';
-import { createRoot } from 'react-dom/client';
+import { createRoot, Root } from 'react-dom/client';
 import App from './panel/App';
 
 const CONTAINER_ID = 'aigrafka-extension-root';
+let root: Root | null = null;
+let hostEl: HTMLElement | null = null;
+
+function removePanel() {
+  const existing = document.getElementById(CONTAINER_ID);
+  if (existing) {
+    existing.remove();
+    hostEl = null;
+    root = null;
+    return true;
+  }
+  return false;
+}
 
 function injectPanel() {
-    if (document.getElementById(CONTAINER_ID)) return;
+  if (document.getElementById(CONTAINER_ID)) return;
 
-    const host = document.createElement('div');
-    host.id = CONTAINER_ID;
-    host.style.position = 'fixed';
-    host.style.top = '64px';
-    host.style.right = '6px';
-    host.style.zIndex = '2147483647';
-    host.style.width = 'min(330px, calc(100vw - 12px))';
-    host.style.height = 'min(720px, calc(100vh - 12px))';
-    host.style.maxHeight = 'calc(100vh - 12px)';
-    host.style.maxWidth = 'calc(100vw - 12px)';
+  const host = document.createElement('div');
+  host.id = CONTAINER_ID;
+  host.style.position = 'fixed';
+  host.style.top = '64px';
+  host.style.right = '6px';
+  host.style.zIndex = '2147483647';
+  host.style.width = 'min(330px, calc(100vw - 12px))';
+  host.style.height = 'min(720px, calc(100vh - 12px))';
+  host.style.maxHeight = 'calc(100vh - 12px)';
+  host.style.maxWidth = 'calc(100vw - 12px)';
 
-    const shadow = host.attachShadow({ mode: 'open' });
-    const mount = document.createElement('div');
-    mount.id = 'aigrafka-panel-root';
+  const shadow = host.attachShadow({ mode: 'open' });
+  const mount = document.createElement('div');
+  mount.id = 'aigrafka-panel-root';
 
-    const style = document.createElement('style');
-    style.textContent = `
+  const style = document.createElement('style');
+  style.textContent = `
     :host { all: initial; }
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&display=swap');
     * { box-sizing: border-box; font-family: 'Space Grotesk', 'DM Sans', 'Segoe UI', sans-serif; }
@@ -48,16 +61,37 @@ function injectPanel() {
     }
   `;
 
-    shadow.appendChild(style);
-    shadow.appendChild(mount);
-    document.body.appendChild(host);
+  shadow.appendChild(style);
+  shadow.appendChild(mount);
+  document.body.appendChild(host);
+  hostEl = host;
 
-    const root = createRoot(mount);
-    root.render(
-        <React.StrictMode>
-            <App />
-        </React.StrictMode>
-    );
+  root = createRoot(mount);
+  root.render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  );
 }
 
+// Toggle on demand from the action button; still auto-inject on first load for now.
+console.info('[Aigrafka] content script loaded');
 injectPanel();
+
+if (chrome?.runtime?.onMessage) {
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === 'AIGRAFKA_PING') {
+      sendResponse({ ok: true, from: 'content-script' });
+      return true;
+    }
+    if (message?.type === 'AIGRAFKA_TOGGLE_PANEL') {
+      const removed = removePanel();
+      if (!removed) {
+        injectPanel();
+      }
+      sendResponse({ ok: true, toggled: true, visible: !removed });
+      return true;
+    }
+    return false;
+  });
+}
