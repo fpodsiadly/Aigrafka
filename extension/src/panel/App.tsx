@@ -345,7 +345,7 @@ const App: React.FC = () => {
         return form.modelChoice === 'banana-pro' ? 'BLIK: 1,00 zł (Banana Pro)' : 'BLIK: 0,50 zł (Banana)';
     }
 
-    const measurementSummary = `${form.height || '-'} / ${form.chest || '-'} / ${form.waist || '-'} / ${form.hips || '-'} cm`;
+    const measurementSummary = `${form.height || '-'} / ${form.chest || '-'} / ${form.waist || '-'} / ${form.hips || '-'}`.replace(/\s+/g, '');
 
     async function handlePayBlik() {
         // Placeholder for real payment integration
@@ -651,7 +651,6 @@ const App: React.FC = () => {
                 {view === 'form' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: '#1c1c1c' }}>Witaj! Co dziś przymierzymy?</div>
-                        <div style={sectionHintStyle}>Uzupełnij dane, dodaj produkt i wygeneruj stylizację.</div>
                     </div>
                 )}
 
@@ -665,10 +664,12 @@ const App: React.FC = () => {
                         </div>
 
                         <form id="aigrafka-form" onSubmit={handleSubmit}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', minWidth: 0, flex: 1 }}>
                                     <div style={{ fontWeight: 700, color: '#1e1e1e' }}>Twoje wymiary</div>
-                                    <div style={{ fontWeight: 800, color: '#1e1e1e' }}>{measurementSummary}</div>
+                                    <div style={{ fontWeight: 800, color: '#1e1e1e', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.2px', whiteSpace: 'nowrap', fontSize: 12 }}>
+                                        {measurementSummary}
+                                    </div>
                                 </div>
                                 <button
                                     type="button"
@@ -784,7 +785,7 @@ const App: React.FC = () => {
                                     style={inputStyle}
                                     value={form.productUrl}
                                     onChange={e => update('productUrl', e.target.value)}
-                                    placeholder="https://reserved.com/..."
+                                    placeholder="https://url.pl/"
                                     type="url"
                                 />
                             </FieldRow>
@@ -799,10 +800,11 @@ const App: React.FC = () => {
                             </FieldRow>
 
                             <FieldRow label="Zdjęcia produktu:">
-                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap', width: '100%' }}>
                                     <div
                                         onDragOver={e => e.preventDefault()}
                                         onDrop={e => handleDropProduct('productImage1', e)}
+                                        style={{ flex: 1 }}
                                     >
                                         <label
                                             style={{
@@ -817,9 +819,12 @@ const App: React.FC = () => {
                                                 display: 'inline-flex',
                                                 alignItems: 'center',
                                                 gap: 6,
-                                                minWidth: 120,
+                                                minWidth: 0,
+                                                width: '100%',
                                                 justifyContent: 'center',
-                                                fontSize: 12
+                                                fontSize: 12,
+                                                minHeight: 34,
+                                                whiteSpace: 'nowrap'
                                             }}
                                         >
                                             + Dodaj pierwsze
@@ -834,6 +839,7 @@ const App: React.FC = () => {
                                     <div
                                         onDragOver={e => e.preventDefault()}
                                         onDrop={e => handleDropProduct('productImage2', e)}
+                                        style={{ flex: 1 }}
                                     >
                                         <label
                                             style={{
@@ -848,9 +854,12 @@ const App: React.FC = () => {
                                                 display: 'inline-flex',
                                                 alignItems: 'center',
                                                 gap: 6,
-                                                minWidth: 120,
+                                                minWidth: 0,
+                                                width: '100%',
                                                 justifyContent: 'center',
-                                                fontSize: 12
+                                                fontSize: 12,
+                                                minHeight: 34,
+                                                whiteSpace: 'nowrap'
                                             }}
                                         >
                                             + Dodaj drugie
@@ -907,68 +916,80 @@ const App: React.FC = () => {
                                 </div>
                             </details>
 
-                            <div style={{ background: '#ededed', border: '2px solid #c7c7c7', borderRadius: 12, padding: '10px 12px', margin: '14px 0 10px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#1e1e1e', fontSize: '13px' }}>
-                                    <input type="checkbox" checked={form.accepted} onChange={e => update('accepted', e.target.checked)} />
-                                    Potwierdzam prawo do wykorzystania wizerunku i akceptuję Regulamin i Politykę Prywatności.
-                                </label>
-                            </div>
                         </form>
                     </div>
 
                 )}
 
                 {view === 'form' && (
-                    <div style={{ ...badge, boxShadow: '0 8px 18px rgba(0,0,0,0.08)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div style={sectionTitleStyle}>{auth.loggedIn ? 'Tokeny Stylizacji' : 'Płatność jednorazowa'}</div>
-                            <span style={sectionHintStyle}>{auth.loggedIn ? 'Bank tokenów' : 'BLIK per generacja'}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <div style={{ ...badge, boxShadow: '0 8px 18px rgba(0,0,0,0.08)', padding: '10px 12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ ...sectionTitleStyle, fontSize: 13 }}>{auth.loggedIn ? 'Tokeny Stylizacji' : 'Płatność jednorazowa'}</div>
+                                    <div style={{ ...sectionHintStyle, fontSize: 11 }}>{auth.loggedIn ? 'Bank tokenów' : 'BLIK per generacja'}</div>
+                                </div>
+                                {auth.loggedIn ? (
+                                    <>
+                                        <input
+                                            style={{ ...inputStyle, maxWidth: 70, textAlign: 'center', padding: '6px 8px' }}
+                                            value={auth.tokens}
+                                            readOnly
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={handleTopUpTokens}
+                                            style={{ ...actionButtonStyle, background: '#9b59ff', boxShadow: 'none', padding: '8px 10px', fontSize: 12 }}
+                                        >
+                                            Dokup tokeny
+                                        </button>
+                                    </>
+                                ) : (
+                                    <input
+                                        style={{ ...inputStyle, maxWidth: 200, textAlign: 'center', padding: '6px 8px' }}
+                                        value={getModelCostText()}
+                                        readOnly
+                                    />
+                                )}
+                            </div>
                         </div>
-                        {auth.loggedIn ? (
-                            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10 }}>
-                                <div style={{ background: '#ffffff', border: '2px solid #c7c7c7', borderRadius: 10, padding: '8px 12px', fontWeight: 800, minWidth: 64, textAlign: 'center' }}>{auth.tokens}</div>
-                                <button
-                                    type="button"
-                                    onClick={handleTopUpTokens}
-                                    style={{ ...actionButtonStyle, background: '#9b59ff', boxShadow: 'none', padding: '10px 14px' }}
-                                >
-                                    Dokup tokeny
-                                </button>
-                            </div>
-                        ) : (
-                            <div style={{ marginTop: 10, fontSize: 13, color: '#2a2a2a' }}>
-                                Jednorazowa płatność: <strong>{getModelCostText()}</strong>
-                            </div>
-                        )}
-                    </div>
-                )}
 
-                {view === 'form' && (
-                    <div style={{ ...badge, boxShadow: '0 8px 18px rgba(0,0,0,0.08)' }}>
-                        <div style={sectionTitleStyle}>Liczba stylizacji</div>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
-                            <button
-                                type="button"
-                                onClick={() => update('variantCount', Math.max(1, form.variantCount - 1))}
-                                style={{ ...actionButtonStyle, background: '#9b59ff', width: 44, padding: '8px 0', boxShadow: 'none' }}
-                            >
-                                −
-                            </button>
-                            <input
-                                style={{ ...inputStyle, maxWidth: 80, textAlign: 'center' }}
-                                type="number"
-                                min={1}
-                                max={4}
-                                value={form.variantCount}
-                                onChange={e => update('variantCount', Math.min(4, Math.max(1, Number(e.target.value) || 1)))}
-                            />
-                            <button
-                                type="button"
-                                onClick={() => update('variantCount', Math.min(4, form.variantCount + 1))}
-                                style={{ ...actionButtonStyle, background: '#9b59ff', width: 44, padding: '8px 0', boxShadow: 'none' }}
-                            >
-                                +
-                            </button>
+                        <div style={{ ...badge, boxShadow: '0 8px 18px rgba(0,0,0,0.08)', padding: '10px 12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ ...sectionTitleStyle, fontSize: 13 }}>Liczba Stylizacji</div>
+                                </div>
+                                <input
+                                    style={{ ...inputStyle, maxWidth: 60, textAlign: 'center', padding: '6px 8px' }}
+                                    type="number"
+                                    min={1}
+                                    max={4}
+                                    value={form.variantCount}
+                                    onChange={e => update('variantCount', Math.min(4, Math.max(1, Number(e.target.value) || 1)))}
+                                />
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => update('variantCount', Math.max(1, form.variantCount - 1))}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 38, padding: '6px 0', boxShadow: 'none' }}
+                                    >
+                                        −
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => update('variantCount', Math.min(4, form.variantCount + 1))}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 38, padding: '6px 0', boxShadow: 'none' }}
+                                    >
+                                        +
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ background: '#ededed', border: '2px solid #c7c7c7', borderRadius: 12, padding: '10px 12px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#1e1e1e', fontSize: '13px' }}>
+                                <input type="checkbox" checked={form.accepted} onChange={e => update('accepted', e.target.checked)} />
+                                Potwierdzam prawo do wykorzystania wizerunku i akceptuję Regulamin i Politykę Prywatności.
+                            </label>
                         </div>
                     </div>
                 )}
@@ -1067,45 +1088,58 @@ const App: React.FC = () => {
                                 <span style={{ width: 16, height: 16, borderRadius: 6, background: '#8bb0d6', color: '#ffffff', fontSize: 11, display: 'grid', placeItems: 'center', fontWeight: 800 }}>i</span>
                             </div>
                             {auth.loggedIn ? (
-                                <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
-                                    <div style={{ background: '#ffffff', border: '2px solid #c7c7c7', borderRadius: 10, padding: '8px 12px', fontWeight: 800, minWidth: 64, textAlign: 'center' }}>{auth.tokens}</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                                    <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e' }}>Tokeny Stylizacji</div>
+                                    <input
+                                        style={{ ...inputStyle, maxWidth: 70, textAlign: 'center', padding: '6px 8px' }}
+                                        value={auth.tokens}
+                                        readOnly
+                                    />
                                     <button
                                         type="button"
                                         onClick={handleTopUpTokens}
-                                        style={{ ...actionButtonStyle, background: '#9b59ff', boxShadow: 'none', padding: '10px 14px' }}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', boxShadow: 'none', padding: '8px 10px', fontSize: 12 }}
                                     >
                                         Dokup tokeny
                                     </button>
                                 </div>
                             ) : (
-                                <div style={{ marginBottom: 10, fontSize: 13, color: '#2a2a2a' }}>
-                                    Jednorazowa płatność: <strong>{getModelCostText()}</strong>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                                    <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e' }}>Płatność jednorazowa</div>
+                                    <input
+                                        style={{ ...inputStyle, maxWidth: 150, textAlign: 'center', padding: '6px 8px' }}
+                                        value={getModelCostText()}
+                                        readOnly
+                                    />
                                 </div>
                             )}
 
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                                <button
-                                    type="button"
-                                    onClick={() => update('variantCount', Math.max(1, form.variantCount - 1))}
-                                    style={{ ...actionButtonStyle, background: '#9b59ff', width: 44, padding: '8px 0', boxShadow: 'none' }}
-                                >
-                                    −
-                                </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                                <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e' }}>Liczba Stylizacji</div>
                                 <input
-                                    style={{ ...inputStyle, maxWidth: 80, textAlign: 'center' }}
+                                    style={{ ...inputStyle, maxWidth: 60, textAlign: 'center', padding: '6px 8px' }}
                                     type="number"
                                     min={1}
                                     max={4}
                                     value={form.variantCount}
                                     onChange={e => update('variantCount', Math.min(4, Math.max(1, Number(e.target.value) || 1)))}
                                 />
-                                <button
-                                    type="button"
-                                    onClick={() => update('variantCount', Math.min(4, form.variantCount + 1))}
-                                    style={{ ...actionButtonStyle, background: '#9b59ff', width: 44, padding: '8px 0', boxShadow: 'none' }}
-                                >
-                                    +
-                                </button>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => update('variantCount', Math.max(1, form.variantCount - 1))}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 38, padding: '6px 0', boxShadow: 'none' }}
+                                    >
+                                        −
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => update('variantCount', Math.min(4, form.variantCount + 1))}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 38, padding: '6px 0', boxShadow: 'none' }}
+                                    >
+                                        +
+                                    </button>
+                                </div>
                             </div>
 
                             <div style={{ background: '#ededed', border: '2px solid #c7c7c7', borderRadius: 12, padding: '10px 12px', marginBottom: 10 }}>
