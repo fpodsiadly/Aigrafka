@@ -6,10 +6,10 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: 'dist',
+    emptyOutDir: false,
     sourcemap: true,
     rollupOptions: {
       input: {
-        contentScript: resolve(__dirname, 'src/contentScript.tsx'),
         background: resolve(__dirname, 'src/background/serviceWorker.ts'),
         panelPreview: resolve(__dirname, 'src/panel/preview.html')
       },

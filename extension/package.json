@@ -1,11 +1,11 @@
 {
   "name": "aigrafka-extension",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build --config vite.content.config.ts && vite build",
     "postbuild": "cp manifest.json dist/manifest.json && cp -R icons dist/icons",
     "lint": "echo 'add lint'",
     "release:patch": "cd .. && bash scripts/build-and-release.sh patch",

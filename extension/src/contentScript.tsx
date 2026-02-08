@@ -8,10 +8,13 @@ let hostEl: HTMLElement | null = null;
 
 function removePanel() {
   const existing = document.getElementById(CONTAINER_ID);
+  if (root) {
+    root.unmount();
+    root = null;
+  }
   if (existing) {
     existing.remove();
     hostEl = null;
-    root = null;
     return true;
   }
   return false;
@@ -74,9 +77,8 @@ function injectPanel() {
   );
 }
 
-// Toggle on demand from the action button; still auto-inject on first load for now.
+// Toggle on demand from the action button.
 console.info('[Aigrafka] content script loaded');
-injectPanel();
 
 if (chrome?.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

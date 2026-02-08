@@ -96,6 +96,19 @@ const inputStyle: React.CSSProperties = {
     color: '#1e1e1e'
 };
 
+const dropZoneStyle: React.CSSProperties = {
+    border: '1px dashed #0a3b44',
+    borderRadius: 12,
+    padding: '10px',
+    background: '#0f6572',
+    color: '#f5f5f5',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    cursor: 'pointer',
+    justifyContent: 'space-between'
+};
+
 const validReserved = (url: string) => {
     try {
         const u = new URL(url);
@@ -588,6 +601,40 @@ const App: React.FC = () => {
         return name.length > 10 ? `${name.slice(0, 10)}…` : name;
     }
 
+    function handleFileSelect(key: 'productImage1' | 'productImage2', file: File | null) {
+        update(key, file);
+        if (file) {
+            setStatus(`Dodano ${file.name}`);
+        }
+    }
+
+    async function handleDropProduct(key: 'productImage1' | 'productImage2', event: React.DragEvent<HTMLDivElement>) {
+        event.preventDefault();
+        const dt = event.dataTransfer;
+
+        if (dt.files && dt.files.length > 0) {
+            handleFileSelect(key, dt.files[0]);
+            return;
+        }
+
+        const url = dt.getData('text/uri-list') || dt.getData('text/plain');
+        if (url && /^https?:\/\//i.test(url)) {
+            try {
+                const resp = await fetch(url, { mode: 'cors' });
+                const blob = await resp.blob();
+                const name = url.split('/').pop()?.split('?')[0] || 'obraz.jpg';
+                const fetched = new File([blob], name, { type: blob.type || 'image/jpeg' });
+                handleFileSelect(key, fetched);
+                return;
+            } catch (error) {
+                console.error(error);
+                setStatus('Nie udało się pobrać obrazu z linku (CORS).');
+            }
+        }
+
+        setStatus('Upuść plik obrazu lub link http/https.');
+    }
+
     function handleChangeParams() {
         setView('form');
         setStatus('Zmień parametry i wygeneruj ponownie.');
@@ -787,59 +834,83 @@ const App: React.FC = () => {
                         </div>
 
                         <FieldRow label="Zdjęcie produktu 1:">
-                            <label
-                                style={{
-                                    ...actionButtonStyle,
-                                    background: '#0f6572',
-                                    color: '#f5f5f5',
-                                    padding: '10px 12px',
-                                    border: '1px solid #0a3b44',
-                                    borderRadius: 10,
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    minWidth: 140,
-                                    justifyContent: 'center'
-                                }}
+                            <div
+                                onDragOver={e => e.preventDefault()}
+                                onDrop={e => handleDropProduct('productImage1', e)}
+                                style={{ ...dropZoneStyle, minHeight: 48 }}
+                                role="button"
+                                aria-label="Upuść obraz lub kliknij, aby dodać pierwsze zdjęcie produktu"
                             >
-                                <span>{displayFileName(form.productImage1, 'Dodaj zdjęcie')}</span>
-                                <input
-                                    type="file"
-                                    accept="image/*"
-                                    onChange={e => update('productImage1', e.target.files?.[0] ?? null)}
-                                    style={{ display: 'none' }}
-                                />
-                            </label>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                                    <span style={{ fontWeight: 700 }}>{displayFileName(form.productImage1, 'Dodaj zdjęcie')}</span>
+                                    <span style={{ fontSize: 11, color: '#d6f3f7' }}>Przeciągnij plik lub obraz z sieci</span>
+                                </div>
+                                <label
+                                    style={{
+                                        ...actionButtonStyle,
+                                        background: '#0f6572',
+                                        color: '#f5f5f5',
+                                        padding: '8px 10px',
+                                        border: '1px solid #0a3b44',
+                                        borderRadius: 10,
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        minWidth: 120,
+                                        justifyContent: 'center'
+                                    }}
+                                >
+                                    <span>Wybierz</span>
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={e => handleFileSelect('productImage1', e.target.files?.[0] ?? null)}
+                                        style={{ display: 'none' }}
+                                    />
+                                </label>
+                            </div>
                         </FieldRow>
 
                         <FieldRow label="Zdjęcie produktu 2:">
-                            <label
-                                style={{
-                                    ...actionButtonStyle,
-                                    background: '#0f6572',
-                                    color: '#f5f5f5',
-                                    padding: '10px 12px',
-                                    border: '1px solid #0a3b44',
-                                    borderRadius: 10,
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    minWidth: 140,
-                                    justifyContent: 'center'
-                                }}
+                            <div
+                                onDragOver={e => e.preventDefault()}
+                                onDrop={e => handleDropProduct('productImage2', e)}
+                                style={{ ...dropZoneStyle, minHeight: 48 }}
+                                role="button"
+                                aria-label="Upuść obraz lub kliknij, aby dodać drugie zdjęcie produktu"
                             >
-                                <span>{displayFileName(form.productImage2, 'Dodaj zdjęcie')}</span>
-                                <input
-                                    type="file"
-                                    accept="image/*"
-                                    onChange={e => update('productImage2', e.target.files?.[0] ?? null)}
-                                    style={{ display: 'none' }}
-                                />
-                            </label>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                                    <span style={{ fontWeight: 700 }}>{displayFileName(form.productImage2, 'Dodaj zdjęcie')}</span>
+                                    <span style={{ fontSize: 11, color: '#d6f3f7' }}>Przeciągnij plik lub obraz z sieci</span>
+                                </div>
+                                <label
+                                    style={{
+                                        ...actionButtonStyle,
+                                        background: '#0f6572',
+                                        color: '#f5f5f5',
+                                        padding: '8px 10px',
+                                        border: '1px solid #0a3b44',
+                                        borderRadius: 10,
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        minWidth: 120,
+                                        justifyContent: 'center'
+                                    }}
+                                >
+                                    <span>Wybierz</span>
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={e => handleFileSelect('productImage2', e.target.files?.[0] ?? null)}
+                                        style={{ display: 'none' }}
+                                    />
+                                </label>
+                            </div>
                         </FieldRow>
 
                         <FieldRow label="Warianty AI:">
