@@ -16,16 +16,22 @@ class GeminiClient:
 
     def __init__(self, api_key: Optional[str] = None, timeout: Optional[float] = None, model: Optional[str] = None) -> None:
         settings = get_settings()
-        self.api_key = api_key or settings.gemini_api_key
+        self.api_key = api_key or settings.gemini_api_key or ""
         # Primary model: Gemini 3 image generation (generateContent)
         self.model = model or settings.gemini_model or "gemini-3-pro-image-preview"
         self.timeout = timeout or settings.http_timeout
         # Reuse a single genai client; mirrors OpenVTO reference behavior
-        self._client = genai.Client(api_key=self.api_key)
+        self._client = genai.Client(api_key=self.api_key) if self.api_key else None
 
     async def generate_image(self, prompt: str, selfie_bytes: bytes, product_image_bytes: bytes) -> dict[str, Any]:
-        headers = {"Content-Type": "application/json"}
-        params = {"key": self.api_key}
+        if self._client is None:
+            return {
+                "image_base64": self.FALLBACK_IMAGE_BASE64,
+                "mime_type": "image/png",
+                "status": "fallback",
+                "model": self.model,
+                "error": "GEMINI_API_KEY is not configured",
+            }
 
         # Build parts: selfie (reference/body), product (clothing), prompt last
         parts = [
@@ -136,6 +142,9 @@ class GeminiClient:
 
     async def generate_fit_note(self, prompt: str) -> Optional[str]:
         """Generate a short Polish fit note based on the styling prompt."""
+
+        if self._client is None:
+            return None
 
         instruction = (
             "Na podstawie opisu stylizacji oceń, czy produkt pasuje do sylwetki i rozmiaru. "

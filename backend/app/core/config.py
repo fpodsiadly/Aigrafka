@@ -1,10 +1,11 @@
 from functools import lru_cache
+from typing import Optional
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    gemini_api_key: str = Field(..., alias="GEMINI_API_KEY", min_length=1)
+    gemini_api_key: Optional[str] = Field(default=None, alias="GEMINI_API_KEY")
     # Default to the faster image model; can be overridden via GEMINI_MODEL
     gemini_model: str = Field(default="gemini-2.5-flash-image")
     http_timeout: float = Field(default=30.0, ge=1.0)
