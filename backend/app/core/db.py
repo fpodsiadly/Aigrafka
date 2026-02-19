@@ -70,6 +70,66 @@ def get_user_by_id(user_id: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
+def get_user_by_email(email: str) -> Optional[dict]:
+    engine = get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                """
+                SELECT id, email, tokens
+                FROM "User"
+                WHERE LOWER(email) = LOWER(:email)
+                LIMIT 1
+                """
+            ),
+            {"email": email},
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def get_or_create_user_by_email(email: str, initial_tokens: int) -> dict:
+    existing = get_user_by_email(email)
+    if existing:
+        return existing
+
+    engine = get_engine()
+    user_id = uuid4().hex
+
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO "User" (id, email, tokens, "createdAt", "updatedAt")
+                    VALUES (:id, :email, :tokens, NOW(), NOW())
+                    """
+                ),
+                {"id": user_id, "email": email, "tokens": initial_tokens},
+            )
+
+            user = conn.execute(
+                text(
+                    """
+                    SELECT id, email, tokens
+                    FROM "User"
+                    WHERE id = :user_id
+                    LIMIT 1
+                    """
+                ),
+                {"user_id": user_id},
+            ).mappings().first()
+
+        if not user:
+            raise RuntimeError("Failed to create user")
+
+        return dict(user)
+    except IntegrityError:
+        race_user = get_user_by_email(email)
+        if race_user:
+            return race_user
+        raise
+
+
 def create_user_with_credentials(email: str, password_hash: str, initial_tokens: int) -> dict:
     engine = get_engine()
     user_id = uuid4().hex

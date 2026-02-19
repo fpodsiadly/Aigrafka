@@ -58,6 +58,24 @@ interface AuthMeResponse {
     tokens: number;
 }
 
+interface GoogleClientIdResponse {
+    enabled: boolean;
+    client_id?: string | null;
+}
+
+declare global {
+    interface Window {
+        google?: {
+            accounts?: {
+                id?: {
+                    initialize: (options: { client_id: string; callback: (resp: { credential?: string }) => void }) => void;
+                    prompt: () => void;
+                };
+            };
+        };
+    }
+}
+
 interface VariantPreview {
     url: string;
     mimeType?: string;
@@ -240,11 +258,13 @@ function toDataUrl(base64: string | null, mimeType?: string | null): string {
 const PanelHeader = ({
     logoSrc,
     loggedIn,
+    userEmail,
     onLogin,
     onLogout
 }: {
     logoSrc?: string;
     loggedIn: boolean;
+    userEmail?: string;
     onLogin: () => void;
     onLogout: () => void;
 }) => (
@@ -266,20 +286,37 @@ const PanelHeader = ({
             </div>
             <div style={{ color: '#1b1b1b', fontSize: '24px', fontWeight: 800, letterSpacing: '0.2px' }}>Aigrafka</div>
         </div>
-        <button
-            type="button"
-            onClick={loggedIn ? onLogout : onLogin}
-            style={{
-                ...actionButtonStyle,
-                background: loggedIn ? '#d9a1c5' : '#9b59ff',
-                color: '#ffffff',
-                padding: '10px 14px',
-                borderRadius: 10,
-                boxShadow: 'none'
-            }}
-        >
-            {loggedIn ? 'Wyloguj się' : 'Rejestracja'}
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, minWidth: 0 }}>
+            <button
+                type="button"
+                onClick={loggedIn ? onLogout : onLogin}
+                style={{
+                    ...actionButtonStyle,
+                    background: loggedIn ? '#d9a1c5' : '#9b59ff',
+                    color: '#ffffff',
+                    padding: '10px 14px',
+                    borderRadius: 10,
+                    boxShadow: 'none'
+                }}
+            >
+                {loggedIn ? 'Wyloguj się' : 'Rejestracja'}
+            </button>
+            {loggedIn && userEmail && (
+                <div
+                    title={userEmail}
+                    style={{
+                        fontSize: 11,
+                        color: '#4b4b4b',
+                        maxWidth: 170,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis'
+                    }}
+                >
+                    Zalogowano: {userEmail}
+                </div>
+            )}
+        </div>
     </div>
 );
 
@@ -335,6 +372,13 @@ const App: React.FC = () => {
     });
     const [view, setView] = useState<'form' | 'result'>('form');
     const [showMeasurements, setShowMeasurements] = useState<boolean>(false);
+    const [showAuthDialog, setShowAuthDialog] = useState<boolean>(false);
+    const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+    const [authEmail, setAuthEmail] = useState<string>('');
+    const [authPassword, setAuthPassword] = useState<string>('');
+    const [authSubmitting, setAuthSubmitting] = useState<boolean>(false);
+    const [googleClientId, setGoogleClientId] = useState<string | null>(null);
+    const [googleReady, setGoogleReady] = useState<boolean>(false);
 
     const canSubmit = useMemo(() => {
         const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
@@ -399,18 +443,35 @@ const App: React.FC = () => {
         }
     }
 
-    async function handleLogin() {
-        const email = window.prompt('Podaj email do logowania/rejestracji:')?.trim();
-        if (!email) return;
+    function handleLogin() {
+        setAuthMode('login');
+        setAuthEmail(auth.email ?? '');
+        setAuthPassword('');
+        setShowAuthDialog(true);
+    }
 
-        const password = window.prompt('Podaj hasło (min. 6 znaków):') ?? '';
+    function closeAuthDialog() {
+        if (authSubmitting) return;
+        setShowAuthDialog(false);
+    }
+
+    async function handleAuthSubmit(event: React.FormEvent) {
+        event.preventDefault();
+        const email = authEmail.trim();
+        const password = authPassword;
+
+        if (!email.includes('@')) {
+            setStatus('Podaj poprawny adres email.');
+            return;
+        }
+
         if (password.length < 6) {
             setStatus('Hasło musi mieć co najmniej 6 znaków.');
             return;
         }
 
-        const wantsRegister = window.confirm('Kliknij OK aby utworzyć konto (rejestracja). Kliknij Anuluj aby się zalogować.');
-        const endpoint = wantsRegister ? '/auth/register' : '/auth/login';
+        const endpoint = authMode === 'register' ? '/auth/register' : '/auth/login';
+        setAuthSubmitting(true);
 
         try {
             let response = await fetch(`${apiBase}${endpoint}`, {
@@ -419,7 +480,7 @@ const App: React.FC = () => {
                 body: JSON.stringify({ email, password })
             });
 
-            if (!response.ok && wantsRegister && response.status === 409) {
+            if (!response.ok && authMode === 'register' && response.status === 409) {
                 response = await fetch(`${apiBase}/auth/login`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -429,7 +490,7 @@ const App: React.FC = () => {
 
             if (!response.ok) {
                 const text = await response.text();
-                let message = 'Nie udało się zalogować.';
+                let message = authMode === 'register' ? 'Nie udało się utworzyć konta.' : 'Nie udało się zalogować.';
                 try {
                     const parsed = JSON.parse(text);
                     message = parsed?.detail || message;
@@ -442,11 +503,68 @@ const App: React.FC = () => {
             const data: AuthApiResponse = await response.json();
             await authStorage.setToken(data.access_token);
             setAuth({ loggedIn: true, tokens: data.tokens, accessToken: data.access_token, email: data.email });
+            setShowAuthDialog(false);
             setStatus(`Zalogowano jako ${data.email}.`);
         } catch (error) {
             console.error(error);
-            setStatus(error instanceof Error ? error.message : 'Nie udało się zalogować.');
+            setStatus(error instanceof Error ? error.message : 'Błąd logowania.');
+        } finally {
+            setAuthSubmitting(false);
         }
+    }
+
+    async function handleGoogleCredential(credential: string) {
+        if (!credential) {
+            setStatus('Nie udało się pobrać tokenu Google.');
+            return;
+        }
+
+        setAuthSubmitting(true);
+        try {
+            const response = await fetch(`${apiBase}/auth/google`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id_token: credential })
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                let message = 'Logowanie Google nie powiodło się.';
+                try {
+                    const parsed = JSON.parse(text);
+                    message = parsed?.detail || message;
+                } catch {
+                    if (text) message = text;
+                }
+                throw new Error(message);
+            }
+
+            const data: AuthApiResponse = await response.json();
+            await authStorage.setToken(data.access_token);
+            setAuth({ loggedIn: true, tokens: data.tokens, accessToken: data.access_token, email: data.email });
+            setShowAuthDialog(false);
+            setStatus(`Zalogowano przez Google jako ${data.email}.`);
+        } catch (error) {
+            console.error(error);
+            setStatus(error instanceof Error ? error.message : 'Błąd logowania Google.');
+        } finally {
+            setAuthSubmitting(false);
+        }
+    }
+
+    function startGoogleSignIn() {
+        if (!googleClientId || !window.google?.accounts?.id || authSubmitting) return;
+        window.google.accounts.id.initialize({
+            client_id: googleClientId,
+            callback: response => {
+                if (response?.credential) {
+                    handleGoogleCredential(response.credential);
+                } else {
+                    setStatus('Google nie zwrócił poświadczenia.');
+                }
+            }
+        });
+        window.google.accounts.id.prompt();
     }
 
     async function handleLogout() {
@@ -524,6 +642,47 @@ const App: React.FC = () => {
             refreshAuthFromServer(token);
         });
     }, []);
+
+    useEffect(() => {
+        if (!showAuthDialog) return;
+
+        fetch(`${apiBase}/auth/google/client-id`)
+            .then(r => r.ok ? r.json() : null)
+            .then((data: GoogleClientIdResponse | null) => {
+                if (!data?.enabled || !data.client_id) {
+                    setGoogleClientId(null);
+                    setGoogleReady(false);
+                    return;
+                }
+
+                setGoogleClientId(data.client_id);
+
+                if (window.google?.accounts?.id) {
+                    setGoogleReady(true);
+                    return;
+                }
+
+                const existing = document.querySelector('script[data-google-gsi="true"]') as HTMLScriptElement | null;
+                if (existing) {
+                    existing.addEventListener('load', () => setGoogleReady(true), { once: true });
+                    return;
+                }
+
+                const script = document.createElement('script');
+                script.src = 'https://accounts.google.com/gsi/client';
+                script.async = true;
+                script.defer = true;
+                script.dataset.googleGsi = 'true';
+                script.onload = () => setGoogleReady(true);
+                script.onerror = () => setStatus('Nie udało się załadować Google Sign-In.');
+                document.head.appendChild(script);
+            })
+            .catch(error => {
+                console.error(error);
+                setGoogleClientId(null);
+                setGoogleReady(false);
+            });
+    }, [showAuthDialog]);
 
     function rememberField(key: StorableKey) {
         const nextValue = !savedFlags[key];
@@ -810,7 +969,7 @@ const App: React.FC = () => {
 
     return (
         <div className="aigrafka-shell" style={{ display: 'flex', flexDirection: 'column', background: '#dcdcdc', color: '#1e1e1e', height: '100%', width: '100%' }}>
-            <PanelHeader logoSrc={logoSrc} loggedIn={auth.loggedIn} onLogin={handleLogin} onLogout={handleLogout} />
+            <PanelHeader logoSrc={logoSrc} loggedIn={auth.loggedIn} userEmail={auth.email} onLogin={handleLogin} onLogout={handleLogout} />
             <div style={{ flex: 1, padding: '14px 14px 140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {view === 'form' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -1383,6 +1542,138 @@ const App: React.FC = () => {
                         >
                             {isLoading ? 'Generowanie...' : 'Generuj stylizację'}
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {showAuthDialog && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(20,20,20,0.45)',
+                        display: 'grid',
+                        placeItems: 'center',
+                        zIndex: 1000,
+                        padding: 16
+                    }}
+                    onClick={closeAuthDialog}
+                >
+                    <div
+                        style={{
+                            width: '100%',
+                            maxWidth: 360,
+                            background: '#e2e2e2',
+                            border: '2px solid #bdbdbd',
+                            borderRadius: 16,
+                            boxShadow: '0 14px 30px rgba(0,0,0,0.24)',
+                            padding: 14
+                        }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <div style={{ ...sectionTitleStyle, fontSize: 15 }}>Konto Aigrafka</div>
+                            <button
+                                type="button"
+                                onClick={closeAuthDialog}
+                                style={{
+                                    ...actionButtonStyle,
+                                    background: '#9b59ff',
+                                    width: 34,
+                                    height: 34,
+                                    padding: 0,
+                                    borderRadius: 10,
+                                    boxShadow: 'none'
+                                }}
+                                disabled={authSubmitting}
+                            >
+                                ×
+                            </button>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                            <button
+                                type="button"
+                                onClick={() => setAuthMode('login')}
+                                style={{
+                                    ...actionButtonStyle,
+                                    background: authMode === 'login' ? '#9b59ff' : '#b7b7b7',
+                                    boxShadow: 'none',
+                                    padding: '8px 12px',
+                                    flex: 1
+                                }}
+                                disabled={authSubmitting}
+                            >
+                                Logowanie
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setAuthMode('register')}
+                                style={{
+                                    ...actionButtonStyle,
+                                    background: authMode === 'register' ? '#9b59ff' : '#b7b7b7',
+                                    boxShadow: 'none',
+                                    padding: '8px 12px',
+                                    flex: 1
+                                }}
+                                disabled={authSubmitting}
+                            >
+                                Rejestracja
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleAuthSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <input
+                                style={inputStyle}
+                                type="email"
+                                placeholder="Email"
+                                value={authEmail}
+                                onChange={e => setAuthEmail(e.target.value)}
+                                autoComplete="email"
+                                disabled={authSubmitting}
+                            />
+                            <input
+                                style={inputStyle}
+                                type="password"
+                                placeholder="Hasło (min. 6 znaków)"
+                                value={authPassword}
+                                onChange={e => setAuthPassword(e.target.value)}
+                                autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+                                disabled={authSubmitting}
+                            />
+
+                            <button
+                                type="submit"
+                                style={{
+                                    ...actionButtonStyle,
+                                    background: '#9b59ff',
+                                    boxShadow: 'none',
+                                    padding: '10px 12px'
+                                }}
+                                disabled={authSubmitting}
+                            >
+                                {authSubmitting ? 'Trwa...' : authMode === 'register' ? 'Utwórz konto' : 'Zaloguj się'}
+                            </button>
+
+                            {googleClientId && (
+                                <button
+                                    type="button"
+                                    onClick={startGoogleSignIn}
+                                    style={{
+                                        ...actionButtonStyle,
+                                        background: googleReady ? '#ffffff' : '#d6d6d6',
+                                        color: '#1e1e1e',
+                                        border: '2px solid #c7c7c7',
+                                        boxShadow: 'none',
+                                        padding: '10px 12px',
+                                        fontWeight: 700
+                                    }}
+                                    disabled={authSubmitting || !googleReady}
+                                >
+                                    {googleReady ? 'Kontynuuj z Google' : 'Ładowanie Google...'}
+                                </button>
+                            )}
+                        </form>
                     </div>
                 </div>
             )}

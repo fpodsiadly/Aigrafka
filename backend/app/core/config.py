@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     jwt_exp_minutes: int = Field(default=60 * 24 * 7, alias="JWT_EXP_MINUTES", ge=5, le=60 * 24 * 30)
     initial_user_tokens: int = Field(default=5, alias="INITIAL_USER_TOKENS", ge=0, le=100000)
     token_cost_per_stylization: int = Field(default=1, alias="TOKEN_COST_PER_STYLIZATION", ge=1, le=1000)
+    google_client_id: Optional[str] = Field(default=None, alias="GOOGLE_CLIENT_ID")
 
     class Config:
         env_file = ".env"
