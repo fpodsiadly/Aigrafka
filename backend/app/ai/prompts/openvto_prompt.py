@@ -11,6 +11,7 @@ def build_openvto_prompt(
     chest_cm: Optional[str] = None,
     waist_cm: Optional[str] = None,
     hips_cm: Optional[str] = None,
+    variants: int = 1,
 ) -> str:
     domain = urlparse(product_ref).netloc if not is_upload else ""
     source_text = (
@@ -40,10 +41,21 @@ def build_openvto_prompt(
         measurements.append(f"hips {hips_cm} cm")
     measurements_text = f"User measurements: {', '.join(measurements)}." if measurements else "User measurements: not provided."
 
+    variants = max(1, min(variants, 3))
+    if variants == 1:
+        variant_text = "Generate ONE photorealistic full-body portrait of the user wearing the product."
+    else:
+        variant_text = (
+            f"Generate {variants} DISTINCT photorealistic full-body portraits of the user wearing the product. "
+            f"Each variant must show the same user and garment but differ in pose angle (e.g., straight-on vs subtle 3/4 view), "
+            f"lighting mood, or background tone to give the user meaningful variety. "
+            f"Return exactly {variants} separate images."
+        )
+
     return (
         "You are an AI virtual try-on system following OpenVTO principles. "
         "Inputs: (1) user selfie image; (2) product garment image from the e-commerce page or upload. "
-        "Generate ONE photorealistic full-body portrait of the user wearing the product. "
+        f"{variant_text} "
         "Pose: user standing upright, relaxed neutral stance, body and face oriented straight toward the camera. "
         "Camera/framing: full body visible (head to feet) with slight headroom; straight-on preferred or very subtle 3/4 view; no profile. "
         "Aspect ratio approximately 3:4 (allow up to 2:3 if needed to keep feet visible). "

@@ -1,9 +1,10 @@
 import logging
 from io import BytesIO
 from time import perf_counter
+from typing import Optional, Union
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, HttpUrl
 from PIL import Image
 
@@ -11,25 +12,27 @@ from app.ai.gemini_client import GeminiClient
 from app.ai.prompts.openvto_prompt import build_openvto_prompt
 from app.ai.product_image import fetch_product_image
 from app.core.config import get_settings
+from app.core.db import add_tokens, deduct_tokens_if_possible
+from app.core.security import get_optional_user_id
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
 class ImageVariant(BaseModel):
-    image_base64: str | dict | None = None
-    mime_type: str | None = None
-    width: int | None = None
-    height: int | None = None
-    latency_ms: float | None = None
+    image_base64: Optional[Union[str, dict]] = None
+    mime_type: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    latency_ms: Optional[float] = None
 
 
 class GenerateResponse(BaseModel):
     status: str
-    image_base64: str | dict | None = None  # backwards compatibility
-    mime_type: str | None = None  # backwards compatibility
+    image_base64: Optional[Union[str, dict]] = None  # backwards compatibility
+    mime_type: Optional[str] = None  # backwards compatibility
     variants: list[ImageVariant]
-    model: str | None = None
+    model: Optional[str] = None
 
 
 def _ensure_reserved(product_url: str) -> None:
@@ -108,18 +111,19 @@ def _validate_and_normalize_product(upload: UploadFile) -> bytes:
 
 @router.post("/generate", response_model=GenerateResponse)
 async def generate_tryon(
-    product_url: HttpUrl | None = Form(None),
+    product_url: Optional[HttpUrl] = Form(None),
     selfie: UploadFile = File(...),
-    category: str | None = Form(None),
-    fit_style: str | None = Form(None),
-    height_cm: str | None = Form(None),
-    chest_cm: str | None = Form(None),
-    waist_cm: str | None = Form(None),
-    hips_cm: str | None = Form(None),
-    model_choice: str | None = Form(None),
-    variants: int | None = Form(None),
-    product_image_1: UploadFile | None = File(None),
-    product_image_2: UploadFile | None = File(None),
+    category: Optional[str] = Form(None),
+    fit_style: Optional[str] = Form(None),
+    height_cm: Optional[str] = Form(None),
+    chest_cm: Optional[str] = Form(None),
+    waist_cm: Optional[str] = Form(None),
+    hips_cm: Optional[str] = Form(None),
+    model_choice: Optional[str] = Form(None),
+    variants: Optional[int] = Form(None),
+    product_image_1: Optional[UploadFile] = File(None),
+    product_image_2: Optional[UploadFile] = File(None),
+    user_id: Optional[str] = Depends(get_optional_user_id),
 ) -> GenerateResponse:
     t_enter = perf_counter()
     if not product_url and not product_image_1 and not product_image_2:
@@ -131,7 +135,7 @@ async def generate_tryon(
     selfie_bytes = _validate_and_normalize_selfie(selfie)
 
     used_upload = False
-    product_image_bytes: bytes | None = None
+    product_image_bytes: Optional[bytes] = None
 
     for candidate in (product_image_1, product_image_2):
         if candidate is None:
@@ -154,6 +158,9 @@ async def generate_tryon(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     product_ref = "uploaded product image" if used_upload else str(product_url)
+    requested_variants = variants if variants is not None else settings.variants
+    variant_count = max(1, min(requested_variants, 3))
+
     prompt = build_openvto_prompt(
         product_ref,
         is_upload=used_upload,
@@ -163,8 +170,8 @@ async def generate_tryon(
         chest_cm=chest_cm,
         waist_cm=waist_cm,
         hips_cm=hips_cm,
+        variants=variant_count,
     )
-    variant_count = max(1, min(variants or settings.variants, settings.variants))
 
     model_map = {
         "banana": "gemini-2.5-flash-image",
@@ -175,7 +182,7 @@ async def generate_tryon(
     client = GeminiClient(model=chosen_model)
     successful: list[ImageVariant] = []
     fallbacks: list[ImageVariant] = []
-    first_model_ms: float | None = None
+    first_model_ms: Optional[float] = None
 
     logger.info(
         "generate_tryon start product_url=%s used_upload=%s variants=%d model=%s",
@@ -185,41 +192,56 @@ async def generate_tryon(
         client.model,
     )
 
-    for _ in range(variant_count):
-        started = perf_counter()
-        result = await client.generate_image(
-            prompt=prompt,
-            selfie_bytes=selfie_bytes,
-            product_image_bytes=product_image_bytes,
-        )
-        latency_ms = (perf_counter() - started) * 1000.0
-        if first_model_ms is None:
-            first_model_ms = latency_ms
+    charged_tokens = 0
+    if user_id:
+        charged_tokens = variant_count * settings.token_cost_per_stylization
+        updated_tokens = deduct_tokens_if_possible(user_id, charged_tokens)
+        if updated_tokens is None:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=f"Insufficient tokens. Required: {charged_tokens}",
+            )
 
-        width = height = None
-        try:
-            b = result.get("image_base64")
-            if isinstance(b, str):
-                from base64 import b64decode
+    try:
+        for _ in range(variant_count):
+            started = perf_counter()
+            result = await client.generate_image(
+                prompt=prompt,
+                selfie_bytes=selfie_bytes,
+                product_image_bytes=product_image_bytes,
+            )
+            latency_ms = (perf_counter() - started) * 1000.0
+            if first_model_ms is None:
+                first_model_ms = latency_ms
 
-                img_bytes = b64decode(b)
-                img = Image.open(BytesIO(img_bytes))
-                width, height = img.size
-        except Exception:
             width = height = None
+            try:
+                b = result.get("image_base64")
+                if isinstance(b, str):
+                    from base64 import b64decode
 
-        variant = ImageVariant(
-            image_base64=result.get("image_base64"),
-            mime_type=result.get("mime_type", "image/jpeg"),
-            width=width,
-            height=height,
-            latency_ms=latency_ms,
-        )
+                    img_bytes = b64decode(b)
+                    img = Image.open(BytesIO(img_bytes))
+                    width, height = img.size
+            except Exception:
+                width = height = None
 
-        if result.get("status") == "generated" and variant.image_base64:
-            successful.append(variant)
-        else:
-            fallbacks.append(variant)
+            variant = ImageVariant(
+                image_base64=result.get("image_base64"),
+                mime_type=result.get("mime_type", "image/jpeg"),
+                width=width,
+                height=height,
+                latency_ms=latency_ms,
+            )
+
+            if result.get("status") == "generated" and variant.image_base64:
+                successful.append(variant)
+            else:
+                fallbacks.append(variant)
+    except Exception:
+        if user_id and charged_tokens > 0:
+            add_tokens(user_id, charged_tokens)
+        raise
 
     variants_payload = successful or fallbacks
     first = variants_payload[0] if variants_payload else None

@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { BodyMetrics } from '../../../shared/types.js';
 
@@ -36,4 +36,11 @@ export class GenerateDto {
   @IsOptional()
   @IsString()
   userId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(3)
+  @Type(() => Number)
+  variants?: number;
 }

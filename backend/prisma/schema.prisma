@@ -71,6 +71,7 @@ model FitJob {
   category    String
   metrics     Json
   selfieUrl   String?
+  variants    Int           @default(1)
   status      FitJobStatus  @default(QUEUED)
   resultUrl   String?
   fitNote     String?

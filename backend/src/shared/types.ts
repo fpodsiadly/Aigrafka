@@ -11,4 +11,5 @@ export interface GenerateRequest {
   metrics: BodyMetrics;
   selfieUrl?: string;
   userId?: string;
+  variants?: number;
 }

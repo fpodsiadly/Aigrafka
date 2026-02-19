@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.auth import router as auth_router
 from app.api.generate import router as generate_router
 from app.core.config import get_settings
+from app.core.db import init_auth_tables
 
 app = FastAPI(title="Aigrafka Demo Backend", version="0.1.0")
 
@@ -22,6 +24,12 @@ app.add_middleware(
 )
 
 app.include_router(generate_router, prefix="")
+app.include_router(auth_router, prefix="")
+
+
+@app.on_event("startup")
+def startup() -> None:
+    init_auth_tables()
 
 
 @app.get("/health")

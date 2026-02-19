@@ -9,6 +9,8 @@ export class AiService {
   constructor(private readonly prisma: PrismaService, private readonly queue: AiQueueService) {}
 
   async generate(request: GenerateDto) {
+    const variants = Math.min(Math.max(request.variants ?? 1, 1), 3);
+
     const job = await (this.prisma as any).fitJob.create({
       data: {
         userId: request.userId ?? 'anonymous',
@@ -16,6 +18,7 @@ export class AiService {
         category: request.category,
         metrics: { ...request.metrics },
         selfieUrl: request.selfieUrl,
+        variants,
         status: 'QUEUED'
       }
     });
@@ -26,12 +29,14 @@ export class AiService {
       productUrl: job.productUrl,
       category: job.category,
       metrics: job.metrics,
-      selfieUrl: job.selfieUrl
+      selfieUrl: job.selfieUrl,
+      variants
     });
 
     return {
       jobId: job.id,
       status: job.status,
+      variants,
       message: 'Zlecenie przyjęte do kolejki.'
     };
   }

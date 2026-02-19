@@ -48,7 +48,10 @@ class GeminiClient:
         if self.model == "gemini-2.5-flash-image":
             image_config = types.ImageConfig(aspect_ratio="3:4")
         else:
-            image_config = types.ImageConfig(aspect_ratio="3:4", image_size="1K")
+            try:
+                image_config = types.ImageConfig(aspect_ratio="3:4", image_size="1K")
+            except Exception:
+                image_config = types.ImageConfig(aspect_ratio="3:4")
 
         config = types.GenerateContentConfig(
             temperature=1.0,

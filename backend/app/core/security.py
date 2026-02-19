@@ -1,0 +1,62 @@
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+import bcrypt
+import jwt
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from app.core.config import get_settings
+
+bearer_required = HTTPBearer(auto_error=True)
+bearer_optional = HTTPBearer(auto_error=False)
+
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+    except Exception:
+        return False
+
+
+def create_access_token(user_id: str, email: str) -> str:
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=settings.jwt_exp_minutes)).timestamp()),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+
+
+def decode_access_token(token: str) -> dict:
+    settings = get_settings()
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+        if not payload.get("sub"):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        return payload
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token") from exc
+
+
+def get_current_user_id(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_required),
+) -> str:
+    payload = decode_access_token(credentials.credentials)
+    return str(payload["sub"])
+
+
+def get_optional_user_id(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_optional),
+) -> Optional[str]:
+    if credentials is None:
+        return None
+    payload = decode_access_token(credentials.credentials)
+    return str(payload["sub"])

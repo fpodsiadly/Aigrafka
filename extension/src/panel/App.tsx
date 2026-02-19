@@ -44,6 +44,20 @@ interface GenerateResponse {
     variants?: ApiVariant[];
 }
 
+interface AuthApiResponse {
+    access_token: string;
+    token_type: string;
+    user_id: string;
+    email: string;
+    tokens: number;
+}
+
+interface AuthMeResponse {
+    user_id: string;
+    email: string;
+    tokens: number;
+}
+
 interface VariantPreview {
     url: string;
     mimeType?: string;
@@ -67,12 +81,13 @@ const initialState: FormState = {
     productImage2: null,
     tokens: 5,
     accepted: false,
-    variantCount: 2,
+    variantCount: 1,
     ...initialMetrics
 };
 
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
 const storageKey = 'aigrafka-form-v2';
+const authTokenKey = 'aigrafka-auth-token-v1';
 const placeholderPreview = 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=900&q=80';
 const placeholderSelfie = 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=200&q=70';
 const REQUEST_TIMEOUT_MS = 70_000; // Render free tier cold start can be slow; give more headroom
@@ -189,6 +204,33 @@ const storage = {
     }
 };
 
+const authStorage = {
+    async getToken(): Promise<string | null> {
+        if (chrome?.storage?.local) {
+            return new Promise(resolve => {
+                chrome.storage.local.get([authTokenKey], result => resolve(result?.[authTokenKey] ?? null));
+            });
+        }
+        return localStorage.getItem(authTokenKey);
+    },
+    async setToken(token: string): Promise<void> {
+        if (chrome?.storage?.local) {
+            return new Promise(resolve => {
+                chrome.storage.local.set({ [authTokenKey]: token }, () => resolve());
+            });
+        }
+        localStorage.setItem(authTokenKey, token);
+    },
+    async clearToken(): Promise<void> {
+        if (chrome?.storage?.local) {
+            return new Promise(resolve => {
+                chrome.storage.local.remove([authTokenKey], () => resolve());
+            });
+        }
+        localStorage.removeItem(authTokenKey);
+    }
+};
+
 function toDataUrl(base64: string | null, mimeType?: string | null): string {
     if (!base64) return '';
     const mime = mimeType || 'image/jpeg';
@@ -285,7 +327,12 @@ const App: React.FC = () => {
     const [variants, setVariants] = useState<VariantPreview[]>([]);
     const [selectedVariant, setSelectedVariant] = useState<number>(0);
     const [generationMeta, setGenerationMeta] = useState<{ model?: string; latencyMs?: number }>({});
-    const [auth, setAuth] = useState<{ loggedIn: boolean; tokens: number }>({ loggedIn: false, tokens: 0 });
+    const [auth, setAuth] = useState<{ loggedIn: boolean; tokens: number; accessToken: string | null; email?: string }>({
+        loggedIn: false,
+        tokens: 0,
+        accessToken: null,
+        email: undefined
+    });
     const [view, setView] = useState<'form' | 'result'>('form');
     const [showMeasurements, setShowMeasurements] = useState<boolean>(false);
 
@@ -293,7 +340,7 @@ const App: React.FC = () => {
         const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
         const hasSelfie = !!form.selfie;
         if (!form.accepted || !hasProduct || !hasSelfie) return false;
-        return auth.loggedIn ? auth.tokens > 0 : true;
+        return auth.loggedIn ? auth.tokens >= form.variantCount : true;
     }, [form, auth]);
 
     const hasSelfie = Boolean(form.selfie);
@@ -326,23 +373,131 @@ const App: React.FC = () => {
         setForm(prev => ({ ...prev, [key]: value }));
     }
 
-    function handleLogin() {
-        setAuth({ loggedIn: true, tokens: 5 });
-        setStatus('Zalogowano (demo).');
+    async function refreshAuthFromServer(tokenOverride?: string | null): Promise<boolean> {
+        const token = tokenOverride ?? auth.accessToken;
+        if (!token) {
+            setAuth({ loggedIn: false, tokens: 0, accessToken: null, email: undefined });
+            return false;
+        }
+
+        try {
+            const response = await fetch(`${apiBase}/auth/me`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (!response.ok) {
+                await authStorage.clearToken();
+                setAuth({ loggedIn: false, tokens: 0, accessToken: null, email: undefined });
+                return false;
+            }
+
+            const data: AuthMeResponse = await response.json();
+            setAuth({ loggedIn: true, tokens: data.tokens, accessToken: token, email: data.email });
+            return true;
+        } catch (error) {
+            console.error(error);
+            return false;
+        }
     }
 
-    function handleLogout() {
-        setAuth({ loggedIn: false, tokens: 0 });
+    async function handleLogin() {
+        const email = window.prompt('Podaj email do logowania/rejestracji:')?.trim();
+        if (!email) return;
+
+        const password = window.prompt('Podaj hasło (min. 6 znaków):') ?? '';
+        if (password.length < 6) {
+            setStatus('Hasło musi mieć co najmniej 6 znaków.');
+            return;
+        }
+
+        const wantsRegister = window.confirm('Kliknij OK aby utworzyć konto (rejestracja). Kliknij Anuluj aby się zalogować.');
+        const endpoint = wantsRegister ? '/auth/register' : '/auth/login';
+
+        try {
+            let response = await fetch(`${apiBase}${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+
+            if (!response.ok && wantsRegister && response.status === 409) {
+                response = await fetch(`${apiBase}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+            }
+
+            if (!response.ok) {
+                const text = await response.text();
+                let message = 'Nie udało się zalogować.';
+                try {
+                    const parsed = JSON.parse(text);
+                    message = parsed?.detail || message;
+                } catch {
+                    if (text) message = text;
+                }
+                throw new Error(message);
+            }
+
+            const data: AuthApiResponse = await response.json();
+            await authStorage.setToken(data.access_token);
+            setAuth({ loggedIn: true, tokens: data.tokens, accessToken: data.access_token, email: data.email });
+            setStatus(`Zalogowano jako ${data.email}.`);
+        } catch (error) {
+            console.error(error);
+            setStatus(error instanceof Error ? error.message : 'Nie udało się zalogować.');
+        }
+    }
+
+    async function handleLogout() {
+        await authStorage.clearToken();
+        setAuth({ loggedIn: false, tokens: 0, accessToken: null, email: undefined });
         setStatus('Wylogowano.');
     }
 
-    function handleTopUpTokens() {
-        setAuth(prev => ({ ...prev, tokens: prev.tokens + 10 }));
-        setStatus('Dodano 10 tokenów (demo).');
+    async function handleTopUpTokens() {
+        if (!auth.loggedIn || !auth.accessToken) {
+            setStatus('Najpierw zaloguj się, aby doładować tokeny.');
+            return;
+        }
+
+        try {
+            const response = await fetch(`${apiBase}/auth/topup`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${auth.accessToken}`
+                },
+                body: JSON.stringify({ amount: 10 })
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                let message = 'Nie udało się doładować tokenów.';
+                try {
+                    const parsed = JSON.parse(text);
+                    message = parsed?.detail || message;
+                } catch {
+                    if (text) message = text;
+                }
+                throw new Error(message);
+            }
+
+            const data: AuthMeResponse = await response.json();
+            setAuth(prev => ({ ...prev, tokens: data.tokens, email: data.email }));
+            setStatus('Dodano 10 tokenów.');
+        } catch (error) {
+            console.error(error);
+            setStatus(error instanceof Error ? error.message : 'Nie udało się doładować tokenów.');
+        }
     }
 
     function getModelCostText() {
-        return form.modelChoice === 'banana-pro' ? 'BLIK: 1,00 zł (Banana Pro)' : 'BLIK: 0,50 zł (Banana)';
+        const unitPrice = form.modelChoice === 'banana-pro' ? 1.0 : 0.5;
+        const total = unitPrice * form.variantCount;
+        const totalStr = total.toFixed(2).replace('.', ',');
+        const modelLabel = form.modelChoice === 'banana-pro' ? 'Banana Pro' : 'Banana';
+        return `BLIK: ${totalStr} zł (${modelLabel})`;
     }
 
     const measurementSummary = `${form.height || '-'} / ${form.chest || '-'} / ${form.waist || '-'} / ${form.hips || '-'}`.replace(/\s+/g, '');
@@ -362,6 +517,13 @@ const App: React.FC = () => {
         });
         storage.set(toPersist);
     }, [form, savedFlags]);
+
+    useEffect(() => {
+        authStorage.getToken().then(token => {
+            if (!token) return;
+            refreshAuthFromServer(token);
+        });
+    }, []);
 
     function rememberField(key: StorableKey) {
         const nextValue = !savedFlags[key];
@@ -393,8 +555,8 @@ const App: React.FC = () => {
             return;
         }
 
-        if (auth.loggedIn && auth.tokens <= 0) {
-            setStatus('Brak tokenów. Dokup tokeny, aby kontynuować.');
+        if (auth.loggedIn && auth.tokens < form.variantCount) {
+            setStatus(`Brak wystarczającej liczby tokenów (potrzebujesz ${form.variantCount}). Dokup tokeny.`);
             return;
         }
 
@@ -449,10 +611,14 @@ const App: React.FC = () => {
             const response = await fetch(`${apiBase}/generate`, {
                 method: 'POST',
                 body: formData,
+                headers: auth.accessToken ? { Authorization: `Bearer ${auth.accessToken}` } : undefined,
                 signal: controller.signal
             });
 
             if (!response.ok) {
+                if (response.status === 402) {
+                    if (auth.loggedIn) await refreshAuthFromServer();
+                }
                 const text = await response.text();
                 let message = text || 'API error';
                 try {
@@ -526,9 +692,7 @@ const App: React.FC = () => {
         } finally {
             clearTimeout(timeoutId);
             setIsLoading(false);
-            if (succeeded && auth.loggedIn) {
-                setAuth(prev => ({ ...prev, tokens: Math.max(prev.tokens - 1, 0) }));
-            }
+            if (succeeded && auth.loggedIn) await refreshAuthFromServer();
         }
     }
 
@@ -971,9 +1135,9 @@ const App: React.FC = () => {
                                     style={{ ...inputStyle, maxWidth: 60, textAlign: 'center', padding: '6px 8px' }}
                                     type="number"
                                     min={1}
-                                    max={4}
+                                    max={3}
                                     value={form.variantCount}
-                                    onChange={e => update('variantCount', Math.min(4, Math.max(1, Number(e.target.value) || 1)))}
+                                    onChange={e => update('variantCount', Math.min(3, Math.max(1, Number(e.target.value) || 1)))}
                                 />
                                 <div style={{ display: 'flex', gap: 6 }}>
                                     <button
@@ -985,7 +1149,7 @@ const App: React.FC = () => {
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => update('variantCount', Math.min(4, form.variantCount + 1))}
+                                        onClick={() => update('variantCount', Math.min(3, form.variantCount + 1))}
                                         style={{ ...actionButtonStyle, background: '#9b59ff', width: 38, padding: '6px 0', boxShadow: 'none' }}
                                     >
                                         +
@@ -1128,9 +1292,9 @@ const App: React.FC = () => {
                                     style={{ ...inputStyle, maxWidth: 60, textAlign: 'center', padding: '6px 8px' }}
                                     type="number"
                                     min={1}
-                                    max={4}
+                                    max={3}
                                     value={form.variantCount}
-                                    onChange={e => update('variantCount', Math.min(4, Math.max(1, Number(e.target.value) || 1)))}
+                                    onChange={e => update('variantCount', Math.min(3, Math.max(1, Number(e.target.value) || 1)))}
                                 />
                                 <div style={{ display: 'flex', gap: 6 }}>
                                     <button
@@ -1142,7 +1306,7 @@ const App: React.FC = () => {
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => update('variantCount', Math.min(4, form.variantCount + 1))}
+                                        onClick={() => update('variantCount', Math.min(3, form.variantCount + 1))}
                                         style={{ ...actionButtonStyle, background: '#9b59ff', width: 38, padding: '6px 0', boxShadow: 'none' }}
                                     >
                                         +
@@ -1202,7 +1366,7 @@ const App: React.FC = () => {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', color: '#1e1e1e', fontSize: 12 }}>
                             <span>{auth.loggedIn ? `Tokeny: ${auth.tokens}` : `Koszt: ${getModelCostText()}`}</span>
-                            <span>{form.variantCount} stylizacje</span>
+                            <span>{form.variantCount} {form.variantCount === 1 ? 'stylizacja' : form.variantCount < 5 ? 'stylizacje' : 'stylizacji'}</span>
                         </div>
                         <button
                             type="submit"
