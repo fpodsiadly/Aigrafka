@@ -363,6 +363,7 @@ const FieldRow = ({
 const App: React.FC = () => {
     const [form, setForm] = useState<FormState>(initialState);
     const [status, setStatus] = useState<string>('');
+    const [statusTone, setStatusTone] = useState<'success' | 'error'>('success');
     const [previewUrl, setPreviewUrl] = useState<string>('');
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [savedFlags, setSavedFlags] = useState<SavedFlags>({});
@@ -423,6 +424,16 @@ const App: React.FC = () => {
 
     function update<K extends keyof FormState>(key: K, value: FormState[K]) {
         setForm(prev => ({ ...prev, [key]: value }));
+    }
+
+    function setStatusSuccess(message: string) {
+        setStatusTone('success');
+        setStatus(message);
+    }
+
+    function setStatusError(message: string) {
+        setStatusTone('error');
+        setStatus(message);
     }
 
     async function refreshAuthFromServer(tokenOverride?: string | null): Promise<boolean> {
@@ -723,23 +734,22 @@ const App: React.FC = () => {
         });
     }
 
-    async function handleSubmit(event: React.FormEvent) {
-        event.preventDefault();
+    async function runGeneration() {
         if (!canSubmit || !form.selfie) return;
 
         const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
         if (!hasProduct) {
-            setStatus('Podaj link z reserved.com lub wgraj zdjęcie produktu (1-2).');
+            setStatusError('Dodaj produkt: link Reserved lub zdjęcie.');
             return;
         }
 
         if (form.productUrl && !validReserved(form.productUrl)) {
-            setStatus('Podaj link z domeny reserved.com.');
+            setStatusError('Link musi być z reserved.com.');
             return;
         }
 
         if (auth.loggedIn && auth.tokens < form.variantCount) {
-            setStatus(`Brak wystarczającej liczby tokenów (potrzebujesz ${form.variantCount}). Dokup tokeny.`);
+            setStatusError(`Za mało tokenów. Potrzeba: ${form.variantCount}.`);
             return;
         }
 
@@ -749,7 +759,7 @@ const App: React.FC = () => {
 
         setView('result');
 
-        setStatus('Przygotowujemy stylizację...');
+        setStatus('');
         setIsLoading(true);
         setPreviewUrl('');
         setVariants([]);
@@ -855,23 +865,23 @@ const App: React.FC = () => {
             const latencyText = normalizedVariants[0]?.latencyMs ? ` • ${Math.round(normalizedVariants[0].latencyMs)} ms` : '';
             const modelText = data.model ? ` • ${data.model}` : '';
             if (isFallback) {
-                setStatus(`Generacja nie powiodła się (model: ${data.model ?? 'brak'}). Sprawdź klucz/model i spróbuj ponownie.`);
+                setStatusError('Generacja nieudana. Spróbuj ponownie.');
                 succeeded = false;
                 setPreviewUrl(placeholderPreview);
                 setVariants([]);
             } else {
-                setStatus(`Wygenerowano (${variantCount} wariant${variantCount === 1 ? '' : 'y'})${modelText}${latencyText}`);
+                setStatusSuccess(`Gotowe: ${variantCount} wariant${variantCount === 1 ? '' : 'y'}.`);
                 succeeded = true;
             }
         } catch (error) {
             console.error(error);
             const message = error instanceof DOMException && error.name === 'AbortError'
-                ? 'Przekroczono limit czasu (70s). Backend może się wybudzać (Render free), spróbuj ponownie.'
+                ? 'Przekroczono limit czasu. Spróbuj ponownie.'
                 : error instanceof Error
-                    ? error.message || 'Nie udało się wygenerować podglądu.'
-                    : 'Nie udało się wygenerować podglądu.';
+                    ? error.message || 'Nie udało się wygenerować.'
+                    : 'Nie udało się wygenerować.';
             setPreviewUrl(placeholderPreview);
-            setStatus(message);
+            setStatusError(message);
         } finally {
             clearTimeout(timeoutId);
             setIsLoading(false);
@@ -879,12 +889,21 @@ const App: React.FC = () => {
         }
     }
 
+    async function handleSubmit(event: React.FormEvent) {
+        event.preventDefault();
+        await runGeneration();
+    }
+
+    function handleGenerateMore() {
+        void runGeneration();
+    }
+
     async function handleShare() {
         const target = form.productUrl || previewUrl;
         try {
             if (navigator.share) {
                 await navigator.share({ title: 'Przymierzator', url: target });
-                setStatus('Link udostępniony.');
+                setStatusSuccess('Udostępniono.');
                 return;
             }
         } catch (error) {
@@ -897,36 +916,57 @@ const App: React.FC = () => {
         const text = form.productUrl || previewUrl || 'https://aigrafka.pl';
         try {
             await navigator.clipboard.writeText(text);
-            setStatus('Link skopiowany do schowka.');
+            setStatusSuccess('Skopiowano link.');
         } catch (error) {
             console.error(error);
-            setStatus('Nie udało się skopiować linku.');
+            setStatusError('Nie udało się skopiować linku.');
         }
     }
 
     async function handleCopyImage() {
         const target = activeVariant?.url || previewUrl || placeholderPreview;
         if (!target) {
-            setStatus('Brak obrazu do skopiowania.');
+            setStatusError('Brak obrazu do skopiowania.');
             return;
         }
 
         try {
+            if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+                throw new Error('Kopiowanie obrazu nie jest wspierane w tym środowisku.');
+            }
+
             const response = await fetch(target);
-            const blob = await response.blob();
-            const mimeType = blob.type || activeVariant?.mimeType || 'image/png';
+            const sourceBlob = await response.blob();
+
+            let imageBlob: Blob = sourceBlob;
+            if (sourceBlob.type !== 'image/png') {
+                const bitmap = await createImageBitmap(sourceBlob);
+                const canvas = document.createElement('canvas');
+                canvas.width = bitmap.width;
+                canvas.height = bitmap.height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) throw new Error('Brak wsparcia dla konwersji obrazu.');
+                ctx.drawImage(bitmap, 0, 0);
+                imageBlob = await new Promise<Blob>((resolve, reject) => {
+                    canvas.toBlob(blob => {
+                        if (blob) resolve(blob);
+                        else reject(new Error('Nie udało się przygotować obrazu PNG.'));
+                    }, 'image/png');
+                });
+            }
+
             await navigator.clipboard.write([
-                new ClipboardItem({ [mimeType]: blob })
+                new ClipboardItem({ 'image/png': imageBlob })
             ]);
-            setStatus('Obraz skopiowany do schowka.');
+            setStatusSuccess('Skopiowano obraz.');
         } catch (error) {
             console.error(error);
             try {
                 await navigator.clipboard.writeText(target);
-                setStatus('Nie udało się skopiować obrazu, skopiowano adres.');
+                setStatusError('Nie można skopiować obrazu. Skopiowano link.');
             } catch (textError) {
                 console.error(textError);
-                setStatus('Nie udało się skopiować.');
+                setStatusError('Nie udało się skopiować.');
             }
         }
     }
@@ -1147,11 +1187,11 @@ const App: React.FC = () => {
                             </FieldRow>
 
                             <FieldRow label="Zdjęcia produktu:">
-                                <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap', width: '100%' }}>
+                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', width: '100%' }}>
                                     <div
                                         onDragOver={e => e.preventDefault()}
                                         onDrop={e => handleDropProduct('productImage1', e)}
-                                        style={{ flex: '0 0 120px', width: 120, maxWidth: 120 }}
+                                        style={{ flex: '1 1 120px', minWidth: 120, maxWidth: '100%' }}
                                     >
                                         <label
                                             style={{
@@ -1168,8 +1208,7 @@ const App: React.FC = () => {
                                                 gap: 6,
                                                 minWidth: 0,
                                                 width: '100%',
-                                                maxWidth: 120,
-                                                flexShrink: 0,
+                                                maxWidth: '100%',
                                                 justifyContent: 'center',
                                                 fontSize: 12,
                                                 minHeight: 34,
@@ -1190,7 +1229,7 @@ const App: React.FC = () => {
                                     <div
                                         onDragOver={e => e.preventDefault()}
                                         onDrop={e => handleDropProduct('productImage2', e)}
-                                        style={{ flex: '0 0 120px', width: 120, maxWidth: 120 }}
+                                        style={{ flex: '1 1 120px', minWidth: 120, maxWidth: '100%' }}
                                     >
                                         <label
                                             style={{
@@ -1207,8 +1246,7 @@ const App: React.FC = () => {
                                                 gap: 6,
                                                 minWidth: 0,
                                                 width: '100%',
-                                                maxWidth: 120,
-                                                flexShrink: 0,
+                                                maxWidth: '100%',
                                                 justifyContent: 'center',
                                                 fontSize: 12,
                                                 minHeight: 34,
@@ -1340,10 +1378,13 @@ const App: React.FC = () => {
                                 </div>
                             </div>
                         </div>
-                        <div style={{ background: '#ededed', border: '2px solid #c7c7c7', borderRadius: 12, padding: '10px 12px' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#1e1e1e', fontSize: '13px' }}>
+                        <div style={{ background: '#ededed', border: '2px solid #c7c7c7', borderRadius: 12, padding: '8px 10px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#1e1e1e', fontSize: '12px', lineHeight: 1.2 }}>
                                 <input type="checkbox" checked={form.accepted} onChange={e => update('accepted', e.target.checked)} />
-                                Potwierdzam prawo do wykorzystania wizerunku i akceptuję Regulamin i Politykę Prywatności.
+                                <span>Akceptuję</span>
+                                <a href="https://aigrafka.pl/regulamin" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Regulamin</a>
+                                <span>i</span>
+                                <a href="https://aigrafka.pl/polityka-prywatnosci" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Politykę prywatności</a>
                             </label>
                         </div>
                     </div>
@@ -1390,7 +1431,7 @@ const App: React.FC = () => {
                             )}
                         </div>
 
-                        <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+                        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                             <button
                                 type="button"
                                 onClick={handleShare}
@@ -1398,7 +1439,7 @@ const App: React.FC = () => {
                                 style={{
                                     ...actionButtonStyle,
                                     background: '#9b59ff',
-                                    padding: '12px 14px',
+                                    padding: '10px 12px',
                                     flex: 1,
                                     opacity: canShare ? 1 : 0.6
                                 }}
@@ -1411,66 +1452,64 @@ const App: React.FC = () => {
                                 style={{
                                     ...actionButtonStyle,
                                     background: '#9b59ff',
-                                    padding: '12px 14px',
+                                    padding: '10px 12px',
                                     flex: 1
                                 }}
                             >
                                 Kopiuj
                             </button>
-                            <button
-                                type="button"
-                                onClick={handleCopyLink}
-                                style={{
-                                    ...actionButtonStyle,
-                                    background: '#9b59ff',
-                                    padding: '12px 14px',
-                                    width: 48
-                                }}
-                            >
-                                !
-                            </button>
                         </div>
 
                         {status ? (
-                            <div style={{ marginTop: 12, background: '#ffffff', color: '#1e1e1e', borderRadius: 14, padding: '10px 12px', fontSize: 13, border: '2px solid #c7c7c7' }}>
+                            <div
+                                style={{
+                                    marginTop: 8,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    color: statusTone === 'success' ? '#0f7a3a' : '#8f1f1f',
+                                    background: statusTone === 'success' ? '#e9f8ef' : '#fbe9e9',
+                                    border: statusTone === 'success' ? '1px solid #9fd8b7' : '1px solid #e0b0b0',
+                                    borderRadius: 10,
+                                    padding: '8px 10px'
+                                }}
+                            >
                                 {status}
                             </div>
                         ) : null}
 
-                        <div style={{ ...badge, marginTop: 12 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <div style={{ ...badge, marginTop: 12, padding: '10px 12px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                                 <div style={sectionTitleStyle}>Generuj więcej stylizacji tego produktu</div>
-                                <span style={{ width: 16, height: 16, borderRadius: 6, background: '#8bb0d6', color: '#ffffff', fontSize: 11, display: 'grid', placeItems: 'center', fontWeight: 800 }}>i</span>
                             </div>
                             {auth.loggedIn ? (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                                    <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e' }}>Tokeny Stylizacji</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                    <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e', fontSize: 13 }}>Tokeny Stylizacji</div>
                                     <input
-                                        style={{ ...inputStyle, maxWidth: 70, textAlign: 'center', padding: '6px 8px' }}
+                                        style={{ ...inputStyle, maxWidth: 64, textAlign: 'center', padding: '6px 8px' }}
                                         value={auth.tokens}
                                         readOnly
                                     />
                                     <button
                                         type="button"
                                         onClick={handleTopUpTokens}
-                                        style={{ ...actionButtonStyle, background: '#9b59ff', boxShadow: 'none', padding: '8px 10px', fontSize: 12 }}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', boxShadow: 'none', padding: '8px 10px', fontSize: 11 }}
                                     >
                                         Dokup tokeny
                                     </button>
                                 </div>
                             ) : (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                                    <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e' }}>Płatność jednorazowa</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                    <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e', fontSize: 13 }}>Płatność jednorazowa</div>
                                     <input
-                                        style={{ ...inputStyle, maxWidth: 150, textAlign: 'center', padding: '6px 8px' }}
+                                        style={{ ...inputStyle, maxWidth: 132, textAlign: 'center', padding: '6px 8px' }}
                                         value={getModelCostText()}
                                         readOnly
                                     />
                                 </div>
                             )}
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                                <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e' }}>Liczba Stylizacji</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e', fontSize: 13 }}>Liczba Stylizacji</div>
                                 <input
                                     style={{ ...inputStyle, maxWidth: 60, textAlign: 'center', padding: '6px 8px' }}
                                     type="number"
@@ -1483,48 +1522,50 @@ const App: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={() => update('variantCount', Math.max(1, form.variantCount - 1))}
-                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 38, padding: '6px 0', boxShadow: 'none' }}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 34, padding: '6px 0', boxShadow: 'none' }}
                                     >
                                         −
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => update('variantCount', Math.min(3, form.variantCount + 1))}
-                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 38, padding: '6px 0', boxShadow: 'none' }}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 34, padding: '6px 0', boxShadow: 'none' }}
                                     >
                                         +
                                     </button>
                                 </div>
                             </div>
 
-                            <div style={{ background: '#ededed', border: '2px solid #c7c7c7', borderRadius: 12, padding: '10px 12px', marginBottom: 10 }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#1e1e1e', fontSize: '13px' }}>
+                            <div style={{ background: '#ededed', border: '2px solid #c7c7c7', borderRadius: 10, padding: '8px 10px', marginBottom: 10 }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#1e1e1e', fontSize: '12px', lineHeight: 1.2, flexWrap: 'wrap' }}>
                                     <input type="checkbox" checked={form.accepted} onChange={e => update('accepted', e.target.checked)} />
-                                    Potwierdzam prawo do wykorzystania wizerunku i akceptuję Regulamin i Politykę Prywatności.
+                                    <span>Akceptuję</span>
+                                    <a href="https://aigrafka.pl/regulamin" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Regulamin</a>
+                                    <span>i</span>
+                                    <a href="https://aigrafka.pl/polityka-prywatnosci" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Politykę prywatności</a>
                                 </label>
                             </div>
 
                             <button
-                                type="submit"
-                                form="aigrafka-form"
+                                type="button"
+                                onClick={handleGenerateMore}
                                 style={{
                                     ...actionButtonStyle,
                                     width: '100%',
-                                    padding: '14px 12px',
+                                    padding: '12px 12px',
                                     background: canSubmit ? '#9b59ff' : '#b7b7b7',
                                     cursor: canSubmit ? 'pointer' : 'not-allowed',
                                     boxShadow: 'none'
                                 }}
                                 disabled={!canSubmit || isLoading}
                             >
-                                Generuj kolejne stylizacje!
+                                {isLoading ? 'Generowanie...' : 'Generuj kolejne stylizacje!'}
                             </button>
                         </div>
 
-                        <div style={{ ...badge, marginTop: 12 }}>
+                        <div style={{ ...badge, marginTop: 12, padding: '10px 12px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                                 <div style={sectionTitleStyle}>Wybierz inny produkt</div>
-                                <span style={{ width: 16, height: 16, borderRadius: 6, background: '#8bb0d6', color: '#ffffff', fontSize: 11, display: 'grid', placeItems: 'center', fontWeight: 800 }}>i</span>
                             </div>
                             <button
                                 type="button"

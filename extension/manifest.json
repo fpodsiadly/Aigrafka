@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Aigrafka",
   "description": "Virtual try-on and styling assistant for online fashion stores.",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "action": {
     "default_title": "Aigrafka"
   },
