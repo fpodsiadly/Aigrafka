@@ -120,29 +120,29 @@ const badge = {
     background: '#e2e2e2',
     color: '#1f1f1f',
     border: '2px solid #bdbdbd',
-    borderRadius: '14px',
-    padding: '10px 12px'
+    borderRadius: '12px',
+    padding: '8px 10px'
 };
 
 const sectionTitleStyle: React.CSSProperties = {
     fontWeight: 800,
-    fontSize: '13px',
+    fontSize: '12px',
     color: '#1c1c1c'
 };
 
 const sectionHintStyle: React.CSSProperties = {
-    fontSize: '12px',
+    fontSize: '10px',
     color: '#4b4b4b'
 };
 
 const inputStyle: React.CSSProperties = {
     flex: 1,
     minWidth: 0,
-    padding: '8px 10px',
+    padding: '7px 9px',
     background: '#ffffff',
     border: '2px solid #c7c7c7',
-    borderRadius: 10,
-    fontSize: '12px',
+    borderRadius: 9,
+    fontSize: '11px',
     color: '#1e1e1e'
 };
 
@@ -172,18 +172,20 @@ const actionButtonStyle: React.CSSProperties = {
     background: '#9b59ff',
     color: '#ffffff',
     fontWeight: 700,
+    fontSize: '11px',
+    lineHeight: 1.1,
     border: 'none',
-    padding: '10px 12px',
+    padding: '8px 10px',
     cursor: 'pointer',
-    borderRadius: 10,
+    borderRadius: 9,
     transition: 'transform 0.1s ease, box-shadow 0.2s ease'
 };
 
 const fieldLabelStyle: React.CSSProperties = {
-    flex: '0 0 92px',
-    maxWidth: '92px',
+    flex: '0 0 84px',
+    maxWidth: '84px',
     fontWeight: 700,
-    fontSize: '12px',
+    fontSize: '11px',
     color: '#1e1e1e',
     lineHeight: 1.2
 };
@@ -192,8 +194,8 @@ const rowStyle: React.CSSProperties = {
     display: 'flex',
     alignItems: 'flex-start',
     flexWrap: 'wrap',
-    gap: '8px',
-    marginBottom: '8px'
+    gap: '6px',
+    marginBottom: '6px'
 };
 
 function extractBase64(value: ApiBase64): string | null {
@@ -280,19 +282,19 @@ const PanelHeader = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '10px 12px',
+        padding: '8px 10px',
         background: '#d9d9d9',
         borderBottom: '2px solid #bdbdbd'
     }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#ffffff', display: 'grid', placeItems: 'center', overflow: 'hidden', border: '2px solid #bfbfbf' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#ffffff', display: 'grid', placeItems: 'center', overflow: 'hidden', border: '2px solid #bfbfbf' }}>
                 {logoSrc ? (
                     <img src={logoSrc} alt="Aigrafka" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
                     <span style={{ fontSize: '20px', color: '#7a0606' }}>A</span>
                 )}
             </div>
-            <div style={{ color: '#1b1b1b', fontSize: '22px', fontWeight: 800, letterSpacing: '0.2px' }}>Aigrafka</div>
+            <div style={{ color: '#1b1b1b', fontSize: '18px', fontWeight: 700, letterSpacing: '0.1px' }}>Aigrafka</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, minWidth: 0 }}>
             <button
@@ -302,7 +304,7 @@ const PanelHeader = ({
                     ...actionButtonStyle,
                     background: loggedIn ? '#d9a1c5' : '#9b59ff',
                     color: '#ffffff',
-                    padding: '8px 12px',
+                    padding: '7px 10px',
                     borderRadius: 10,
                     boxShadow: 'none'
                 }}
@@ -313,7 +315,7 @@ const PanelHeader = ({
                 <div
                     title={userEmail}
                     style={{
-                        fontSize: 11,
+                        fontSize: 10,
                         color: '#4b4b4b',
                         maxWidth: 170,
                         whiteSpace: 'nowrap',
@@ -1036,16 +1038,16 @@ const App: React.FC = () => {
     return (
         <div className="aigrafka-shell" style={{ display: 'flex', flexDirection: 'column', background: '#dcdcdc', color: '#1e1e1e', height: '100%', width: '100%' }}>
             <PanelHeader logoSrc={logoSrc} loggedIn={auth.loggedIn} userEmail={auth.email} onLogin={handleLogin} onLogout={handleLogout} />
-            <div style={{ flex: 1, padding: '10px 10px 132px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ flex: 1, padding: '8px 8px 116px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {view === 'form' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: '#1c1c1c' }}>Witaj! Co dziś przymierzymy?</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#1c1c1c' }}>Witaj! Co dziś przymierzymy?</div>
                     </div>
                 )}
 
                 {view === 'form' && (
                     <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <div style={sectionTitleStyle}>Twoje dane</div>
                                 <span style={{ width: 16, height: 16, borderRadius: 6, background: '#8bb0d6', color: '#ffffff', fontSize: 11, display: 'grid', placeItems: 'center', fontWeight: 800 }}>i</span>
@@ -1053,10 +1055,10 @@ const App: React.FC = () => {
                         </div>
 
                         <form id="aigrafka-form" onSubmit={handleSubmit}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                                 <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', minWidth: 0, flex: '1 1 180px', flexWrap: 'wrap' }}>
                                     <div style={{ fontWeight: 700, color: '#1e1e1e' }}>Twoje wymiary</div>
-                                    <div style={{ fontWeight: 800, color: '#1e1e1e', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.2px', whiteSpace: 'normal', wordBreak: 'break-word', fontSize: 12 }}>
+                                    <div style={{ fontWeight: 800, color: '#1e1e1e', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.2px', whiteSpace: 'normal', wordBreak: 'break-word', fontSize: 11 }}>
                                         {measurementSummary}
                                     </div>
                                 </div>
@@ -1066,7 +1068,7 @@ const App: React.FC = () => {
                                     style={{
                                         ...actionButtonStyle,
                                         background: '#9b59ff',
-                                        padding: '8px 12px',
+                                        padding: '7px 10px',
                                         borderRadius: 10,
                                         boxShadow: 'none'
                                     }}
@@ -1128,8 +1130,8 @@ const App: React.FC = () => {
                                 </>
                             )}
                             <FieldRow label="Selfie:">
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
-                                    <div style={{ width: 72, height: 72, borderRadius: 12, overflow: 'hidden', border: '2px solid #bdbdbd', background: '#f0f0f0' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
+                                    <div style={{ width: 56, height: 56, borderRadius: 10, overflow: 'hidden', border: '2px solid #bdbdbd', background: '#f0f0f0' }}>
                                         <img
                                             src={selfiePreview || placeholderSelfie}
                                             alt="Selfie"
@@ -1141,17 +1143,17 @@ const App: React.FC = () => {
                                             ...actionButtonStyle,
                                             background: '#9b59ff',
                                             color: '#ffffff',
-                                            padding: '10px 12px',
+                                            padding: '8px 10px',
                                             border: '2px solid #7f3bff',
                                             borderRadius: 10,
                                             fontWeight: 700,
                                             cursor: 'pointer',
                                             display: 'inline-flex',
                                             alignItems: 'center',
-                                            gap: 8,
+                                            gap: 6,
                                             minWidth: 0,
                                             width: '100%',
-                                            maxWidth: 160,
+                                            maxWidth: 140,
                                             justifyContent: 'center'
                                         }}
                                     >
@@ -1166,7 +1168,7 @@ const App: React.FC = () => {
                                 </div>
                             </FieldRow>
 
-                            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <div style={sectionTitleStyle}>Wybrany produkt</div>
                                 <span style={{ width: 16, height: 16, borderRadius: 6, background: '#8bb0d6', color: '#ffffff', fontSize: 11, display: 'grid', placeItems: 'center', fontWeight: 800 }}>i</span>
                             </div>
@@ -1191,18 +1193,18 @@ const App: React.FC = () => {
                             </FieldRow>
 
                             <FieldRow label="Zdjęcia produktu:">
-                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', width: '100%' }}>
+                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', width: '100%' }}>
                                     <div
                                         onDragOver={e => e.preventDefault()}
                                         onDrop={e => handleDropProduct('productImage1', e)}
-                                        style={{ flex: '1 1 120px', minWidth: 120, maxWidth: '100%' }}
+                                        style={{ flex: '1 1 110px', minWidth: 110, maxWidth: '100%' }}
                                     >
                                         <label
                                             style={{
                                                 ...actionButtonStyle,
                                                 background: '#9b59ff',
                                                 color: '#ffffff',
-                                                padding: '8px 12px',
+                                                padding: '6px 10px',
                                                 border: '2px solid #7f3bff',
                                                 borderRadius: 10,
                                                 fontWeight: 700,
@@ -1214,8 +1216,8 @@ const App: React.FC = () => {
                                                 width: '100%',
                                                 maxWidth: '100%',
                                                 justifyContent: 'center',
-                                                fontSize: 12,
-                                                minHeight: 34,
+                                                fontSize: 11,
+                                                minHeight: 30,
                                                 whiteSpace: 'nowrap',
                                                 overflow: 'hidden',
                                                 textOverflow: 'ellipsis'
@@ -1233,14 +1235,14 @@ const App: React.FC = () => {
                                     <div
                                         onDragOver={e => e.preventDefault()}
                                         onDrop={e => handleDropProduct('productImage2', e)}
-                                        style={{ flex: '1 1 120px', minWidth: 120, maxWidth: '100%' }}
+                                        style={{ flex: '1 1 110px', minWidth: 110, maxWidth: '100%' }}
                                     >
                                         <label
                                             style={{
                                                 ...actionButtonStyle,
                                                 background: '#9b59ff',
                                                 color: '#ffffff',
-                                                padding: '8px 12px',
+                                                padding: '6px 10px',
                                                 border: '2px solid #7f3bff',
                                                 borderRadius: 10,
                                                 fontWeight: 700,
@@ -1252,8 +1254,8 @@ const App: React.FC = () => {
                                                 width: '100%',
                                                 maxWidth: '100%',
                                                 justifyContent: 'center',
-                                                fontSize: 12,
-                                                minHeight: 34,
+                                                fontSize: 11,
+                                                minHeight: 30,
                                                 whiteSpace: 'nowrap',
                                                 overflow: 'hidden',
                                                 textOverflow: 'ellipsis'
@@ -1271,11 +1273,11 @@ const App: React.FC = () => {
                                 </div>
                             </FieldRow>
 
-                            <details style={{ marginTop: 8, background: '#ededed', borderRadius: 12, border: '2px solid #c7c7c7', padding: '8px 10px' }}>
+                            <details style={{ marginTop: 6, background: '#ededed', borderRadius: 10, border: '2px solid #c7c7c7', padding: '6px 8px' }}>
                                 <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#2a2a2a' }}>Ustawienia AI</summary>
-                                <div style={{ marginTop: 8 }}>
+                                <div style={{ marginTop: 6 }}>
                                     <FieldRow label="Model:">
-                                        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 11 }}>
                                             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
                                                 <input
                                                     type="radio"
@@ -1307,11 +1309,11 @@ const App: React.FC = () => {
                 )}
 
                 {view === 'form' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        <div style={{ ...badge, boxShadow: '0 8px 18px rgba(0,0,0,0.08)', padding: '10px 12px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ ...badge, boxShadow: '0 8px 18px rgba(0,0,0,0.08)', padding: '8px 10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ ...sectionTitleStyle, fontSize: 13 }}>{auth.loggedIn ? 'Tokeny Stylizacji' : 'Płatność jednorazowa'}</div>
+                                    <div style={{ ...sectionTitleStyle, fontSize: 12 }}>{auth.loggedIn ? 'Tokeny Stylizacji' : 'Płatność jednorazowa'}</div>
                                     <div style={{ ...sectionHintStyle, fontSize: 11 }}>{auth.loggedIn ? 'Bank tokenów' : 'BLIK per generacja'}</div>
                                 </div>
                                 {auth.loggedIn ? (
@@ -1324,7 +1326,7 @@ const App: React.FC = () => {
                                         <button
                                             type="button"
                                             onClick={handleTopUpTokens}
-                                            style={{ ...actionButtonStyle, background: '#9b59ff', boxShadow: 'none', padding: '8px 10px', fontSize: 12 }}
+                                            style={{ ...actionButtonStyle, background: '#9b59ff', boxShadow: 'none', padding: '7px 9px', fontSize: 10 }}
                                         >
                                             Dokup tokeny
                                         </button>
@@ -1339,10 +1341,10 @@ const App: React.FC = () => {
                             </div>
                         </div>
 
-                        <div style={{ ...badge, boxShadow: '0 8px 18px rgba(0,0,0,0.08)', padding: '10px 12px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ ...badge, boxShadow: '0 8px 18px rgba(0,0,0,0.08)', padding: '8px 10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ ...sectionTitleStyle, fontSize: 13 }}>Liczba Stylizacji</div>
+                                    <div style={{ ...sectionTitleStyle, fontSize: 12 }}>Liczba Stylizacji</div>
                                 </div>
                                 <input
                                     style={{ ...inputStyle, maxWidth: 60, textAlign: 'center', padding: '6px 8px' }}
@@ -1356,22 +1358,22 @@ const App: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={() => update('variantCount', Math.max(1, form.variantCount - 1))}
-                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 38, padding: '6px 0', boxShadow: 'none' }}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 32, padding: '5px 0', boxShadow: 'none' }}
                                     >
                                         −
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => update('variantCount', Math.min(3, form.variantCount + 1))}
-                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 38, padding: '6px 0', boxShadow: 'none' }}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 32, padding: '5px 0', boxShadow: 'none' }}
                                     >
                                         +
                                     </button>
                                 </div>
                             </div>
                         </div>
-                        <div style={{ background: '#ededed', border: '2px solid #c7c7c7', borderRadius: 12, padding: '8px 10px' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#1e1e1e', fontSize: '12px', lineHeight: 1.2 }}>
+                        <div style={{ background: '#ededed', border: '2px solid #c7c7c7', borderRadius: 10, padding: '6px 8px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#1e1e1e', fontSize: '11px', lineHeight: 1.2, flexWrap: 'wrap' }}>
                                 <input type="checkbox" checked={form.accepted} onChange={e => update('accepted', e.target.checked)} />
                                 <span>Akceptuję</span>
                                 <a href="https://aigrafka.pl/regulamin" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Regulamin</a>
@@ -1579,9 +1581,9 @@ const App: React.FC = () => {
 
             </div>
             {view === 'form' && (
-                <div style={{ position: 'sticky', bottom: 0, left: 0, right: 0, padding: '12px 12px 16px', background: '#dcdcdc', borderTop: '2px solid #bdbdbd' }}>
+                <div style={{ position: 'sticky', bottom: 0, left: 0, right: 0, padding: '8px 8px 10px', background: '#dcdcdc', borderTop: '2px solid #bdbdbd' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#1e1e1e', fontSize: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#1e1e1e', fontSize: 11 }}>
                             <span>{auth.loggedIn ? `Tokeny: ${auth.tokens}` : `Koszt: ${getModelCostText()}`}</span>
                             <span>{form.variantCount} {form.variantCount === 1 ? 'stylizacja' : form.variantCount < 5 ? 'stylizacje' : 'stylizacji'}</span>
                         </div>
@@ -1591,7 +1593,7 @@ const App: React.FC = () => {
                             style={{
                                 ...actionButtonStyle,
                                 width: '100%',
-                                padding: '14px 12px',
+                                padding: '10px 10px',
                                 background: canSubmit ? '#9b59ff' : '#b7b7b7',
                                 cursor: canSubmit ? 'pointer' : 'not-allowed',
                                 boxShadow: 'none'
