@@ -1597,8 +1597,8 @@ const App: React.FC = () => {
                             <span>{form.variantCount} {form.variantCount === 1 ? 'stylizacja' : form.variantCount < 5 ? 'stylizacje' : 'stylizacji'}</span>
                         </div>
                         <button
-                            type="submit"
-                            form="aigrafka-form"
+                            type="button"
+                            onClick={handleGenerateMore}
                             style={{
                                 ...actionButtonStyle,
                                 width: '100%',
