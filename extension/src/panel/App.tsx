@@ -180,7 +180,8 @@ const actionButtonStyle: React.CSSProperties = {
 };
 
 const fieldLabelStyle: React.CSSProperties = {
-    width: '110px',
+    flex: '0 0 92px',
+    maxWidth: '92px',
     fontWeight: 700,
     fontSize: '12px',
     color: '#1e1e1e',
@@ -189,7 +190,8 @@ const fieldLabelStyle: React.CSSProperties = {
 
 const rowStyle: React.CSSProperties = {
     display: 'flex',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
     gap: '8px',
     marginBottom: '8px'
 };
@@ -354,8 +356,8 @@ const FieldRow = ({
 }) => (
     <div style={rowStyle}>
         <div style={fieldLabelStyle}>{label}</div>
-        <div style={{ flex: 1, display: 'flex', gap: 8, alignItems: 'center', minWidth: 0, justifyContent: 'space-between' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+        <div style={{ flex: '1 1 180px', display: 'flex', gap: 8, alignItems: 'center', minWidth: 0 }}>
+            <div style={{ flex: 1, minWidth: 0, width: '100%' }}>{children}</div>
         </div>
     </div>
 );
@@ -1051,10 +1053,10 @@ const App: React.FC = () => {
                         </div>
 
                         <form id="aigrafka-form" onSubmit={handleSubmit}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
-                                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', minWidth: 0, flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', minWidth: 0, flex: '1 1 180px', flexWrap: 'wrap' }}>
                                     <div style={{ fontWeight: 700, color: '#1e1e1e' }}>Twoje wymiary</div>
-                                    <div style={{ fontWeight: 800, color: '#1e1e1e', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.2px', whiteSpace: 'nowrap', fontSize: 12 }}>
+                                    <div style={{ fontWeight: 800, color: '#1e1e1e', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.2px', whiteSpace: 'normal', wordBreak: 'break-word', fontSize: 12 }}>
                                         {measurementSummary}
                                     </div>
                                 </div>
@@ -1126,7 +1128,7 @@ const App: React.FC = () => {
                                 </>
                             )}
                             <FieldRow label="Selfie:">
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
                                     <div style={{ width: 72, height: 72, borderRadius: 12, overflow: 'hidden', border: '2px solid #bdbdbd', background: '#f0f0f0' }}>
                                         <img
                                             src={selfiePreview || placeholderSelfie}
@@ -1147,7 +1149,9 @@ const App: React.FC = () => {
                                             display: 'inline-flex',
                                             alignItems: 'center',
                                             gap: 8,
-                                            minWidth: 120,
+                                            minWidth: 0,
+                                            width: '100%',
+                                            maxWidth: 160,
                                             justifyContent: 'center'
                                         }}
                                     >
