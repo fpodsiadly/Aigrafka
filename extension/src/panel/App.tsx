@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import logo from '../../icons/logo.svg';
 
 interface BodyMetrics {
@@ -69,7 +69,13 @@ declare global {
             accounts?: {
                 id?: {
                     initialize: (options: { client_id: string; callback: (resp: { credential?: string }) => void }) => void;
-                    prompt: () => void;
+                    renderButton: (container: HTMLElement, options: {
+                        theme?: 'outline' | 'filled_blue' | 'filled_black';
+                        size?: 'large' | 'medium' | 'small';
+                        text?: 'signin_with' | 'continue_with' | 'signup_with';
+                        shape?: 'rectangular' | 'pill' | 'circle' | 'square';
+                        width?: number;
+                    }) => void;
                 };
             };
         };
@@ -379,6 +385,8 @@ const App: React.FC = () => {
     const [authSubmitting, setAuthSubmitting] = useState<boolean>(false);
     const [googleClientId, setGoogleClientId] = useState<string | null>(null);
     const [googleReady, setGoogleReady] = useState<boolean>(false);
+    const [googleInitialized, setGoogleInitialized] = useState<boolean>(false);
+    const googleButtonRef = useRef<HTMLDivElement | null>(null);
 
     const canSubmit = useMemo(() => {
         const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
@@ -552,21 +560,6 @@ const App: React.FC = () => {
         }
     }
 
-    function startGoogleSignIn() {
-        if (!googleClientId || !window.google?.accounts?.id || authSubmitting) return;
-        window.google.accounts.id.initialize({
-            client_id: googleClientId,
-            callback: response => {
-                if (response?.credential) {
-                    handleGoogleCredential(response.credential);
-                } else {
-                    setStatus('Google nie zwrócił poświadczenia.');
-                }
-            }
-        });
-        window.google.accounts.id.prompt();
-    }
-
     async function handleLogout() {
         await authStorage.clearToken();
         setAuth({ loggedIn: false, tokens: 0, accessToken: null, email: undefined });
@@ -683,6 +676,37 @@ const App: React.FC = () => {
                 setGoogleReady(false);
             });
     }, [showAuthDialog]);
+
+    useEffect(() => {
+        if (!googleReady || !googleClientId || googleInitialized) return;
+        if (!window.google?.accounts?.id) return;
+
+        window.google.accounts.id.initialize({
+            client_id: googleClientId,
+            callback: response => {
+                if (response?.credential) {
+                    handleGoogleCredential(response.credential);
+                } else {
+                    setStatus('Google nie zwrócił poświadczenia.');
+                }
+            }
+        });
+        setGoogleInitialized(true);
+    }, [googleReady, googleClientId, googleInitialized]);
+
+    useEffect(() => {
+        if (!showAuthDialog || !googleInitialized) return;
+        if (!googleButtonRef.current || !window.google?.accounts?.id) return;
+
+        googleButtonRef.current.innerHTML = '';
+        window.google.accounts.id.renderButton(googleButtonRef.current, {
+            theme: 'outline',
+            size: 'large',
+            text: 'continue_with',
+            shape: 'pill',
+            width: 280
+        });
+    }, [showAuthDialog, googleInitialized]);
 
     function rememberField(key: StorableKey) {
         const nextValue = !savedFlags[key];
@@ -1656,22 +1680,24 @@ const App: React.FC = () => {
                             </button>
 
                             {googleClientId && (
-                                <button
-                                    type="button"
-                                    onClick={startGoogleSignIn}
+                                <div
                                     style={{
-                                        ...actionButtonStyle,
-                                        background: googleReady ? '#ffffff' : '#d6d6d6',
-                                        color: '#1e1e1e',
+                                        background: '#ffffff',
                                         border: '2px solid #c7c7c7',
-                                        boxShadow: 'none',
-                                        padding: '10px 12px',
-                                        fontWeight: 700
+                                        borderRadius: 999,
+                                        padding: '6px 8px',
+                                        display: 'grid',
+                                        placeItems: 'center'
                                     }}
-                                    disabled={authSubmitting || !googleReady}
                                 >
-                                    {googleReady ? 'Kontynuuj z Google' : 'Ładowanie Google...'}
-                                </button>
+                                    {googleReady ? (
+                                        <div ref={googleButtonRef} />
+                                    ) : (
+                                        <div style={{ fontSize: 13, fontWeight: 700, color: '#4b4b4b', padding: '6px 8px' }}>
+                                            Ładowanie Google...
+                                        </div>
+                                    )}
+                                </div>
                             )}
                         </form>
                     </div>
