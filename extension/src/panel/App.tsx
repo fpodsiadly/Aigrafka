@@ -121,12 +121,12 @@ const badge = {
     color: '#1f1f1f',
     border: '2px solid #bdbdbd',
     borderRadius: '14px',
-    padding: '12px 14px'
+    padding: '10px 12px'
 };
 
 const sectionTitleStyle: React.CSSProperties = {
     fontWeight: 800,
-    fontSize: '14px',
+    fontSize: '13px',
     color: '#1c1c1c'
 };
 
@@ -138,11 +138,11 @@ const sectionHintStyle: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
     flex: 1,
     minWidth: 0,
-    padding: '9px 10px',
+    padding: '8px 10px',
     background: '#ffffff',
     border: '2px solid #c7c7c7',
     borderRadius: 10,
-    fontSize: '13px',
+    fontSize: '12px',
     color: '#1e1e1e'
 };
 
@@ -173,9 +173,9 @@ const actionButtonStyle: React.CSSProperties = {
     color: '#ffffff',
     fontWeight: 700,
     border: 'none',
-    padding: '12px 14px',
+    padding: '10px 12px',
     cursor: 'pointer',
-    borderRadius: 12,
+    borderRadius: 10,
     transition: 'transform 0.1s ease, box-shadow 0.2s ease'
 };
 
@@ -280,19 +280,19 @@ const PanelHeader = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '14px 16px',
+        padding: '10px 12px',
         background: '#d9d9d9',
         borderBottom: '2px solid #bdbdbd'
     }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ width: 46, height: 46, borderRadius: '50%', background: '#ffffff', display: 'grid', placeItems: 'center', overflow: 'hidden', border: '2px solid #bfbfbf' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#ffffff', display: 'grid', placeItems: 'center', overflow: 'hidden', border: '2px solid #bfbfbf' }}>
                 {logoSrc ? (
                     <img src={logoSrc} alt="Aigrafka" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
                     <span style={{ fontSize: '20px', color: '#7a0606' }}>A</span>
                 )}
             </div>
-            <div style={{ color: '#1b1b1b', fontSize: '24px', fontWeight: 800, letterSpacing: '0.2px' }}>Aigrafka</div>
+            <div style={{ color: '#1b1b1b', fontSize: '22px', fontWeight: 800, letterSpacing: '0.2px' }}>Aigrafka</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, minWidth: 0 }}>
             <button
@@ -302,7 +302,7 @@ const PanelHeader = ({
                     ...actionButtonStyle,
                     background: loggedIn ? '#d9a1c5' : '#9b59ff',
                     color: '#ffffff',
-                    padding: '10px 14px',
+                    padding: '8px 12px',
                     borderRadius: 10,
                     boxShadow: 'none'
                 }}
@@ -1036,7 +1036,7 @@ const App: React.FC = () => {
     return (
         <div className="aigrafka-shell" style={{ display: 'flex', flexDirection: 'column', background: '#dcdcdc', color: '#1e1e1e', height: '100%', width: '100%' }}>
             <PanelHeader logoSrc={logoSrc} loggedIn={auth.loggedIn} userEmail={auth.email} onLogin={handleLogin} onLogout={handleLogout} />
-            <div style={{ flex: 1, padding: '14px 14px 140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ flex: 1, padding: '10px 10px 132px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {view === 'form' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: '#1c1c1c' }}>Witaj! Co dziś przymierzymy?</div>
@@ -1274,19 +1274,7 @@ const App: React.FC = () => {
                             <details style={{ marginTop: 8, background: '#ededed', borderRadius: 12, border: '2px solid #c7c7c7', padding: '8px 10px' }}>
                                 <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#2a2a2a' }}>Ustawienia AI</summary>
                                 <div style={{ marginTop: 8 }}>
-                                    <FieldRow label="Styl kroju:">
-                                        <select
-                                            style={{ ...inputStyle, paddingRight: 10 }}
-                                            value={form.fitStyle}
-                                            onChange={e => update('fitStyle', e.target.value as FormState['fitStyle'])}
-                                        >
-                                            <option value="masculine">Męski</option>
-                                            <option value="feminine">Damski</option>
-                                            <option value="unisex">Unisex</option>
-                                        </select>
-                                    </FieldRow>
-
-                                    <FieldRow label="Model AI:">
+                                    <FieldRow label="Model:">
                                         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                                             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
                                                 <input
@@ -1401,8 +1389,8 @@ const App: React.FC = () => {
                             {isLoading && <span style={sectionHintStyle}>Renderowanie...</span>}
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'start' }}>
-                            <div style={{ position: 'relative', borderRadius: 16, overflow: 'hidden', border: '2px solid #9b59ff', background: '#f2f2f2', minHeight: 360, aspectRatio: '3 / 4' }}>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                            <div style={{ position: 'relative', borderRadius: 16, overflow: 'hidden', border: '2px solid #9b59ff', background: '#f2f2f2', aspectRatio: '3 / 4', flex: 1, minWidth: 0 }}>
                                 {isLoading && (
                                     <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(120deg, rgba(255,255,255,0.04), rgba(255,255,255,0.08), rgba(255,255,255,0.04))', animation: 'aigrafka-shimmer 1.4s linear infinite', zIndex: 2 }} />
                                 )}
@@ -1414,21 +1402,22 @@ const App: React.FC = () => {
                             </div>
 
                             {variants.length > 1 && (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: 36, flex: '0 0 36px' }}>
                                     {variants.map((variant, idx) => (
                                         <button
-                                            key={variant.url}
+                                            key={`${variant.url}-${idx}`}
                                             type="button"
                                             onClick={() => setSelectedVariant(idx)}
                                             style={{
                                                 border: idx === selectedVariant ? '2px solid #9b59ff' : '2px solid #c7c7c7',
-                                                borderRadius: 10,
-                                                padding: 2,
+                                                borderRadius: 8,
+                                                padding: 1,
                                                 background: '#ffffff',
-                                                cursor: 'pointer'
+                                                cursor: 'pointer',
+                                                width: '100%'
                                             }}
                                         >
-                                            <img src={variant.url} alt={`Wariant ${idx + 1}`} style={{ width: 66, height: 88, objectFit: 'cover', borderRadius: 6 }} />
+                                            <img src={variant.url} alt={`Wariant ${idx + 1}`} style={{ width: '100%', height: 48, objectFit: 'cover', borderRadius: 5, display: 'block' }} />
                                         </button>
                                     ))}
                                 </div>
