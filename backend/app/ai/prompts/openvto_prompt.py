@@ -44,18 +44,38 @@ def build_openvto_prompt(
     variants = max(1, min(variants, 3))
     if variants == 1:
         variant_text = "Generate ONE photorealistic full-body portrait of the user wearing the product."
+        variant_pose_text = (
+            "Use a single natural pose with slight body angle (about 10-20 degrees) while keeping full body visible."
+        )
+    elif variants == 2:
+        variant_text = (
+            "Generate 2 DISTINCT photorealistic full-body portraits of the user wearing the product. "
+            "Return exactly 2 separate images, one pose per image."
+        )
+        variant_pose_text = (
+            "Pose plan: image 1 front-facing or very subtle 3/4; image 2 slight 3/4 turn so garment side seam and part of back panel are visible."
+        )
     else:
         variant_text = (
             f"Generate {variants} DISTINCT photorealistic full-body portraits of the user wearing the product. "
             f"Each variant must show the same user and garment but differ in pose angle (e.g., straight-on vs subtle 3/4 view), "
             f"lighting mood, or background tone to give the user meaningful variety. "
-            f"Return exactly {variants} separate images."
+            f"Return exactly {variants} separate images, with exactly ONE photo per variant."
+        )
+        variant_pose_text = (
+            "Pose plan for 3 variants: "
+            "(1) front-facing full body, "
+            "(2) slight 3/4 left turn, "
+            "(3) slight 3/4 right turn with torso rotated enough (about 35-55 degrees) to show part of the garment back."
         )
 
     return (
         "You are an AI virtual try-on system following OpenVTO principles. "
         "Inputs: (1) user selfie image; (2) product garment image from the e-commerce page or upload. "
         f"{variant_text} "
+        f"{variant_pose_text} "
+        "Composition constraint: each output image must contain exactly one person in one continuous camera frame. "
+        "Do not create collages, split screens, diptychs/triptychs, before-vs-after layouts, or multiple mini-photos inside one image. "
         "Pose: user standing upright, relaxed neutral stance, body and face oriented straight toward the camera. "
         "Camera/framing: full body visible (head to feet) with slight headroom; straight-on preferred or very subtle 3/4 view; no profile. "
         "Aspect ratio approximately 3:4 (allow up to 2:3 if needed to keep feet visible). "
