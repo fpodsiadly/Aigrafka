@@ -137,6 +137,7 @@ const sectionHintStyle: React.CSSProperties = {
 
 const inputStyle: React.CSSProperties = {
     flex: 1,
+    width: '100%',
     minWidth: 0,
     padding: '7px 9px',
     background: '#ffffff',
@@ -619,11 +620,10 @@ const App: React.FC = () => {
     }
 
     function getModelCostText() {
-        const unitPrice = form.modelChoice === 'banana-pro' ? 1.0 : 0.5;
-        const total = unitPrice * form.variantCount;
-        const totalStr = total.toFixed(2).replace('.', ',');
-        const modelLabel = form.modelChoice === 'banana-pro' ? 'Banana Pro' : 'Banana';
-        return `BLIK: ${totalStr} zł (${modelLabel})`;
+        //   const unitPrice = form.modelChoice === 'banana-pro' ? 1.0 : 0.5;
+        //  const total = unitPrice * form.variantCount;
+        //  const totalStr = total.toFixed(2).replace('.', ',');
+        return `BLIK`;
     }
 
     const measurementSummary = `${form.height || '-'} / ${form.chest || '-'} / ${form.waist || '-'} / ${form.hips || '-'}`.replace(/\s+/g, '');
@@ -1036,9 +1036,9 @@ const App: React.FC = () => {
     }, [variants, selectedVariant]);
 
     return (
-        <div className="aigrafka-shell" style={{ display: 'flex', flexDirection: 'column', background: '#dcdcdc', color: '#1e1e1e', height: '100%', width: '100%' }}>
+        <div className="aigrafka-shell" style={{ display: 'flex', flexDirection: 'column', background: '#dcdcdc', color: '#1e1e1e', height: 'auto', width: '100%' }}>
             <PanelHeader logoSrc={logoSrc} loggedIn={auth.loggedIn} userEmail={auth.email} onLogin={handleLogin} onLogout={handleLogout} />
-            <div style={{ flex: 1, padding: '8px 8px 116px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ padding: '8px 8px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {view === 'form' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: '#1c1c1c' }}>Witaj! Co dziś przymierzymy?</div>
@@ -1046,32 +1046,24 @@ const App: React.FC = () => {
                 )}
 
                 {view === 'form' && (
-                    <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <form id="aigrafka-form" onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ ...badge, boxShadow: '0 8px 16px rgba(0,0,0,0.08)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                                 <div style={sectionTitleStyle}>Twoje dane</div>
                                 <span style={{ width: 16, height: 16, borderRadius: 6, background: '#8bb0d6', color: '#ffffff', fontSize: 11, display: 'grid', placeItems: 'center', fontWeight: 800 }}>i</span>
                             </div>
-                        </div>
 
-                        <form id="aigrafka-form" onSubmit={handleSubmit}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', minWidth: 0, flex: '1 1 180px', flexWrap: 'wrap' }}>
-                                    <div style={{ fontWeight: 700, color: '#1e1e1e' }}>Twoje wymiary</div>
-                                    <div style={{ fontWeight: 800, color: '#1e1e1e', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.2px', whiteSpace: 'normal', wordBreak: 'break-word', fontSize: 11 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', minWidth: 0, flex: '1 1 170px', flexWrap: 'wrap' }}>
+                                    <div style={{ fontWeight: 800, fontSize: 13, color: '#1e1e1e' }}>Twoje wymiary</div>
+                                    <div style={{ fontWeight: 800, color: '#1e1e1e', fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>
                                         {measurementSummary}
                                     </div>
                                 </div>
                                 <button
                                     type="button"
                                     onClick={() => setShowMeasurements(prev => !prev)}
-                                    style={{
-                                        ...actionButtonStyle,
-                                        background: '#9b59ff',
-                                        padding: '7px 10px',
-                                        borderRadius: 10,
-                                        boxShadow: 'none'
-                                    }}
+                                    style={{ ...actionButtonStyle, background: '#9b59ff', padding: '8px 12px', boxShadow: 'none' }}
                                     aria-expanded={showMeasurements}
                                 >
                                     {showMeasurements ? 'Schowaj wymiary' : 'Zmień wymiary'}
@@ -1079,309 +1071,225 @@ const App: React.FC = () => {
                             </div>
 
                             {showMeasurements && (
-                                <>
+                                <div style={{ marginBottom: 8 }}>
                                     <FieldRow label="Wzrost:">
-                                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                            <input
-                                                style={{ ...inputStyle, paddingRight: 36 }}
-                                                value={form.height}
-                                                onChange={e => update('height', e.target.value)}
-                                                inputMode="numeric"
-                                            />
-                                            <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
-                                        </div>
+                                        <input style={inputStyle} value={form.height} onChange={e => update('height', e.target.value)} inputMode="numeric" />
                                     </FieldRow>
-
-                                    <FieldRow label="Klatka piersiowa:">
-                                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                            <input
-                                                style={{ ...inputStyle, paddingRight: 36 }}
-                                                value={form.chest}
-                                                onChange={e => update('chest', e.target.value)}
-                                                inputMode="numeric"
-                                            />
-                                            <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
-                                        </div>
+                                    <FieldRow label="Klatka:">
+                                        <input style={inputStyle} value={form.chest} onChange={e => update('chest', e.target.value)} inputMode="numeric" />
                                     </FieldRow>
-
                                     <FieldRow label="Talia:">
-                                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                            <input
-                                                style={{ ...inputStyle, paddingRight: 36 }}
-                                                value={form.waist}
-                                                onChange={e => update('waist', e.target.value)}
-                                                inputMode="numeric"
-                                            />
-                                            <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
-                                        </div>
+                                        <input style={inputStyle} value={form.waist} onChange={e => update('waist', e.target.value)} inputMode="numeric" />
                                     </FieldRow>
-
                                     <FieldRow label="Biodra:">
-                                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                                            <input
-                                                style={{ ...inputStyle, paddingRight: 36 }}
-                                                value={form.hips}
-                                                onChange={e => update('hips', e.target.value)}
-                                                inputMode="numeric"
-                                            />
-                                            <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#4d4d4d', fontWeight: 700, fontSize: 12 }}>cm</span>
-                                        </div>
+                                        <input style={inputStyle} value={form.hips} onChange={e => update('hips', e.target.value)} inputMode="numeric" />
                                     </FieldRow>
-                                </>
+                                </div>
                             )}
+
                             <FieldRow label="Selfie:">
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
-                                    <div style={{ width: 56, height: 56, borderRadius: 10, overflow: 'hidden', border: '2px solid #bdbdbd', background: '#f0f0f0' }}>
-                                        <img
-                                            src={selfiePreview || placeholderSelfie}
-                                            alt="Selfie"
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                        />
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', width: '100%' }}>
+                                    <div style={{ width: 88, height: 88, borderRadius: 12, overflow: 'hidden', border: '2px solid #bdbdbd', background: '#f0f0f0', flex: '0 0 88px' }}>
+                                        <img src={selfiePreview || placeholderSelfie} alt="Selfie" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                     </div>
                                     <label
                                         style={{
                                             ...actionButtonStyle,
                                             background: '#9b59ff',
-                                            color: '#ffffff',
-                                            padding: '8px 10px',
                                             border: '2px solid #7f3bff',
                                             borderRadius: 10,
-                                            fontWeight: 700,
                                             cursor: 'pointer',
                                             display: 'inline-flex',
                                             alignItems: 'center',
-                                            gap: 6,
-                                            minWidth: 0,
+                                            justifyContent: 'center',
                                             width: '100%',
-                                            maxWidth: 140,
-                                            justifyContent: 'center'
+                                            maxWidth: 160,
+                                            padding: '10px 12px',
+                                            fontSize: 14,
+                                            fontWeight: 700
                                         }}
                                     >
-                                        <span>{form.selfie ? 'Zmień selfie' : 'Dodaj selfie'}</span>
-                                        <input
-                                            type="file"
-                                            accept="image/*"
-                                            onChange={e => update('selfie', e.target.files?.[0] ?? null)}
-                                            style={{ display: 'none' }}
-                                        />
+                                        {form.selfie ? 'Zmień selfie' : 'Dodaj selfie'}
+                                        <input type="file" accept="image/*" onChange={e => update('selfie', e.target.files?.[0] ?? null)} style={{ display: 'none' }} />
                                     </label>
                                 </div>
                             </FieldRow>
+                        </div>
 
-                            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ ...badge, boxShadow: '0 8px 16px rgba(0,0,0,0.08)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                                 <div style={sectionTitleStyle}>Wybrany produkt</div>
                                 <span style={{ width: 16, height: 16, borderRadius: 6, background: '#8bb0d6', color: '#ffffff', fontSize: 11, display: 'grid', placeItems: 'center', fontWeight: 800 }}>i</span>
                             </div>
 
                             <FieldRow label="Link do produktu:">
-                                <input
-                                    style={inputStyle}
-                                    value={form.productUrl}
-                                    onChange={e => update('productUrl', e.target.value)}
-                                    placeholder="https://url.pl/"
-                                    type="url"
-                                />
+                                <input style={inputStyle} value={form.productUrl} onChange={e => update('productUrl', e.target.value)} placeholder="https://url.pl/" type="url" />
                             </FieldRow>
 
                             <FieldRow label="Kategoria produktu:">
-                                <input
-                                    style={inputStyle}
-                                    value={form.category}
-                                    onChange={e => update('category', e.target.value)}
-                                    placeholder="np. kurtka"
-                                />
+                                <input style={inputStyle} value={form.category} onChange={e => update('category', e.target.value)} placeholder="Komplet dresowy" />
                             </FieldRow>
 
                             <FieldRow label="Zdjęcia produktu:">
-                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', width: '100%' }}>
-                                    <div
-                                        onDragOver={e => e.preventDefault()}
-                                        onDrop={e => handleDropProduct('productImage1', e)}
-                                        style={{ flex: '1 1 110px', minWidth: 110, maxWidth: '100%' }}
-                                    >
+                                <div style={{ display: 'flex', gap: 6, width: '100%' }}>
+                                    <div onDragOver={e => e.preventDefault()} onDrop={e => handleDropProduct('productImage1', e)} style={{ flex: 1, minWidth: 0 }}>
                                         <label
-                                            style={{
-                                                ...actionButtonStyle,
-                                                background: '#9b59ff',
-                                                color: '#ffffff',
-                                                padding: '6px 10px',
-                                                border: '2px solid #7f3bff',
-                                                borderRadius: 10,
-                                                fontWeight: 700,
-                                                cursor: 'pointer',
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                gap: 6,
-                                                minWidth: 0,
-                                                width: '100%',
-                                                maxWidth: '100%',
-                                                justifyContent: 'center',
-                                                fontSize: 11,
-                                                minHeight: 30,
-                                                whiteSpace: 'nowrap',
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis'
-                                            }}
+                                            style={{ ...actionButtonStyle, background: '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12 }}
                                         >
                                             {form.productImage1 ? 'Dodano' : '+ Dodaj pierwsze'}
-                                            <input
-                                                type="file"
-                                                accept="image/*"
-                                                onChange={e => handleFileSelect('productImage1', e.target.files?.[0] ?? null)}
-                                                style={{ display: 'none' }}
-                                            />
+                                            <input type="file" accept="image/*" onChange={e => handleFileSelect('productImage1', e.target.files?.[0] ?? null)} style={{ display: 'none' }} />
                                         </label>
                                     </div>
-                                    <div
-                                        onDragOver={e => e.preventDefault()}
-                                        onDrop={e => handleDropProduct('productImage2', e)}
-                                        style={{ flex: '1 1 110px', minWidth: 110, maxWidth: '100%' }}
-                                    >
+                                    <div onDragOver={e => e.preventDefault()} onDrop={e => handleDropProduct('productImage2', e)} style={{ flex: 1, minWidth: 0 }}>
                                         <label
-                                            style={{
-                                                ...actionButtonStyle,
-                                                background: '#9b59ff',
-                                                color: '#ffffff',
-                                                padding: '6px 10px',
-                                                border: '2px solid #7f3bff',
-                                                borderRadius: 10,
-                                                fontWeight: 700,
-                                                cursor: 'pointer',
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                gap: 6,
-                                                minWidth: 0,
-                                                width: '100%',
-                                                maxWidth: '100%',
-                                                justifyContent: 'center',
-                                                fontSize: 11,
-                                                minHeight: 30,
-                                                whiteSpace: 'nowrap',
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis'
-                                            }}
+                                            style={{ ...actionButtonStyle, background: '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12 }}
                                         >
                                             {form.productImage2 ? 'Dodano' : '+ Dodaj drugie'}
-                                            <input
-                                                type="file"
-                                                accept="image/*"
-                                                onChange={e => handleFileSelect('productImage2', e.target.files?.[0] ?? null)}
-                                                style={{ display: 'none' }}
-                                            />
+                                            <input type="file" accept="image/*" onChange={e => handleFileSelect('productImage2', e.target.files?.[0] ?? null)} style={{ display: 'none' }} />
                                         </label>
                                     </div>
                                 </div>
                             </FieldRow>
 
-                            <details style={{ marginTop: 6, background: '#ededed', borderRadius: 10, border: '2px solid #c7c7c7', padding: '6px 8px' }}>
+                            <details style={{ marginTop: 4, background: '#ededed', borderRadius: 10, border: '2px solid #c7c7c7', padding: '6px 8px' }}>
                                 <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#2a2a2a' }}>Ustawienia AI</summary>
                                 <div style={{ marginTop: 6 }}>
                                     <FieldRow label="Model:">
                                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 11 }}>
                                             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                                                <input
-                                                    type="radio"
-                                                    name="modelChoice"
-                                                    value="banana"
-                                                    checked={form.modelChoice === 'banana'}
-                                                    onChange={e => update('modelChoice', e.target.value as FormState['modelChoice'])}
-                                                />
+                                                <input type="radio" name="modelChoice" value="banana" checked={form.modelChoice === 'banana'} onChange={e => update('modelChoice', e.target.value as FormState['modelChoice'])} />
                                                 <span>Banana</span>
                                             </label>
                                             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                                                <input
-                                                    type="radio"
-                                                    name="modelChoice"
-                                                    value="banana-pro"
-                                                    checked={form.modelChoice === 'banana-pro'}
-                                                    onChange={e => update('modelChoice', e.target.value as FormState['modelChoice'])}
-                                                />
+                                                <input type="radio" name="modelChoice" value="banana-pro" checked={form.modelChoice === 'banana-pro'} onChange={e => update('modelChoice', e.target.value as FormState['modelChoice'])} />
                                                 <span>Banana Pro</span>
                                             </label>
                                         </div>
                                     </FieldRow>
                                 </div>
                             </details>
-
-                        </form>
-                    </div>
-
-                )}
-
-                {view === 'form' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <div style={{ ...badge, boxShadow: '0 8px 18px rgba(0,0,0,0.08)', padding: '8px 10px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ ...sectionTitleStyle, fontSize: 12 }}>{auth.loggedIn ? 'Tokeny Stylizacji' : 'Płatność jednorazowa'}</div>
-                                    <div style={{ ...sectionHintStyle, fontSize: 11 }}>{auth.loggedIn ? 'Bank tokenów' : 'BLIK per generacja'}</div>
-                                </div>
-                                {auth.loggedIn ? (
-                                    <>
-                                        <input
-                                            style={{ ...inputStyle, maxWidth: 70, textAlign: 'center', padding: '6px 8px' }}
-                                            value={auth.tokens}
-                                            readOnly
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={handleTopUpTokens}
-                                            style={{ ...actionButtonStyle, background: '#9b59ff', boxShadow: 'none', padding: '7px 9px', fontSize: 10 }}
-                                        >
-                                            Dokup tokeny
-                                        </button>
-                                    </>
-                                ) : (
-                                    <input
-                                        style={{ ...inputStyle, maxWidth: 200, textAlign: 'center', padding: '6px 8px' }}
-                                        value={getModelCostText()}
-                                        readOnly
-                                    />
-                                )}
-                            </div>
                         </div>
 
-                        <div style={{ ...badge, boxShadow: '0 8px 18px rgba(0,0,0,0.08)', padding: '8px 10px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ ...sectionTitleStyle, fontSize: 12 }}>Liczba Stylizacji</div>
+                        <div style={{ ...badge, boxShadow: '0 8px 16px rgba(0,0,0,0.08)', padding: '8px 10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <div style={{ ...fieldLabelStyle, fontWeight: 800, fontSize: 12, flex: '0 0 84px', maxWidth: 84 }}>Tokeny Stylizacji</div>
+                                <div style={{ flex: 1, minWidth: 0, display: 'flex', gap: 6, alignItems: 'center' }}>
+                                    {auth.loggedIn ? (
+                                        <>
+                                            <input
+                                                style={{
+                                                    ...inputStyle,
+                                                    width: 70,
+                                                    minWidth: 70,
+                                                    textAlign: 'center',
+                                                    padding: '6px 8px',
+                                                    background: '#dcecd6',
+                                                    borderColor: '#c5d9bf'
+                                                }}
+                                                value={auth.tokens}
+                                                readOnly
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={handleTopUpTokens}
+                                                style={{
+                                                    ...actionButtonStyle,
+                                                    background: '#9b59ff',
+                                                    boxShadow: 'none',
+                                                    padding: '7px 9px',
+                                                    fontSize: 10,
+                                                    flex: 1
+                                                }}
+                                            >
+                                                Dokup tokeny
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <input
+                                            style={{
+                                                ...inputStyle,
+                                                flex: 1,
+                                                textAlign: 'center',
+                                                padding: '6px 8px',
+                                                minWidth: 0,
+                                                cursor: 'not-allowed',
+                                                background: '#ececec',
+                                                borderColor: '#c3c3c3',
+                                                color: '#585858',
+                                                WebkitTextFillColor: '#585858',
+                                                opacity: 1
+                                            }}
+                                            value={getModelCostText()}
+                                            readOnly
+                                            disabled
+                                        />
+                                    )}
                                 </div>
-                                <input
-                                    style={{ ...inputStyle, maxWidth: 60, textAlign: 'center', padding: '6px 8px' }}
-                                    type="number"
-                                    min={1}
-                                    max={3}
-                                    value={form.variantCount}
-                                    onChange={e => update('variantCount', Math.min(3, Math.max(1, Number(e.target.value) || 1)))}
-                                />
-                                <div style={{ display: 'flex', gap: 6 }}>
+                            </div>
+
+                            <div style={{ height: 1, background: '#c7c7c7', margin: '8px 0' }} />
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <div style={{ ...fieldLabelStyle, fontWeight: 800, fontSize: 12, flex: '0 0 84px', maxWidth: 84 }}>Liczba Stylizacji</div>
+                                <div style={{ flex: 1, minWidth: 0, display: 'flex', gap: 6, alignItems: 'center' }}>
+                                    <input
+                                        style={{ ...inputStyle, flex: 1, textAlign: 'center', padding: '6px 8px' }}
+                                        type="number"
+                                        min={1}
+                                        max={3}
+                                        value={form.variantCount}
+                                        onChange={e => update('variantCount', Math.min(3, Math.max(1, Number(e.target.value) || 1)))}
+                                    />
                                     <button
                                         type="button"
                                         onClick={() => update('variantCount', Math.max(1, form.variantCount - 1))}
-                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 32, padding: '5px 0', boxShadow: 'none' }}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 32, minWidth: 32, padding: '5px 0', boxShadow: 'none' }}
                                     >
                                         −
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => update('variantCount', Math.min(3, form.variantCount + 1))}
-                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 32, padding: '5px 0', boxShadow: 'none' }}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 32, minWidth: 32, padding: '5px 0', boxShadow: 'none' }}
                                     >
                                         +
                                     </button>
                                 </div>
                             </div>
-                        </div>
-                        <div style={{ background: '#ededed', border: '2px solid #c7c7c7', borderRadius: 10, padding: '6px 8px' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#1e1e1e', fontSize: '11px', lineHeight: 1.2, flexWrap: 'wrap' }}>
-                                <input type="checkbox" checked={form.accepted} onChange={e => update('accepted', e.target.checked)} />
-                                <span>Akceptuję</span>
-                                <a href="https://aigrafka.pl/regulamin" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Regulamin</a>
-                                <span>i</span>
-                                <a href="https://aigrafka.pl/polityka-prywatnosci" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Politykę prywatności</a>
+
+                            <div style={{ height: 1, background: '#c7c7c7', margin: '8px 0' }} />
+
+                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, color: '#1e1e1e', fontSize: '11px', lineHeight: 1.35 }}>
+                                <input type="checkbox" checked={form.accepted} onChange={e => update('accepted', e.target.checked)} style={{ marginTop: 2 }} />
+                                <span>
+                                    Potwierdzam prawo do wykorzystania wizerunku i akceptuję{' '}
+                                    <a href="https://aigrafka.pl/regulamin" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Regulamin</a>
+                                    {' '}i{' '}
+                                    <a href="https://aigrafka.pl/polityka-prywatnosci" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Politykę prywatności</a>
+                                    .
+                                </span>
                             </label>
                         </div>
-                    </div>
+
+                        <button
+                            type="button"
+                            onClick={handleGenerateMore}
+                            style={{
+                                ...actionButtonStyle,
+                                width: '100%',
+                                padding: '11px 12px',
+                                background: canSubmit ? '#9b59ff' : '#b7b7b7',
+                                cursor: canSubmit ? 'pointer' : 'not-allowed',
+                                boxShadow: 'none',
+                                borderRadius: 10,
+                                fontSize: 13,
+                                fontWeight: 600
+                            }}
+                            disabled={!canSubmit || isLoading}
+                        >
+                            {isLoading ? 'Generowanie...' : 'Generuj stylizację!'}
+                        </button>
+                    </form>
                 )}
 
                 {view === 'result' && (
@@ -1494,7 +1402,7 @@ const App: React.FC = () => {
                                 </div>
                             ) : (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                                    <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e', fontSize: 13 }}>Płatność jednorazowa</div>
+                                    <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e', fontSize: 13 }}>Płatność jednorazowa BLIK</div>
                                     <input
                                         style={{ ...inputStyle, maxWidth: 132, textAlign: 'center', padding: '6px 8px' }}
                                         value={getModelCostText()}
@@ -1579,32 +1487,11 @@ const App: React.FC = () => {
                     </div>
                 )}
 
-            </div>
-            {view === 'form' && (
-                <div style={{ position: 'sticky', bottom: 0, left: 0, right: 0, padding: '8px 8px 10px', background: '#dcdcdc', borderTop: '2px solid #bdbdbd' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#1e1e1e', fontSize: 11 }}>
-                            <span>{auth.loggedIn ? `Tokeny: ${auth.tokens}` : `Koszt: ${getModelCostText()}`}</span>
-                            <span>{form.variantCount} {form.variantCount === 1 ? 'stylizacja' : form.variantCount < 5 ? 'stylizacje' : 'stylizacji'}</span>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={handleGenerateMore}
-                            style={{
-                                ...actionButtonStyle,
-                                width: '100%',
-                                padding: '10px 10px',
-                                background: canSubmit ? '#9b59ff' : '#b7b7b7',
-                                cursor: canSubmit ? 'pointer' : 'not-allowed',
-                                boxShadow: 'none'
-                            }}
-                            disabled={!canSubmit || isLoading}
-                        >
-                            {isLoading ? 'Generowanie...' : 'Generuj stylizację'}
-                        </button>
-                    </div>
+                <div style={{ textAlign: 'center', color: '#5b5b5b', fontSize: 9, marginTop: 4 }}>
+                    Aigrafka.pl | Regulamin | Polityka prywatności | Kontakt
                 </div>
-            )}
+
+            </div>
 
             {showAuthDialog && (
                 <div

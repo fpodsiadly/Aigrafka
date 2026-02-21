@@ -30,30 +30,38 @@ function injectPanel() {
   host.style.right = '6px';
   host.style.zIndex = '2147483647';
   host.style.width = 'min(330px, calc(100vw - 12px))';
-  host.style.height = 'calc(100vh - 12px)';
+  host.style.height = 'fit-content';
+  host.style.minHeight = '0';
   host.style.maxHeight = 'calc(100vh - 12px)';
   host.style.maxWidth = 'calc(100vw - 12px)';
+  host.style.borderRadius = '18px';
+  host.style.background = '#dcdcdc';
+  host.style.border = '1px solid #2a2a2a';
+  host.style.boxShadow = '0 16px 40px rgba(0,0,0,0.38)';
+  host.style.overflow = 'hidden';
 
   const shadow = host.attachShadow({ mode: 'open' });
   const mount = document.createElement('div');
   mount.id = 'aigrafka-panel-root';
+  mount.style.width = '100%';
+  mount.style.height = 'fit-content';
 
   const style = document.createElement('style');
   style.textContent = `
     :host { all: initial; }
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&display=swap');
     * { box-sizing: border-box; font-family: 'Space Grotesk', 'DM Sans', 'Segoe UI', sans-serif; }
+    #aigrafka-panel-root { width: 100%; height: fit-content; }
     .aigrafka-shell {
       width: 100%;
-      height: 100%;
-      max-width: 320px;
-      max-height: 100%;
-      border-radius: 18px;
-      background: #3a3a3a;
-      box-shadow: 0 16px 40px rgba(0,0,0,0.38);
-      overflow: hidden;
-      color: #f5f5f5;
-      border: 1px solid #2a2a2a;
+      height: fit-content;
+      min-height: 0;
+      max-width: none;
+      max-height: calc(100vh - 12px);
+      background: #dcdcdc;
+      overflow-x: hidden;
+      overflow-y: auto;
+      color: #1e1e1e;
       transform: none;
     }
     @keyframes aigrafka-shimmer {

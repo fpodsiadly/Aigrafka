@@ -26,10 +26,12 @@
       }
       #root {
         width: 430px;
-        height: 1000px;
-        max-height: none;
+        height: fit-content;
+        min-height: 0;
+        max-height: calc(100vh - 24px);
         border-radius: 18px;
-        overflow: hidden;
+        overflow-x: hidden;
+        overflow-y: auto;
         border: 1px solid #2a2a2a;
         box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
         background: #181818;
