@@ -1,3 +1,4 @@
+import asyncio
 import re
 import time
 from io import BytesIO
@@ -23,6 +24,45 @@ MAX_IMAGE_BYTES = settings.max_product_image_mb * 1024 * 1024
 MAX_SIDE_PX = settings.max_side_px
 CACHE_TTL = 300  # seconds
 _CACHE: dict[str, tuple[float, bytes]] = {}
+
+
+def _extract_image_candidate(html: str) -> Optional[str]:
+    patterns = [
+        r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
+        r'<meta[^>]+name=["\']twitter:image(?::src)?["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image(?::src)?["\']',
+        r'<meta[^>]+itemprop=["\']image["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+itemprop=["\']image["\']',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, html, re.IGNORECASE)
+        if match:
+            return match.group(1)
+
+    img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE)
+    if img_match:
+        return img_match.group(1)
+    return None
+
+
+async def _get_with_retry(client: httpx.AsyncClient, url: str) -> httpx.Response:
+    last_exc: Optional[Exception] = None
+    for _ in range(2):
+        try:
+            response = await client.get(url)
+            response.raise_for_status()
+            return response
+        except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
+            last_exc = exc
+            await asyncio.sleep(0.2)
+
+    if isinstance(last_exc, httpx.HTTPStatusError):
+        code = last_exc.response.status_code if last_exc.response is not None else "unknown"
+        raise ValueError(f"Failed to fetch product page (HTTP {code})") from last_exc
+    if isinstance(last_exc, httpx.TimeoutException):
+        raise ValueError("Failed to fetch product page (timeout)") from last_exc
+    raise ValueError("Failed to fetch product page") from last_exc
 
 def _verify_image(content: bytes) -> bytes:
     import io
@@ -81,11 +121,7 @@ async def fetch_product_image(url: str, timeout: Optional[float] = None) -> byte
         return cached
 
     async with httpx.AsyncClient(timeout=timeout, headers=DEFAULT_HEADERS, follow_redirects=True) as client:
-        try:
-            resp = await client.get(url)
-            resp.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise ValueError("Failed to fetch product page") from exc
+        resp = await _get_with_retry(client, url)
         content_type = resp.headers.get("Content-Type", "")
 
         if content_type.startswith("image/"):
@@ -96,17 +132,21 @@ async def fetch_product_image(url: str, timeout: Optional[float] = None) -> byte
             _set_cache(url, data)
             return data
 
-        # If it's HTML page, try to extract og:image
+        # If it's HTML page, try to extract a likely product image
         html = resp.text
-        match = re.search(r'<meta[^>]+property=["\"]og:image["\"][^>]+content=["\"]([^"\"]+)["\"]', html, re.IGNORECASE)
-        if not match:
+        image_candidate = _extract_image_candidate(html)
+        if not image_candidate:
             raise ValueError("Product page does not expose an image")
 
-        image_url = _sanitize_image_url(match.group(1), url)
+        image_url = _sanitize_image_url(image_candidate, url)
 
         try:
             img_resp = await client.get(image_url)
             img_resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise ValueError(f"Failed to fetch product image (HTTP {exc.response.status_code})") from exc
+        except httpx.TimeoutException as exc:
+            raise ValueError("Failed to fetch product image (timeout)") from exc
         except httpx.HTTPError as exc:
             raise ValueError("Failed to fetch product image") from exc
         if not img_resp.headers.get("Content-Type", "").startswith("image/"):

@@ -883,11 +883,14 @@ const App: React.FC = () => {
             }
         } catch (error) {
             console.error(error);
-            const message = error instanceof DOMException && error.name === 'AbortError'
+            let message = error instanceof DOMException && error.name === 'AbortError'
                 ? 'Przekroczono limit czasu. Spróbuj ponownie.'
                 : error instanceof Error
                     ? error.message || 'Nie udało się wygenerować.'
                     : 'Nie udało się wygenerować.';
+            if (message.includes('Failed to fetch product page')) {
+                message = 'Sklep blokuje pobranie strony produktu. Wklej bezpośredni link do zdjęcia produktu (JPG/PNG) albo spróbuj innego URL produktu.';
+            }
             setPreviewUrl(placeholderPreview);
             setStatusError(message);
         } finally {
