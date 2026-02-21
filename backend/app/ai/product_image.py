@@ -2,7 +2,7 @@ import re
 import time
 from io import BytesIO
 from typing import Optional
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
 from PIL import Image
@@ -11,7 +11,6 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-ALLOWED_HOST = "reserved.com"
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -24,11 +23,6 @@ MAX_IMAGE_BYTES = settings.max_product_image_mb * 1024 * 1024
 MAX_SIDE_PX = settings.max_side_px
 CACHE_TTL = 300  # seconds
 _CACHE: dict[str, tuple[float, bytes]] = {}
-
-
-def _is_allowed(url: str) -> bool:
-    return urlparse(url).netloc.endswith(ALLOWED_HOST)
-
 
 def _verify_image(content: bytes) -> bytes:
     import io
@@ -50,16 +44,13 @@ def _normalize_image(content: bytes) -> bytes:
     return buffer.getvalue()
 
 
-def _sanitize_image_url(image_url: str) -> str:
-    parsed = urlparse(image_url)
-    if parsed.scheme in {"", "//"}:
-        parsed = parsed._replace(scheme="https")
+def _sanitize_image_url(image_url: str, source_page_url: str) -> str:
+    resolved = urljoin(source_page_url, image_url)
+    parsed = urlparse(resolved)
     if parsed.scheme not in {"https", "http"}:
         raise ValueError("Invalid image url scheme")
     if parsed.scheme == "http":  # force https
         parsed = parsed._replace(scheme="https")
-    if parsed.netloc and not parsed.netloc.endswith(ALLOWED_HOST):
-        raise ValueError("Image host not allowed")
     return urlunparse(parsed)
 
 
@@ -79,8 +70,9 @@ def _set_cache(url: str, data: bytes) -> None:
 
 
 async def fetch_product_image(url: str, timeout: Optional[float] = None) -> bytes:
-    if not _is_allowed(url):
-        raise ValueError("Only reserved.com URLs are allowed in demo")
+    parsed_url = urlparse(url)
+    if parsed_url.scheme not in {"https", "http"} or not parsed_url.netloc:
+        raise ValueError("Invalid product URL")
 
     timeout = timeout or settings.product_image_timeout
 
@@ -110,7 +102,7 @@ async def fetch_product_image(url: str, timeout: Optional[float] = None) -> byte
         if not match:
             raise ValueError("Product page does not expose an image")
 
-        image_url = _sanitize_image_url(match.group(1))
+        image_url = _sanitize_image_url(match.group(1), url)
 
         try:
             img_resp = await client.get(image_url)

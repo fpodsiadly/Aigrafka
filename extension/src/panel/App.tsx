@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import logo from '../../icons/logo.svg';
+import logo from '../../icons/logo_white.svg';
 
 interface BodyMetrics {
     height: string;
@@ -97,7 +97,7 @@ const initialMetrics: BodyMetrics = {
 
 const initialState: FormState = {
     selfie: null,
-    category: 'Komplet dresowy',
+    category: '',
     fitStyle: 'masculine',
     modelChoice: 'banana-pro',
     productUrl: '',
@@ -160,14 +160,16 @@ const dropZoneStyle: React.CSSProperties = {
     justifyContent: 'space-between'
 };
 
-const validReserved = (url: string) => {
+const validProductUrl = (url: string) => {
     try {
         const u = new URL(url);
-        return u.hostname.endsWith('reserved.com');
+        return u.protocol === 'http:' || u.protocol === 'https:';
     } catch (e) {
         return false;
     }
 };
+
+const normalizeProductUrl = (url: string) => url.trim().replace(/[|\s]+$/g, '');
 
 const actionButtonStyle: React.CSSProperties = {
     background: '#9b59ff',
@@ -741,14 +743,16 @@ const App: React.FC = () => {
     async function runGeneration() {
         if (!canSubmit || !form.selfie) return;
 
-        const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
+        const normalizedProductUrl = form.productUrl ? normalizeProductUrl(form.productUrl) : '';
+
+        const hasProduct = Boolean(normalizedProductUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
         if (!hasProduct) {
-            setStatusError('Dodaj produkt: link Reserved lub zdjęcie.');
+            setStatusError('Dodaj produkt: link SPP lub zdjęcie.');
             return;
         }
 
-        if (form.productUrl && !validReserved(form.productUrl)) {
-            setStatusError('Link musi być z reserved.com.');
+        if (normalizedProductUrl && !validProductUrl(normalizedProductUrl)) {
+            setStatusError('Podaj poprawny link produktu (http/https).');
             return;
         }
 
@@ -773,8 +777,8 @@ const App: React.FC = () => {
         const startedAt = performance.now();
 
         const formData = new FormData();
-        if (form.productUrl) {
-            formData.append('product_url', form.productUrl);
+        if (normalizedProductUrl) {
+            formData.append('product_url', normalizedProductUrl);
         }
         if (form.category) {
             formData.append('category', form.category);
@@ -1025,7 +1029,7 @@ const App: React.FC = () => {
     }
 
     const canShare = Boolean(form.productUrl || previewUrl);
-    const logoSrc = chrome?.runtime?.getURL?.('icons/logo.svg') ?? logo;
+    const logoSrc = chrome?.runtime?.getURL?.('icons/logo_white.svg') ?? logo;
     const activeVariant = variants[selectedVariant] || variants[0];
     const mainImage = activeVariant?.url || previewUrl || placeholderPreview;
 
@@ -1123,7 +1127,7 @@ const App: React.FC = () => {
                             </div>
 
                             <FieldRow label="Link do produktu:">
-                                <input style={inputStyle} value={form.productUrl} onChange={e => update('productUrl', e.target.value)} placeholder="https://url.pl/" type="url" />
+                                <input style={inputStyle} value={form.productUrl} onChange={e => update('productUrl', e.target.value)} placeholder="Wpisz link do produktu lub link do zdjęcia produktu" type="url" />
                             </FieldRow>
 
                             <FieldRow label="Kategoria produktu:">
@@ -1380,72 +1384,98 @@ const App: React.FC = () => {
                             </div>
                         ) : null}
 
-                        <div style={{ ...badge, marginTop: 12, padding: '10px 12px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                                <div style={sectionTitleStyle}>Generuj więcej stylizacji tego produktu</div>
+                        <div style={{ ...badge, marginTop: 10, padding: '8px 10px', borderRadius: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
+                                <div style={{ ...sectionTitleStyle, fontSize: 10, marginBottom: 0, letterSpacing: 0 }}>Generuj więcej stylizacji tego produktu</div>
+                                <span
+                                    style={{
+                                        width: 14,
+                                        height: 14,
+                                        borderRadius: 999,
+                                        background: '#7f47ee',
+                                        color: '#fff',
+                                        fontSize: 10,
+                                        fontWeight: 800,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        lineHeight: 1
+                                    }}
+                                >
+                                    i
+                                </span>
                             </div>
                             {auth.loggedIn ? (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                                    <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e', fontSize: 13 }}>Tokeny Stylizacji</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                                    <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e', fontSize: 11, minHeight: 26, display: 'flex', alignItems: 'center', lineHeight: 1 }}>Tokeny Stylizacji</div>
                                     <input
-                                        style={{ ...inputStyle, maxWidth: 64, textAlign: 'center', padding: '6px 8px' }}
+                                        style={{ ...inputStyle, width: 58, textAlign: 'center', padding: '4px 6px', fontSize: 12, minHeight: 26 }}
                                         value={auth.tokens}
                                         readOnly
                                     />
                                     <button
                                         type="button"
                                         onClick={handleTopUpTokens}
-                                        style={{ ...actionButtonStyle, background: '#9b59ff', boxShadow: 'none', padding: '8px 10px', fontSize: 11 }}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', boxShadow: 'none', padding: '6px 10px', fontSize: 10, borderRadius: 8, width: 96, flexShrink: 0, whiteSpace: 'nowrap' }}
                                     >
                                         Dokup tokeny
                                     </button>
                                 </div>
                             ) : (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                                    <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e', fontSize: 13 }}>Płatność jednorazowa BLIK</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                                    <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e', fontSize: 11, minHeight: 26, display: 'flex', alignItems: 'center', lineHeight: 1 }}>Tokeny Stylizacji</div>
                                     <input
-                                        style={{ ...inputStyle, maxWidth: 132, textAlign: 'center', padding: '6px 8px' }}
+                                        style={{ ...inputStyle, width: 58, textAlign: 'center', padding: '4px 6px', fontSize: 12, minHeight: 26 }}
                                         value={getModelCostText()}
                                         readOnly
                                     />
+                                    <button
+                                        type="button"
+                                        onClick={handleTopUpTokens}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', boxShadow: 'none', padding: '6px 10px', fontSize: 10, borderRadius: 8, width: 96, flexShrink: 0, whiteSpace: 'nowrap' }}
+                                    >
+                                        Dokup tokeny
+                                    </button>
                                 </div>
                             )}
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                                <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e', fontSize: 13 }}>Liczba Stylizacji</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                                <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e', fontSize: 11, minHeight: 26, display: 'flex', alignItems: 'center', lineHeight: 1 }}>Liczba Stylizacji</div>
                                 <input
-                                    style={{ ...inputStyle, maxWidth: 60, textAlign: 'center', padding: '6px 8px' }}
+                                    style={{ ...inputStyle, width: 58, textAlign: 'center', padding: '4px 6px', fontSize: 12, minHeight: 26 }}
                                     type="number"
                                     min={1}
                                     max={3}
                                     value={form.variantCount}
                                     onChange={e => update('variantCount', Math.min(3, Math.max(1, Number(e.target.value) || 1)))}
                                 />
-                                <div style={{ display: 'flex', gap: 6 }}>
+                                <div style={{ display: 'flex', gap: 4, width: 96, flexShrink: 0 }}>
                                     <button
                                         type="button"
                                         onClick={() => update('variantCount', Math.max(1, form.variantCount - 1))}
-                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 34, padding: '6px 0', boxShadow: 'none' }}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', flex: 1, padding: '4px 0', boxShadow: 'none', borderRadius: 8, fontSize: 13 }}
                                     >
                                         −
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => update('variantCount', Math.min(3, form.variantCount + 1))}
-                                        style={{ ...actionButtonStyle, background: '#9b59ff', width: 34, padding: '6px 0', boxShadow: 'none' }}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', flex: 1, padding: '4px 0', boxShadow: 'none', borderRadius: 8, fontSize: 13 }}
                                     >
                                         +
                                     </button>
                                 </div>
                             </div>
 
-                            <div style={{ background: '#ededed', border: '2px solid #c7c7c7', borderRadius: 10, padding: '8px 10px', marginBottom: 10 }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#1e1e1e', fontSize: '12px', lineHeight: 1.2, flexWrap: 'wrap' }}>
-                                    <input type="checkbox" checked={form.accepted} onChange={e => update('accepted', e.target.checked)} />
-                                    <span>Akceptuję</span>
-                                    <a href="https://aigrafka.pl/regulamin" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Regulamin</a>
-                                    <span>i</span>
-                                    <a href="https://aigrafka.pl/polityka-prywatnosci" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Politykę prywatności</a>
+                            <div style={{ background: '#ededed', border: '1px solid #c7c7c7', borderRadius: 8, padding: '6px 8px', marginBottom: 8 }}>
+                                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 6, color: '#1e1e1e', fontSize: '10px', lineHeight: 1.15 }}>
+                                    <input type="checkbox" checked={form.accepted} onChange={e => update('accepted', e.target.checked)} style={{ marginTop: 1 }} />
+                                    <span style={{ textAlign: 'center', width: '100%', display: 'block' }}>
+                                        Potwierdzam prawo do wykorzystania wizerunku i akceptuję{' '}
+                                        <a href="https://aigrafka.pl/regulamin" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Regulamin</a>
+                                        {' '}i{' '}
+                                        <a href="https://aigrafka.pl/polityka-prywatnosci" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Politykę Prywatności</a>
+                                    </span>
                                 </label>
                             </div>
 
@@ -1455,10 +1485,12 @@ const App: React.FC = () => {
                                 style={{
                                     ...actionButtonStyle,
                                     width: '100%',
-                                    padding: '12px 12px',
+                                    padding: '9px 10px',
                                     background: canSubmit ? '#9b59ff' : '#b7b7b7',
                                     cursor: canSubmit ? 'pointer' : 'not-allowed',
-                                    boxShadow: 'none'
+                                    boxShadow: 'none',
+                                    borderRadius: 8,
+                                    fontSize: 12
                                 }}
                                 disabled={!canSubmit || isLoading}
                             >

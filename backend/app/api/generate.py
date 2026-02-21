@@ -5,7 +5,7 @@ from typing import Optional, Union
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from PIL import Image
 
 from app.ai.gemini_client import GeminiClient
@@ -35,16 +35,18 @@ class GenerateResponse(BaseModel):
     model: Optional[str] = None
 
 
-def _ensure_reserved(product_url: str) -> None:
-    domain = urlparse(product_url).netloc
-    if not domain.endswith("reserved.com"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only reserved.com is supported in demo")
-
-
 settings = get_settings()
 MAX_UPLOAD_BYTES = settings.max_selfie_mb * 1024 * 1024
 MAX_PRODUCT_BYTES = settings.max_product_image_mb * 1024 * 1024
 MAX_SIDE_PX = settings.max_side_px
+
+
+def _normalize_product_url(url: str) -> str:
+    cleaned = url.strip().rstrip('|').strip()
+    parsed = urlparse(cleaned)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid product_url")
+    return cleaned
 
 
 def _validate_and_normalize_selfie(upload: UploadFile) -> bytes:
@@ -111,7 +113,7 @@ def _validate_and_normalize_product(upload: UploadFile) -> bytes:
 
 @router.post("/generate", response_model=GenerateResponse)
 async def generate_tryon(
-    product_url: Optional[HttpUrl] = Form(None),
+    product_url: Optional[str] = Form(None),
     selfie: UploadFile = File(...),
     category: Optional[str] = Form(None),
     fit_style: Optional[str] = Form(None),
@@ -126,7 +128,11 @@ async def generate_tryon(
     user_id: Optional[str] = Depends(get_optional_user_id),
 ) -> GenerateResponse:
     t_enter = perf_counter()
-    if not product_url and not product_image_1 and not product_image_2:
+    normalized_product_url: Optional[str] = None
+    if product_url:
+        normalized_product_url = _normalize_product_url(product_url)
+
+    if not normalized_product_url and not product_image_1 and not product_image_2:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Provide product_url or upload a product image."
@@ -146,18 +152,17 @@ async def generate_tryon(
             break
 
     if product_image_bytes is None:
-        if not product_url:
+        if not normalized_product_url:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Product image not provided"
             )
-        _ensure_reserved(str(product_url))
         try:
-            product_image_bytes = await fetch_product_image(str(product_url))
+            product_image_bytes = await fetch_product_image(normalized_product_url)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    product_ref = "uploaded product image" if used_upload else str(product_url)
+    product_ref = "uploaded product image" if used_upload else str(normalized_product_url)
     requested_variants = variants if variants is not None else settings.variants
     variant_count = max(1, min(requested_variants, 3))
 
@@ -186,7 +191,7 @@ async def generate_tryon(
 
     logger.info(
         "generate_tryon start product_url=%s used_upload=%s variants=%d model=%s",
-        product_url,
+        normalized_product_url,
         used_upload,
         variant_count,
         client.model,
