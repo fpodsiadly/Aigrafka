@@ -397,7 +397,7 @@ const App: React.FC = () => {
         email: undefined,
         userId: undefined
     });
-    const [view, setView] = useState<'form' | 'result'>('form');
+    const [view, setView] = useState<'form' | 'generating' | 'result'>('form');
     const [showMeasurements, setShowMeasurements] = useState<boolean>(false);
     const [showAuthDialog, setShowAuthDialog] = useState<boolean>(false);
     const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -409,9 +409,13 @@ const App: React.FC = () => {
     const [googleInitialized, setGoogleInitialized] = useState<boolean>(false);
     const [profileReadyForUser, setProfileReadyForUser] = useState<string | null>(null);
     const [uploadMenuFor, setUploadMenuFor] = useState<ProductImageKey | null>(null);
+    const [waitingPulse, setWaitingPulse] = useState<number>(0);
+    const [isSharing, setIsSharing] = useState<boolean>(false);
     const googleButtonRef = useRef<HTMLDivElement | null>(null);
     const productImage1InputRef = useRef<HTMLInputElement | null>(null);
     const productImage2InputRef = useRef<HTMLInputElement | null>(null);
+    const productImage1MenuRef = useRef<HTMLDivElement | null>(null);
+    const productImage2MenuRef = useRef<HTMLDivElement | null>(null);
 
     const canSubmit = useMemo(() => {
         const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
@@ -866,7 +870,7 @@ const App: React.FC = () => {
             await handlePayBlik();
         }
 
-        setView('result');
+        setView('generating');
 
         setStatus('');
         setIsLoading(true);
@@ -973,6 +977,7 @@ const App: React.FC = () => {
             const variantCount = normalizedVariants.length || 1;
             const latencyText = normalizedVariants[0]?.latencyMs ? ` • ${Math.round(normalizedVariants[0].latencyMs)} ms` : '';
             const modelText = data.model ? ` • ${data.model}` : '';
+            setView('result');
             if (isFallback) {
                 setStatusError('Generacja nieudana. Spróbuj ponownie.');
                 succeeded = false;
@@ -992,6 +997,7 @@ const App: React.FC = () => {
             if (message.includes('Failed to fetch product page')) {
                 message = 'Sklep blokuje pobranie strony produktu. Wklej bezpośredni link do zdjęcia produktu (JPG/PNG) albo spróbuj innego URL produktu.';
             }
+            setView('form');
             setPreviewUrl(placeholderPreview);
             setStatusError(message);
         } finally {
@@ -1011,15 +1017,62 @@ const App: React.FC = () => {
     }
 
     async function handleShare() {
-        const target = form.productUrl || previewUrl;
+        const shareUrl = form.productUrl || previewUrl || undefined;
+        const imageUrl = activeVariant?.url || previewUrl || undefined;
+        setIsSharing(true);
         try {
             if (navigator.share) {
-                await navigator.share({ title: 'Przymierzator', url: target });
+                if (imageUrl && typeof navigator.canShare === 'function') {
+                    try {
+                        const response = await fetch(imageUrl);
+                        const blob = await response.blob();
+                        const extension = blob.type.includes('png') ? 'png' : 'jpg';
+                        const file = new File([blob], `aigrafka-stylizacja.${extension}`, { type: blob.type || 'image/jpeg' });
+
+                        const fileWithUrlPayload: ShareData = {
+                            title: 'AIgrafka',
+                            text: 'Moja stylizacja z AIgrafka',
+                            files: [file],
+                            url: shareUrl
+                        };
+
+                        if (navigator.canShare(fileWithUrlPayload)) {
+                            await navigator.share(fileWithUrlPayload);
+                            setStatusSuccess('Udostępniono.');
+                            return;
+                        }
+
+                        const fileOnlyPayload: ShareData = {
+                            title: 'AIgrafka',
+                            text: 'Moja stylizacja z AIgrafka',
+                            files: [file]
+                        };
+                        if (navigator.canShare(fileOnlyPayload)) {
+                            await navigator.share(fileOnlyPayload);
+                            setStatusSuccess('Udostępniono.');
+                            return;
+                        }
+                    } catch (fileShareError) {
+                        console.error(fileShareError);
+                    }
+                }
+
+                await navigator.share({
+                    title: 'AIgrafka',
+                    text: 'Moja stylizacja z AIgrafka',
+                    url: shareUrl
+                });
                 setStatusSuccess('Udostępniono.');
                 return;
             }
         } catch (error) {
             console.error(error);
+            if (error instanceof DOMException && error.name === 'AbortError') {
+                setStatus('Anulowano udostępnianie.');
+                return;
+            }
+        } finally {
+            setIsSharing(false);
         }
         await handleCopyLink();
     }
@@ -1333,6 +1386,44 @@ const App: React.FC = () => {
         }
     }, [variants, selectedVariant]);
 
+    useEffect(() => {
+        if (!uploadMenuFor) return;
+
+        const onPointerDown = (event: MouseEvent) => {
+            const target = event.target as Node | null;
+            if (!target) return;
+
+            const insideFirst = productImage1MenuRef.current?.contains(target) ?? false;
+            const insideSecond = productImage2MenuRef.current?.contains(target) ?? false;
+
+            if (!insideFirst && !insideSecond) {
+                setUploadMenuFor(null);
+            }
+        };
+
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setUploadMenuFor(null);
+            }
+        };
+
+        document.addEventListener('mousedown', onPointerDown, true);
+        document.addEventListener('keydown', onKeyDown);
+
+        return () => {
+            document.removeEventListener('mousedown', onPointerDown, true);
+            document.removeEventListener('keydown', onKeyDown);
+        };
+    }, [uploadMenuFor]);
+
+    useEffect(() => {
+        if (!(view === 'generating' && isLoading)) return;
+        const timer = window.setInterval(() => {
+            setWaitingPulse(prev => (prev + 1) % 3);
+        }, 320);
+        return () => window.clearInterval(timer);
+    }, [view, isLoading]);
+
     return (
         <div className="aigrafka-shell" style={{ display: 'flex', flexDirection: 'column', background: '#dcdcdc', color: '#1e1e1e', height: 'auto', width: '100%' }}>
             <PanelHeader logoSrc={logoSrc} loggedIn={auth.loggedIn} userEmail={auth.email} onLogin={handleLogin} onLogout={handleLogout} />
@@ -1455,6 +1546,7 @@ const App: React.FC = () => {
                                 <div style={{ display: 'flex', gap: 6, width: '100%' }}>
                                     <div onDragOver={e => e.preventDefault()} onDrop={e => handleDropProduct('productImage1', e)} style={{ flex: 1, minWidth: 0 }}>
                                         <div
+                                            ref={productImage1MenuRef}
                                             style={{ position: 'relative' }}
                                         >
                                             <button
@@ -1499,6 +1591,7 @@ const App: React.FC = () => {
                                     </div>
                                     <div onDragOver={e => e.preventDefault()} onDrop={e => handleDropProduct('productImage2', e)} style={{ flex: 1, minWidth: 0 }}>
                                         <div
+                                            ref={productImage2MenuRef}
                                             title="Drugie zdjęcie jest opcjonalne i pomaga lepiej odwzorować tył ubrania w 3. wariancie."
                                             style={{ position: 'relative' }}
                                         >
@@ -1732,16 +1825,16 @@ const App: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={handleShare}
-                                disabled={!canShare}
+                                disabled={!canShare || isSharing}
                                 style={{
                                     ...actionButtonStyle,
                                     background: '#9b59ff',
                                     padding: '10px 12px',
                                     flex: 1,
-                                    opacity: canShare ? 1 : 0.6
+                                    opacity: canShare && !isSharing ? 1 : 0.6
                                 }}
                             >
-                                Udostępnij
+                                {isSharing ? 'Udostępnianie...' : 'Udostępnij'}
                             </button>
                             <button
                                 type="button"
@@ -1905,6 +1998,70 @@ const App: React.FC = () => {
                             >
                                 Zacznij od nowa
                             </button>
+                        </div>
+                    </div>
+                )}
+
+                {view === 'generating' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)', padding: '10px 12px', borderRadius: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                                <div>
+                                    <div style={{ color: '#7b48eb', fontWeight: 800, fontSize: 14, letterSpacing: 0.1, lineHeight: 1.1 }}>GENERUJEMY TWOJĄ STYLIZACJĘ</div>
+                                    <div style={{ color: '#6f45cc', fontWeight: 700, fontSize: 12, marginTop: 2, lineHeight: 1.15 }}>Nie wyłączaj przeglądarki!</div>
+                                    <div style={{ color: '#7d7d7d', fontSize: 11, marginTop: 2, lineHeight: 1.15 }}>Nie powinno to zająć więcej niż 30 sek</div>
+                                </div>
+                                <div style={{ display: 'flex', gap: 6, marginTop: 2, flexShrink: 0, alignItems: 'center' }}>
+                                    {[0, 1, 2].map(dot => {
+                                        const active = waitingPulse === dot;
+                                        return (
+                                            <span
+                                                key={dot}
+                                                style={{
+                                                    width: active ? 9 : 7,
+                                                    height: active ? 9 : 7,
+                                                    borderRadius: 999,
+                                                    background: '#9b59ff',
+                                                    opacity: active ? 1 : 0.35,
+                                                    boxShadow: active ? '0 0 10px rgba(155,89,255,0.55)' : 'none',
+                                                    transform: active ? 'translateY(-1px)' : 'translateY(0)',
+                                                    transition: 'all 0.22s ease'
+                                                }}
+                                            />
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)', padding: 8 }}>
+                            <div style={{ border: '2px solid #2f2f2f', borderRadius: 2, background: '#f9f9f9', padding: 8 }}>
+                                <div style={{ color: '#8a8a8a', fontSize: 9, marginBottom: 6 }}>Reklama — placeholder</div>
+                                <div style={{ background: '#ffffff', border: '1px solid #d6d6d6', borderRadius: 2, padding: '8px 8px 10px' }}>
+                                    <div style={{ color: '#1b1b1b', fontWeight: 800, fontSize: 12, marginBottom: 8, letterSpacing: 0.1 }}>oferty-praca.pl</div>
+
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                                        {[1, 2, 3].map(item => (
+                                            <div key={item} style={{ border: '1px solid #dadada', borderRadius: 4, padding: '8px 8px 6px', background: '#fff' }}>
+                                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                                        <div style={{ color: '#8b8b8b', fontSize: 9, marginBottom: 2 }}>Warszawa</div>
+                                                        <div style={{ color: '#222', fontSize: 12, fontWeight: 800, lineHeight: 1.15 }}>Specjalista marketingu</div>
+                                                    </div>
+                                                    <div style={{ background: '#1f1f1f', color: '#fff', fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '6px 9px', whiteSpace: 'nowrap' }}>Aplikuj</div>
+                                                </div>
+                                                <div style={{ marginTop: 5, color: '#ff6a3d', fontSize: 10, fontWeight: 700 }}>8 000 - 12 000 PLN</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)', padding: '8px 10px' }}>
+                            <div style={{ color: '#5c5c5c', fontSize: 10, lineHeight: 1.25, textAlign: 'center' }}>
+                                Po zakończeniu generowania automatycznie przejdziesz do podglądu stylizacji.
+                            </div>
                         </div>
                     </div>
                 )}
