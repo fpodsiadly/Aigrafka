@@ -48,7 +48,7 @@ chrome.action.onClicked.addListener(async tab => {
     /* ignore parse error */
   }
   if (!allow) {
-    console.warn('[Aigrafka] inject skipped: unsupported tab URL', url);
+    console.warn('[AIgrafka] inject skipped: unsupported tab URL', url);
     void setBadge('X', '#c62828');
     return;
   }
@@ -68,7 +68,7 @@ chrome.action.onClicked.addListener(async tab => {
     await chrome.tabs.sendMessage(tab.id, { type: 'AIGRAFKA_TOGGLE_PANEL' }).catch(() => null);
     await setBadge('ON', '#2e7d32');
   } catch (err) {
-    console.error('[Aigrafka] inject failed', err);
+    console.error('[AIgrafka] inject failed', err);
     void setBadge('ERR', '#c62828');
   }
 });

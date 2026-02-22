@@ -85,7 +85,7 @@ function injectPanel() {
 }
 
 // Toggle on demand from the action button.
-console.info('[Aigrafka] content script loaded');
+console.info('[AIgrafka] content script loaded');
 
 if (chrome?.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

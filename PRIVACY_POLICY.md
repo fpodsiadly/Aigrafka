@@ -1,10 +1,10 @@
-# Privacy Policy – Aigrafka Extension
+# Privacy Policy – AIgrafka Extension
 
 **Last updated:** January 31, 2026
 
 ## Overview
 
-Aigrafka is a virtual try-on assistant for online fashion stores. This privacy policy explains how the extension collects, uses, and protects user data.
+AIgrafka is a virtual try-on assistant for online fashion stores. This privacy policy explains how the extension collects, uses, and protects user data.
 
 ## Data Collection
 
@@ -71,4 +71,4 @@ For privacy concerns or questions, please contact: support@aigrafka.pl
 
 ---
 
-**By using Aigrafka, you consent to this privacy policy.**
+**By using AIgrafka, you consent to this privacy policy.**

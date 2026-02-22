@@ -6,7 +6,7 @@ from app.api.generate import router as generate_router
 from app.core.config import get_settings
 from app.core.db import init_auth_tables
 
-app = FastAPI(title="Aigrafka Demo Backend", version="0.1.0")
+app = FastAPI(title="AIgrafka Demo Backend", version="0.1.0")
 
 settings = get_settings()
 raw_origins = settings.cors_origins or "*"

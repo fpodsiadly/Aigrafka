@@ -1,4 +1,4 @@
-# Aigrafka
+# AIgrafka
 
 Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań z AI (virtual try-on) i zakupów tokenów. Składa się z rozszerzenia (content script + React w Shadow DOM), backendu (NestJS), modułu AI (Banana.dev + SD) oraz typów współdzielonych.
 

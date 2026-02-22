@@ -13,7 +13,7 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
   const port = process.env.PORT || 4000;
   await app.listen(port);
-  console.log(`Aigrafka backend listening on :${port}`);
+  console.log(`AIgrafka backend listening on :${port}`);
 }
 
 bootstrap();

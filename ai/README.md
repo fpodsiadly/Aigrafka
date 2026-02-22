@@ -1,4 +1,4 @@
-# Aigrafka AI
+# AIgrafka AI
 
 Placeholder package for Banana.dev / Stable Diffusion virtual try-on pipeline.
 

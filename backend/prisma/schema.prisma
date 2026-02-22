@@ -55,6 +55,7 @@ model Profile {
   chest        String
   waist        String
   hips         String
+  fitStyle     String?
   category     String?
   productUrl   String?
   selfieUrl    String?

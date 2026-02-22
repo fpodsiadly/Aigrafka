@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Building Aigrafka Extension Release Package"
+echo "🚀 Building AIgrafka Extension Release Package"
 echo "=============================================="
 
 # Check if jq is installed (for JSON manipulation)

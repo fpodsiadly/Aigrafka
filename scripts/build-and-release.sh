@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Aigrafka Extension Build and Release Script
+# AIgrafka Extension Build and Release Script
 # Automates: version bump, build, ZIP creation, and cleanup
 # Usage: ./scripts/build-and-release.sh [major|minor|patch]
 # Default: patch
@@ -13,7 +13,7 @@ DIST_DIR="$EXTENSION_DIR/dist"
 RELEASE_DIR="releases"
 DATE=$(date +%Y%m%d_%H%M%S)
 
-echo "🔨 Aigrafka Extension Build & Release"
+echo "🔨 AIgrafka Extension Build & Release"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # 1. Read current version

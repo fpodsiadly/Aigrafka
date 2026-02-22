@@ -12,6 +12,8 @@ def build_openvto_prompt(
     waist_cm: Optional[str] = None,
     hips_cm: Optional[str] = None,
     variants: int = 1,
+    variant_index: Optional[int] = None,
+    back_reference_available: bool = False,
 ) -> str:
     domain = urlparse(product_ref).netloc if not is_upload else ""
     source_text = (
@@ -42,6 +44,8 @@ def build_openvto_prompt(
     measurements_text = f"User measurements: {', '.join(measurements)}." if measurements else "User measurements: not provided."
 
     variants = max(1, min(variants, 3))
+    variant_index = max(1, min(variant_index or 1, variants))
+
     if variants == 1:
         variant_text = "Generate ONE photorealistic full-body portrait of the user wearing the product."
         variant_pose_text = (
@@ -58,22 +62,60 @@ def build_openvto_prompt(
     else:
         variant_text = (
             f"Generate {variants} DISTINCT photorealistic full-body portraits of the user wearing the product. "
-            f"Each variant must show the same user and garment but differ in pose angle (e.g., straight-on vs subtle 3/4 view), "
+            f"Each variant must show the same user and garment but differ in pose angle, "
             f"lighting mood, or background tone to give the user meaningful variety. "
             f"Return exactly {variants} separate images, with exactly ONE photo per variant."
         )
-        variant_pose_text = (
-            "Pose plan for 3 variants: "
-            "(1) front-facing full body, "
-            "(2) slight 3/4 left turn, "
-            "(3) slight 3/4 right turn with torso rotated enough (about 35-55 degrees) to show part of the garment back."
+        if back_reference_available:
+            variant_pose_text = (
+                "Pose plan for 3 variants: "
+                "(1) front-facing full body, "
+                "(2) slight 3/4 left turn, "
+                "(3) full back-facing stance (user standing with back toward camera) so the garment back is clearly visible."
+            )
+        else:
+            variant_pose_text = (
+                "Pose plan for 3 variants without a dedicated back reference: "
+                "(1) front-facing full body, "
+                "(2) slight 3/4 left turn, "
+                "(3) stronger 3/4 right turn (about 35-55 degrees) to reveal part of the back panel."
+            )
+
+    if variants == 3:
+        if variant_index == 1:
+            shot_instruction = "Current requested shot = VARIANT 1 OF 3: front-facing full body."
+        elif variant_index == 2:
+            shot_instruction = "Current requested shot = VARIANT 2 OF 3: slight 3/4 LEFT turn."
+        else:
+            if back_reference_available:
+                shot_instruction = (
+                    "Current requested shot = VARIANT 3 OF 3: full BACK view with the user's back toward camera. "
+                    "Make the garment back panel clearly visible and centered."
+                )
+            else:
+                shot_instruction = (
+                    "Current requested shot = VARIANT 3 OF 3: stronger 3/4 RIGHT turn to reveal part of garment back. "
+                    "Do not invent unseen back details beyond what can be inferred from the provided reference."
+                )
+    elif variants == 2:
+        shot_instruction = (
+            "Current requested shot: keep pose distinct from the other variant while preserving identity and garment fidelity."
         )
+    else:
+        shot_instruction = "Current requested shot: single final variant."
+
+    back_requirement_text = (
+        "Back-view policy: when a second product image reference is available, use it as authority for back-side garment details "
+        "(print placement, stitching lines, seam structure, yoke/pocket details, logo position). "
+        "When no second back reference exists, keep back details conservative and avoid speculative patterns/text."
+    )
 
     return (
         "You are an AI virtual try-on system following OpenVTO principles. "
         "Inputs: (1) user selfie image; (2) product garment image from the e-commerce page or upload. "
         f"{variant_text} "
         f"{variant_pose_text} "
+        f"{shot_instruction} "
         "Composition constraint: each output image must contain exactly one person in one continuous camera frame. "
         "Do not create collages, split screens, diptychs/triptychs, before-vs-after layouts, or multiple mini-photos inside one image. "
         "Pose: user standing upright, relaxed neutral stance, body and face oriented straight toward the camera. "
@@ -87,6 +129,7 @@ def build_openvto_prompt(
         "Maintain original body proportions and posture; no slimming, enlarging, or reshaping. "
         "Fit the garment naturally and realistically: correct scale, accurate seams, proper collar/neck alignment, "
         "realistic draping, folds, and fabric physics consistent with the material. "
+        f"{back_requirement_text} "
         "Show garment coverage clearly: reflect true length on the user's reported height (e.g., dress/skirt hem position, sleeve length, neckline depth/shape). "
         "Depict sleeves and neckline faithfully to the product reference; do not invent alternative cuts. "
         "Avoid hiding garment edges—ensure hems, cuffs, and neckline are visible and true to length. "

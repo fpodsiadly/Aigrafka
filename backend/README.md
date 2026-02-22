@@ -1,4 +1,4 @@
-# Aigrafka Demo Backend (FastAPI)
+# AIgrafka Demo Backend (FastAPI)
 
 Demo backend acting as a secure proxy/orchestrator for virtual try-on powered by Gemini (Nano Banana Pro) and OpenVTO-style prompting.
 

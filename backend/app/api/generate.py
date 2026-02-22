@@ -141,24 +141,29 @@ async def generate_tryon(
     selfie_bytes = _validate_and_normalize_selfie(selfie)
 
     used_upload = False
-    product_image_bytes: Optional[bytes] = None
+    primary_product_image_bytes: Optional[bytes] = None
+    secondary_product_image_bytes: Optional[bytes] = None
 
-    for candidate in (product_image_1, product_image_2):
-        if candidate is None:
-            continue
-        if candidate.filename:
-            product_image_bytes = _validate_and_normalize_product(candidate)
-            used_upload = True
-            break
+    if product_image_1 and product_image_1.filename:
+        primary_product_image_bytes = _validate_and_normalize_product(product_image_1)
+        used_upload = True
 
-    if product_image_bytes is None:
+    if product_image_2 and product_image_2.filename:
+        secondary_product_image_bytes = _validate_and_normalize_product(product_image_2)
+        used_upload = True
+
+    if primary_product_image_bytes is None and secondary_product_image_bytes is not None:
+        primary_product_image_bytes = secondary_product_image_bytes
+        secondary_product_image_bytes = None
+
+    if primary_product_image_bytes is None:
         if not normalized_product_url:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Product image not provided"
             )
         try:
-            product_image_bytes = await fetch_product_image(normalized_product_url)
+            primary_product_image_bytes = await fetch_product_image(normalized_product_url)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
@@ -166,17 +171,7 @@ async def generate_tryon(
     requested_variants = variants if variants is not None else settings.variants
     variant_count = max(1, min(requested_variants, 3))
 
-    prompt = build_openvto_prompt(
-        product_ref,
-        is_upload=used_upload,
-        category=category,
-        fit_style=fit_style,
-        height_cm=height_cm,
-        chest_cm=chest_cm,
-        waist_cm=waist_cm,
-        hips_cm=hips_cm,
-        variants=variant_count,
-    )
+    back_reference_available = secondary_product_image_bytes is not None
 
     model_map = {
         "banana": "gemini-2.5-flash-image",
@@ -190,10 +185,11 @@ async def generate_tryon(
     first_model_ms: Optional[float] = None
 
     logger.info(
-        "generate_tryon start product_url=%s used_upload=%s variants=%d model=%s",
+        "generate_tryon start product_url=%s used_upload=%s variants=%d back_reference=%s model=%s",
         normalized_product_url,
         used_upload,
         variant_count,
+        back_reference_available,
         client.model,
     )
 
@@ -208,12 +204,31 @@ async def generate_tryon(
             )
 
     try:
-        for _ in range(variant_count):
+        for index in range(variant_count):
+            variant_number = index + 1
+            prompt = build_openvto_prompt(
+                product_ref,
+                is_upload=used_upload,
+                category=category,
+                fit_style=fit_style,
+                height_cm=height_cm,
+                chest_cm=chest_cm,
+                waist_cm=waist_cm,
+                hips_cm=hips_cm,
+                variants=variant_count,
+                variant_index=variant_number,
+                back_reference_available=back_reference_available,
+            )
+
+            current_product_image_bytes = primary_product_image_bytes
+            if variant_count == 3 and variant_number == 3 and secondary_product_image_bytes is not None:
+                current_product_image_bytes = secondary_product_image_bytes
+
             started = perf_counter()
             result = await client.generate_image(
                 prompt=prompt,
                 selfie_bytes=selfie_bytes,
-                product_image_bytes=product_image_bytes,
+                product_image_bytes=current_product_image_bytes,
             )
             latency_ms = (perf_counter() - started) * 1000.0
             if first_model_ms is None:

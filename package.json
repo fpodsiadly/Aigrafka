@@ -9,16 +9,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fpodsiadly/Aigrafka.git"
+    "url": "git+https://github.com/fpodsiadly/AIgrafka.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/fpodsiadly/Aigrafka/issues"
+    "url": "https://github.com/fpodsiadly/AIgrafka/issues"
   },
-  "homepage": "https://github.com/fpodsiadly/Aigrafka#readme",
+  "homepage": "https://github.com/fpodsiadly/AIgrafka#readme",
   "dependencies": {
     "@prisma/client": "^6.1.0",
     "@vercel/blob": "^2.0.0",

@@ -24,7 +24,7 @@ interface FormState extends BodyMetrics {
 type StorableKey = keyof Pick<FormState, 'height' | 'chest' | 'waist' | 'hips' | 'category' | 'productUrl' | 'fitStyle' | 'modelChoice'>;
 type SavedFlags = Partial<Record<StorableKey, boolean>>;
 type Persistable = Pick<FormState, StorableKey>;
-const storableKeys: StorableKey[] = ['height', 'chest', 'waist', 'hips', 'category', 'productUrl', 'fitStyle', 'modelChoice'];
+const storableKeys: StorableKey[] = ['category', 'productUrl', 'modelChoice'];
 
 type ApiBase64 = string | { image_base64?: string } | null | undefined;
 
@@ -58,6 +58,16 @@ interface AuthMeResponse {
     tokens: number;
 }
 
+interface ProfileResponse {
+    userId: string;
+    height: string;
+    chest: string;
+    waist: string;
+    hips: string;
+    fitStyle?: FormState['fitStyle'] | null;
+    consentGiven?: boolean | null;
+}
+
 interface GoogleClientIdResponse {
     enabled: boolean;
     client_id?: string | null;
@@ -89,10 +99,10 @@ interface VariantPreview {
 }
 
 const initialMetrics: BodyMetrics = {
-    height: '186',
-    chest: '120',
-    waist: '100',
-    hips: '100'
+    height: '',
+    chest: '',
+    waist: '',
+    hips: ''
 };
 
 const initialState: FormState = {
@@ -292,12 +302,12 @@ const PanelHeader = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#ffffff', display: 'grid', placeItems: 'center', overflow: 'hidden', border: '2px solid #bfbfbf' }}>
                 {logoSrc ? (
-                    <img src={logoSrc} alt="Aigrafka" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <img src={logoSrc} alt="AIgrafka" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
                     <span style={{ fontSize: '20px', color: '#7a0606' }}>A</span>
                 )}
             </div>
-            <div style={{ color: '#1b1b1b', fontSize: '18px', fontWeight: 700, letterSpacing: '0.1px' }}>Aigrafka</div>
+            <div style={{ color: '#1b1b1b', fontSize: '18px', fontWeight: 700, letterSpacing: '0.1px' }}>AIgrafka</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, minWidth: 0 }}>
             <button
@@ -378,11 +388,12 @@ const App: React.FC = () => {
     const [variants, setVariants] = useState<VariantPreview[]>([]);
     const [selectedVariant, setSelectedVariant] = useState<number>(0);
     const [generationMeta, setGenerationMeta] = useState<{ model?: string; latencyMs?: number }>({});
-    const [auth, setAuth] = useState<{ loggedIn: boolean; tokens: number; accessToken: string | null; email?: string }>({
+    const [auth, setAuth] = useState<{ loggedIn: boolean; tokens: number; accessToken: string | null; email?: string; userId?: string }>({
         loggedIn: false,
         tokens: 0,
         accessToken: null,
-        email: undefined
+        email: undefined,
+        userId: undefined
     });
     const [view, setView] = useState<'form' | 'result'>('form');
     const [showMeasurements, setShowMeasurements] = useState<boolean>(false);
@@ -394,6 +405,7 @@ const App: React.FC = () => {
     const [googleClientId, setGoogleClientId] = useState<string | null>(null);
     const [googleReady, setGoogleReady] = useState<boolean>(false);
     const [googleInitialized, setGoogleInitialized] = useState<boolean>(false);
+    const [profileReadyForUser, setProfileReadyForUser] = useState<string | null>(null);
     const googleButtonRef = useRef<HTMLDivElement | null>(null);
 
     const canSubmit = useMemo(() => {
@@ -433,6 +445,40 @@ const App: React.FC = () => {
         setForm(prev => ({ ...prev, [key]: value }));
     }
 
+    async function loadProfile(userId: string, token: string) {
+        try {
+            const response = await fetch(`${apiBase}/profile/${userId}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (!response.ok) {
+                setProfileReadyForUser(userId);
+                return;
+            }
+
+            const profile: ProfileResponse | null = await response.json();
+            if (!profile) {
+                setProfileReadyForUser(userId);
+                return;
+            }
+
+            setForm(prev => ({
+                ...prev,
+                height: profile.height || prev.height,
+                chest: profile.chest || prev.chest,
+                waist: profile.waist || prev.waist,
+                hips: profile.hips || prev.hips,
+                fitStyle: profile.fitStyle === 'feminine' || profile.fitStyle === 'unisex' || profile.fitStyle === 'masculine'
+                    ? profile.fitStyle
+                    : prev.fitStyle,
+                accepted: typeof profile.consentGiven === 'boolean' ? profile.consentGiven : prev.accepted
+            }));
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setProfileReadyForUser(userId);
+        }
+    }
+
     function setStatusSuccess(message: string) {
         setStatusTone('success');
         setStatus(message);
@@ -446,7 +492,8 @@ const App: React.FC = () => {
     async function refreshAuthFromServer(tokenOverride?: string | null): Promise<boolean> {
         const token = tokenOverride ?? auth.accessToken;
         if (!token) {
-            setAuth({ loggedIn: false, tokens: 0, accessToken: null, email: undefined });
+            setAuth({ loggedIn: false, tokens: 0, accessToken: null, email: undefined, userId: undefined });
+            setProfileReadyForUser(null);
             return false;
         }
 
@@ -456,12 +503,14 @@ const App: React.FC = () => {
             });
             if (!response.ok) {
                 await authStorage.clearToken();
-                setAuth({ loggedIn: false, tokens: 0, accessToken: null, email: undefined });
+                setAuth({ loggedIn: false, tokens: 0, accessToken: null, email: undefined, userId: undefined });
+                setProfileReadyForUser(null);
                 return false;
             }
 
             const data: AuthMeResponse = await response.json();
-            setAuth({ loggedIn: true, tokens: data.tokens, accessToken: token, email: data.email });
+            setAuth({ loggedIn: true, tokens: data.tokens, accessToken: token, email: data.email, userId: data.user_id });
+            await loadProfile(data.user_id, token);
             return true;
         } catch (error) {
             console.error(error);
@@ -528,7 +577,8 @@ const App: React.FC = () => {
 
             const data: AuthApiResponse = await response.json();
             await authStorage.setToken(data.access_token);
-            setAuth({ loggedIn: true, tokens: data.tokens, accessToken: data.access_token, email: data.email });
+            setAuth({ loggedIn: true, tokens: data.tokens, accessToken: data.access_token, email: data.email, userId: data.user_id });
+            await loadProfile(data.user_id, data.access_token);
             setShowAuthDialog(false);
             setStatus(`Zalogowano jako ${data.email}.`);
         } catch (error) {
@@ -567,7 +617,8 @@ const App: React.FC = () => {
 
             const data: AuthApiResponse = await response.json();
             await authStorage.setToken(data.access_token);
-            setAuth({ loggedIn: true, tokens: data.tokens, accessToken: data.access_token, email: data.email });
+            setAuth({ loggedIn: true, tokens: data.tokens, accessToken: data.access_token, email: data.email, userId: data.user_id });
+            await loadProfile(data.user_id, data.access_token);
             setShowAuthDialog(false);
             setStatus(`Zalogowano przez Google jako ${data.email}.`);
         } catch (error) {
@@ -580,7 +631,15 @@ const App: React.FC = () => {
 
     async function handleLogout() {
         await authStorage.clearToken();
-        setAuth({ loggedIn: false, tokens: 0, accessToken: null, email: undefined });
+        setAuth({ loggedIn: false, tokens: 0, accessToken: null, email: undefined, userId: undefined });
+        setProfileReadyForUser(null);
+        setForm(prev => ({
+            ...prev,
+            height: '',
+            chest: '',
+            waist: '',
+            hips: ''
+        }));
         setStatus('Wylogowano.');
     }
 
@@ -652,6 +711,43 @@ const App: React.FC = () => {
             refreshAuthFromServer(token);
         });
     }, []);
+
+    useEffect(() => {
+        if (!auth.loggedIn || !auth.accessToken || !auth.userId) return;
+        if (profileReadyForUser !== auth.userId) return;
+
+        const timeoutId = window.setTimeout(() => {
+            fetch(`${apiBase}/profile`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${auth.accessToken}`
+                },
+                body: JSON.stringify({
+                    userId: auth.userId,
+                    height: form.height,
+                    chest: form.chest,
+                    waist: form.waist,
+                    hips: form.hips,
+                    fitStyle: form.fitStyle,
+                    consentGiven: form.accepted
+                })
+            }).catch(error => console.error(error));
+        }, 450);
+
+        return () => window.clearTimeout(timeoutId);
+    }, [
+        auth.loggedIn,
+        auth.accessToken,
+        auth.userId,
+        profileReadyForUser,
+        form.height,
+        form.chest,
+        form.waist,
+        form.hips,
+        form.fitStyle,
+        form.accepted
+    ]);
 
     useEffect(() => {
         if (!showAuthDialog) return;
@@ -862,7 +958,7 @@ const App: React.FC = () => {
 
             const totalMs = performance.now() - startedAt;
             const backendMs = normalizedVariants[0]?.latencyMs ?? null;
-            console.log('[Aigrafka] render complete', {
+            console.log('[AIgrafka] render complete', {
                 total_s: Number((totalMs / 1000).toFixed(2)),
                 backend_s: backendMs !== null ? Number((backendMs / 1000).toFixed(2)) : null,
                 variants: normalizedVariants.length,
@@ -1062,7 +1158,7 @@ const App: React.FC = () => {
 
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
                                 <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', minWidth: 0, flex: '1 1 170px', flexWrap: 'wrap' }}>
-                                    <div style={{ fontWeight: 800, fontSize: 13, color: '#1e1e1e' }}>Twoje wymiary</div>
+                                    <div style={{ fontWeight: 800, fontSize: 13, color: '#1e1e1e' }}>Opis sylwetki</div>
                                     <div style={{ fontWeight: 800, color: '#1e1e1e', fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>
                                         {measurementSummary}
                                     </div>
@@ -1073,24 +1169,47 @@ const App: React.FC = () => {
                                     style={{ ...actionButtonStyle, background: '#9b59ff', padding: '8px 12px', boxShadow: 'none' }}
                                     aria-expanded={showMeasurements}
                                 >
-                                    {showMeasurements ? 'Schowaj wymiary' : 'Zmień wymiary'}
+                                    {showMeasurements ? 'Minimalizuj opis sylwetki' : 'Zmień opis sylwetki'}
                                 </button>
                             </div>
 
                             {showMeasurements && (
-                                <div style={{ marginBottom: 8 }}>
-                                    <FieldRow label="Wzrost:">
-                                        <input style={inputStyle} value={form.height} onChange={e => update('height', e.target.value)} inputMode="numeric" />
-                                    </FieldRow>
-                                    <FieldRow label="Klatka:">
-                                        <input style={inputStyle} value={form.chest} onChange={e => update('chest', e.target.value)} inputMode="numeric" />
-                                    </FieldRow>
-                                    <FieldRow label="Talia:">
-                                        <input style={inputStyle} value={form.waist} onChange={e => update('waist', e.target.value)} inputMode="numeric" />
-                                    </FieldRow>
-                                    <FieldRow label="Biodra:">
-                                        <input style={inputStyle} value={form.hips} onChange={e => update('hips', e.target.value)} inputMode="numeric" />
-                                    </FieldRow>
+                                <div style={{ marginBottom: 8, background: '#ededed', border: '2px solid #c7c7c7', borderRadius: 10, padding: '8px' }}>
+                                    <div style={{ fontSize: 11, fontWeight: 800, color: '#1e1e1e', marginBottom: 6 }}>Opis sylwetki</div>
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
+                                        <div>
+                                            <div style={{ fontSize: 10, fontWeight: 700, color: '#4b4b4b', marginBottom: 3 }}>Wzrost (cm)</div>
+                                            <input style={{ ...inputStyle, padding: '5px 8px' }} value={form.height} onChange={e => update('height', e.target.value)} inputMode="numeric" placeholder="Podaj wzrost" />
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: 10, fontWeight: 700, color: '#4b4b4b', marginBottom: 3 }}>Płeć</div>
+                                            <select
+                                                style={{ ...inputStyle, padding: '5px 8px', appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none', textAlign: 'center', fontWeight: 700 }}
+                                                value={form.fitStyle}
+                                                onChange={e => update('fitStyle', e.target.value as FormState['fitStyle'])}
+                                            >
+                                                <option value="masculine">Mężczyzna</option>
+                                                <option value="feminine">Kobieta</option>
+                                                <option value="unisex">Unisex</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                                        <div>
+                                            <div style={{ fontSize: 10, fontWeight: 700, color: '#4b4b4b', marginBottom: 3 }}>Klatka piersiowa (cm)</div>
+                                            <input style={{ ...inputStyle, padding: '5px 8px' }} value={form.chest} onChange={e => update('chest', e.target.value)} inputMode="numeric" placeholder="Podaj klatkę" />
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: 10, fontWeight: 700, color: '#4b4b4b', marginBottom: 3 }}>Talia (cm)</div>
+                                            <input style={{ ...inputStyle, padding: '5px 8px' }} value={form.waist} onChange={e => update('waist', e.target.value)} inputMode="numeric" placeholder="Podaj talię" />
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: 10, fontWeight: 700, color: '#4b4b4b', marginBottom: 3 }}>Biodra (cm)</div>
+                                            <input style={{ ...inputStyle, padding: '5px 8px' }} value={form.hips} onChange={e => update('hips', e.target.value)} inputMode="numeric" placeholder="Podaj biodra" />
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 
@@ -1149,6 +1268,7 @@ const App: React.FC = () => {
                                     </div>
                                     <div onDragOver={e => e.preventDefault()} onDrop={e => handleDropProduct('productImage2', e)} style={{ flex: 1, minWidth: 0 }}>
                                         <label
+                                            title="Drugie zdjęcie jest opcjonalne i pomaga lepiej odwzorować tył ubrania w 3. wariancie."
                                             style={{ ...actionButtonStyle, background: '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12 }}
                                         >
                                             {form.productImage2 ? 'Dodano' : '+ Dodaj drugie'}
@@ -1523,7 +1643,7 @@ const App: React.FC = () => {
                 )}
 
                 <div style={{ textAlign: 'center', color: '#5b5b5b', fontSize: 9, marginTop: 4 }}>
-                    Aigrafka.pl | Regulamin | Polityka prywatności | Kontakt
+                    AIgrafka.pl | Regulamin | Polityka prywatności | Kontakt
                 </div>
 
             </div>
@@ -1554,7 +1674,7 @@ const App: React.FC = () => {
                         onClick={e => e.stopPropagation()}
                     >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                            <div style={{ ...sectionTitleStyle, fontSize: 15 }}>Konto Aigrafka</div>
+                            <div style={{ ...sectionTitleStyle, fontSize: 15 }}>Konto AIgrafka</div>
                             <button
                                 type="button"
                                 onClick={closeAuthDialog}

@@ -18,6 +18,10 @@ export class UpsertProfileDto {
 
   @IsOptional()
   @IsString()
+  fitStyle?: string;
+
+  @IsOptional()
+  @IsString()
   category?: string;
 
   @IsOptional()
