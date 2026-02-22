@@ -35,6 +35,144 @@ def init_auth_tables() -> None:
         ))
 
 
+def init_profile_tables() -> None:
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS "Profile" (
+                id TEXT PRIMARY KEY,
+                "userId" TEXT UNIQUE NOT NULL REFERENCES "User"(id) ON DELETE CASCADE,
+                height TEXT NOT NULL,
+                chest TEXT NOT NULL,
+                waist TEXT NOT NULL,
+                hips TEXT NOT NULL,
+                "fitStyle" TEXT,
+                category TEXT,
+                "productUrl" TEXT,
+                "selfieUrl" TEXT,
+                "consentGiven" BOOLEAN NOT NULL DEFAULT FALSE,
+                "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        ))
+        conn.execute(text('ALTER TABLE "Profile" ADD COLUMN IF NOT EXISTS "fitStyle" TEXT'))
+        conn.execute(text('ALTER TABLE "Profile" ADD COLUMN IF NOT EXISTS category TEXT'))
+        conn.execute(text('ALTER TABLE "Profile" ADD COLUMN IF NOT EXISTS "productUrl" TEXT'))
+        conn.execute(text('ALTER TABLE "Profile" ADD COLUMN IF NOT EXISTS "selfieUrl" TEXT'))
+        conn.execute(text('ALTER TABLE "Profile" ADD COLUMN IF NOT EXISTS "consentGiven" BOOLEAN NOT NULL DEFAULT FALSE'))
+
+
+def get_profile_by_user_id(user_id: str) -> Optional[dict]:
+    engine = get_engine()
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                """
+                SELECT
+                    "userId" AS "userId",
+                    height,
+                    chest,
+                    waist,
+                    hips,
+                    "fitStyle" AS "fitStyle",
+                    "consentGiven" AS "consentGiven",
+                    category,
+                    "productUrl" AS "productUrl",
+                    "selfieUrl" AS "selfieUrl"
+                FROM "Profile"
+                WHERE "userId" = :user_id
+                LIMIT 1
+                """
+            ),
+            {"user_id": user_id},
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def upsert_profile(
+    user_id: str,
+    height: str,
+    chest: str,
+    waist: str,
+    hips: str,
+    fit_style: Optional[str],
+    consent_given: bool,
+    category: Optional[str] = None,
+    product_url: Optional[str] = None,
+    selfie_url: Optional[str] = None,
+) -> dict:
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO "Profile" (
+                    id,
+                    "userId",
+                    height,
+                    chest,
+                    waist,
+                    hips,
+                    "fitStyle",
+                    category,
+                    "productUrl",
+                    "selfieUrl",
+                    "consentGiven",
+                    "createdAt",
+                    "updatedAt"
+                )
+                VALUES (
+                    :id,
+                    :user_id,
+                    :height,
+                    :chest,
+                    :waist,
+                    :hips,
+                    :fit_style,
+                    :category,
+                    :product_url,
+                    :selfie_url,
+                    :consent_given,
+                    NOW(),
+                    NOW()
+                )
+                ON CONFLICT ("userId")
+                DO UPDATE SET
+                    height = EXCLUDED.height,
+                    chest = EXCLUDED.chest,
+                    waist = EXCLUDED.waist,
+                    hips = EXCLUDED.hips,
+                    "fitStyle" = EXCLUDED."fitStyle",
+                    category = EXCLUDED.category,
+                    "productUrl" = EXCLUDED."productUrl",
+                    "selfieUrl" = EXCLUDED."selfieUrl",
+                    "consentGiven" = EXCLUDED."consentGiven",
+                    "updatedAt" = NOW()
+                """
+            ),
+            {
+                "id": uuid4().hex,
+                "user_id": user_id,
+                "height": height,
+                "chest": chest,
+                "waist": waist,
+                "hips": hips,
+                "fit_style": fit_style,
+                "category": category,
+                "product_url": product_url,
+                "selfie_url": selfie_url,
+                "consent_given": consent_given,
+            },
+        )
+
+    saved = get_profile_by_user_id(user_id)
+    if not saved:
+        raise RuntimeError("Failed to upsert profile")
+    return saved
+
+
 def get_user_with_credentials_by_email(email: str) -> Optional[dict]:
     engine = get_engine()
     with engine.connect() as conn:

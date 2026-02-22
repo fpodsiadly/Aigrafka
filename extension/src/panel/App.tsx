@@ -21,6 +21,8 @@ interface FormState extends BodyMetrics {
     modelChoice: 'banana' | 'banana-pro';
 }
 
+type ProductImageKey = 'productImage1' | 'productImage2';
+
 type StorableKey = keyof Pick<FormState, 'height' | 'chest' | 'waist' | 'hips' | 'category' | 'productUrl' | 'fitStyle' | 'modelChoice'>;
 type SavedFlags = Partial<Record<StorableKey, boolean>>;
 type Persistable = Pick<FormState, StorableKey>;
@@ -406,7 +408,10 @@ const App: React.FC = () => {
     const [googleReady, setGoogleReady] = useState<boolean>(false);
     const [googleInitialized, setGoogleInitialized] = useState<boolean>(false);
     const [profileReadyForUser, setProfileReadyForUser] = useState<string | null>(null);
+    const [uploadMenuFor, setUploadMenuFor] = useState<ProductImageKey | null>(null);
     const googleButtonRef = useRef<HTMLDivElement | null>(null);
+    const productImage1InputRef = useRef<HTMLInputElement | null>(null);
+    const productImage2InputRef = useRef<HTMLInputElement | null>(null);
 
     const canSubmit = useMemo(() => {
         const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
@@ -1084,14 +1089,14 @@ const App: React.FC = () => {
         return name.length > 10 ? `${name.slice(0, 10)}…` : name;
     }
 
-    function handleFileSelect(key: 'productImage1' | 'productImage2', file: File | null) {
+    function handleFileSelect(key: ProductImageKey, file: File | null) {
         update(key, file);
         if (file) {
             setStatus(`Dodano ${file.name}`);
         }
     }
 
-    async function handleDropProduct(key: 'productImage1' | 'productImage2', event: React.DragEvent<HTMLDivElement>) {
+    async function handleDropProduct(key: ProductImageKey, event: React.DragEvent<HTMLDivElement>) {
         event.preventDefault();
         const dt = event.dataTransfer;
 
@@ -1116,6 +1121,196 @@ const App: React.FC = () => {
         }
 
         setStatus('Upuść plik obrazu lub link http/https.');
+    }
+
+    async function captureVisibleTab(): Promise<string> {
+        return new Promise((resolve, reject) => {
+            chrome.runtime?.sendMessage?.({ type: 'AIGRAFKA_CAPTURE_VISIBLE_TAB' }, (response?: { ok?: boolean; dataUrl?: string; error?: string }) => {
+                if (chrome.runtime?.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                    return;
+                }
+                if (!response?.ok || !response.dataUrl) {
+                    reject(new Error(response?.error || 'Nie udało się przechwycić obrazu strony.'));
+                    return;
+                }
+                resolve(response.dataUrl);
+            });
+        });
+    }
+
+    async function pickAreaOnPage(): Promise<{ x: number; y: number; width: number; height: number } | null> {
+        return new Promise(resolve => {
+            const overlay = document.createElement('div');
+            overlay.style.position = 'fixed';
+            overlay.style.inset = '0';
+            overlay.style.zIndex = '2147483648';
+            overlay.style.cursor = 'crosshair';
+            overlay.style.background = 'rgba(0,0,0,0.08)';
+
+            const hint = document.createElement('div');
+            hint.textContent = 'Kliknij zdjęcie produktu lub przeciągnij obszar • ESC anuluje';
+            hint.style.position = 'fixed';
+            hint.style.top = '12px';
+            hint.style.left = '50%';
+            hint.style.transform = 'translateX(-50%)';
+            hint.style.padding = '6px 10px';
+            hint.style.background = 'rgba(25,25,25,0.9)';
+            hint.style.color = '#fff';
+            hint.style.fontSize = '12px';
+            hint.style.borderRadius = '8px';
+            overlay.appendChild(hint);
+
+            const selection = document.createElement('div');
+            selection.style.position = 'fixed';
+            selection.style.border = '2px solid #9b59ff';
+            selection.style.background = 'rgba(155,89,255,0.16)';
+            selection.style.display = 'none';
+            selection.style.pointerEvents = 'none';
+            overlay.appendChild(selection);
+
+            let startX = 0;
+            let startY = 0;
+            let dragging = false;
+
+            const tryPickImageAtPoint = (clientX: number, clientY: number) => {
+                const prevDisplay = overlay.style.display;
+                overlay.style.display = 'none';
+                const target = document.elementFromPoint(clientX, clientY);
+                overlay.style.display = prevDisplay;
+
+                if (!(target instanceof Element)) return null;
+                const imageEl = target instanceof HTMLImageElement
+                    ? target
+                    : (target.closest('img') as HTMLImageElement | null);
+
+                if (!imageEl) return null;
+
+                const rect = imageEl.getBoundingClientRect();
+                const left = Math.max(0, rect.left);
+                const top = Math.max(0, rect.top);
+                const right = Math.min(window.innerWidth, rect.right);
+                const bottom = Math.min(window.innerHeight, rect.bottom);
+                const width = right - left;
+                const height = bottom - top;
+
+                if (width < 12 || height < 12) return null;
+
+                return { x: left, y: top, width, height };
+            };
+
+            const cleanup = (result: { x: number; y: number; width: number; height: number } | null) => {
+                document.removeEventListener('keydown', onKeyDown);
+                overlay.removeEventListener('mousedown', onMouseDown);
+                overlay.removeEventListener('mousemove', onMouseMove);
+                overlay.removeEventListener('mouseup', onMouseUp);
+                overlay.remove();
+                resolve(result);
+            };
+
+            const onKeyDown = (event: KeyboardEvent) => {
+                if (event.key === 'Escape') cleanup(null);
+            };
+
+            const onMouseDown = (event: MouseEvent) => {
+                if (event.button !== 0) return;
+                dragging = true;
+                startX = event.clientX;
+                startY = event.clientY;
+                selection.style.display = 'block';
+                selection.style.left = `${startX}px`;
+                selection.style.top = `${startY}px`;
+                selection.style.width = '0px';
+                selection.style.height = '0px';
+            };
+
+            const onMouseMove = (event: MouseEvent) => {
+                if (!dragging) return;
+                const x = Math.min(startX, event.clientX);
+                const y = Math.min(startY, event.clientY);
+                const width = Math.abs(event.clientX - startX);
+                const height = Math.abs(event.clientY - startY);
+                selection.style.left = `${x}px`;
+                selection.style.top = `${y}px`;
+                selection.style.width = `${width}px`;
+                selection.style.height = `${height}px`;
+            };
+
+            const onMouseUp = (event: MouseEvent) => {
+                if (!dragging) return;
+                dragging = false;
+                const x = Math.min(startX, event.clientX);
+                const y = Math.min(startY, event.clientY);
+                const width = Math.abs(event.clientX - startX);
+                const height = Math.abs(event.clientY - startY);
+
+                if (width < 12 || height < 12) {
+                    const imageArea = tryPickImageAtPoint(event.clientX, event.clientY);
+                    cleanup(imageArea);
+                    return;
+                }
+
+                cleanup({ x, y, width, height });
+            };
+
+            document.addEventListener('keydown', onKeyDown);
+            overlay.addEventListener('mousedown', onMouseDown);
+            overlay.addEventListener('mousemove', onMouseMove);
+            overlay.addEventListener('mouseup', onMouseUp);
+            document.body.appendChild(overlay);
+        });
+    }
+
+    async function cropFromScreenshot(dataUrl: string, area: { x: number; y: number; width: number; height: number }): Promise<Blob> {
+        const image = new Image();
+        image.src = dataUrl;
+        await new Promise<void>((resolve, reject) => {
+            image.onload = () => resolve();
+            image.onerror = () => reject(new Error('Nie udało się odczytać zrzutu ekranu.'));
+        });
+
+        const dpr = window.devicePixelRatio || 1;
+        const sx = Math.max(0, Math.floor(area.x * dpr));
+        const sy = Math.max(0, Math.floor(area.y * dpr));
+        const sw = Math.max(1, Math.floor(area.width * dpr));
+        const sh = Math.max(1, Math.floor(area.height * dpr));
+        const safeW = Math.min(sw, image.width - sx);
+        const safeH = Math.min(sh, image.height - sy);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, safeW);
+        canvas.height = Math.max(1, safeH);
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Brak wsparcia canvas.');
+        context.drawImage(image, sx, sy, safeW, safeH, 0, 0, safeW, safeH);
+
+        return new Promise((resolve, reject) => {
+            canvas.toBlob(blob => {
+                if (blob) resolve(blob);
+                else reject(new Error('Nie udało się przyciąć obrazu.'));
+            }, 'image/png');
+        });
+    }
+
+    async function handlePickAreaProduct(key: ProductImageKey) {
+        setUploadMenuFor(null);
+        try {
+            setStatus('Zaznacz obszar zdjęcia produktu na stronie.');
+            const area = await pickAreaOnPage();
+            if (!area) {
+                setStatus('Anulowano zaznaczanie obszaru.');
+                return;
+            }
+
+            const screenshot = await captureVisibleTab();
+            const blob = await cropFromScreenshot(screenshot, area);
+            const file = new File([blob], `produkt-${Date.now()}.png`, { type: 'image/png' });
+            handleFileSelect(key, file);
+            setStatusSuccess('Dodano zdjęcie z zaznaczonego obszaru.');
+        } catch (error) {
+            console.error(error);
+            setStatusError(error instanceof Error ? error.message : 'Nie udało się pobrać zaznaczonego obszaru.');
+        }
     }
 
     function handleChangeParams() {
@@ -1259,21 +1454,93 @@ const App: React.FC = () => {
                             <FieldRow label="Zdjęcia produktu:">
                                 <div style={{ display: 'flex', gap: 6, width: '100%' }}>
                                     <div onDragOver={e => e.preventDefault()} onDrop={e => handleDropProduct('productImage1', e)} style={{ flex: 1, minWidth: 0 }}>
-                                        <label
-                                            style={{ ...actionButtonStyle, background: '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12 }}
+                                        <div
+                                            style={{ position: 'relative' }}
                                         >
-                                            {form.productImage1 ? 'Dodano' : '+ Dodaj pierwsze'}
-                                            <input type="file" accept="image/*" onChange={e => handleFileSelect('productImage1', e.target.files?.[0] ?? null)} style={{ display: 'none' }} />
-                                        </label>
+                                            <button
+                                                type="button"
+                                                onClick={() => setUploadMenuFor(prev => prev === 'productImage1' ? null : 'productImage1')}
+                                                style={{ ...actionButtonStyle, background: '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12 }}
+                                            >
+                                                {form.productImage1 ? 'Dodano' : '+ Dodaj pierwsze'}
+                                            </button>
+                                            <input
+                                                ref={productImage1InputRef}
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={e => {
+                                                    setUploadMenuFor(null);
+                                                    handleFileSelect('productImage1', e.target.files?.[0] ?? null);
+                                                }}
+                                                style={{ display: 'none' }}
+                                            />
+                                            {uploadMenuFor === 'productImage1' ? (
+                                                <div style={{ position: 'absolute', top: 36, left: 0, zIndex: 30, width: '100%', background: '#ececec', border: '1px solid #c0c0c0', borderRadius: 8, padding: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setUploadMenuFor(null);
+                                                            productImage1InputRef.current?.click();
+                                                        }}
+                                                        style={{ ...actionButtonStyle, background: '#8f8f8f', padding: '6px 8px', boxShadow: 'none' }}
+                                                    >
+                                                        Z dysku
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void handlePickAreaProduct('productImage1')}
+                                                        style={{ ...actionButtonStyle, background: '#9b59ff', padding: '6px 8px', boxShadow: 'none' }}
+                                                    >
+                                                        Zaznacz obszar
+                                                    </button>
+                                                </div>
+                                            ) : null}
+                                        </div>
                                     </div>
                                     <div onDragOver={e => e.preventDefault()} onDrop={e => handleDropProduct('productImage2', e)} style={{ flex: 1, minWidth: 0 }}>
-                                        <label
+                                        <div
                                             title="Drugie zdjęcie jest opcjonalne i pomaga lepiej odwzorować tył ubrania w 3. wariancie."
-                                            style={{ ...actionButtonStyle, background: '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12 }}
+                                            style={{ position: 'relative' }}
                                         >
-                                            {form.productImage2 ? 'Dodano' : '+ Dodaj drugie'}
-                                            <input type="file" accept="image/*" onChange={e => handleFileSelect('productImage2', e.target.files?.[0] ?? null)} style={{ display: 'none' }} />
-                                        </label>
+                                            <button
+                                                type="button"
+                                                onClick={() => setUploadMenuFor(prev => prev === 'productImage2' ? null : 'productImage2')}
+                                                style={{ ...actionButtonStyle, background: '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12 }}
+                                            >
+                                                {form.productImage2 ? 'Dodano' : '+ Dodaj drugie'}
+                                            </button>
+                                            <input
+                                                ref={productImage2InputRef}
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={e => {
+                                                    setUploadMenuFor(null);
+                                                    handleFileSelect('productImage2', e.target.files?.[0] ?? null);
+                                                }}
+                                                style={{ display: 'none' }}
+                                            />
+                                            {uploadMenuFor === 'productImage2' ? (
+                                                <div style={{ position: 'absolute', top: 36, left: 0, zIndex: 30, width: '100%', background: '#ececec', border: '1px solid #c0c0c0', borderRadius: 8, padding: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setUploadMenuFor(null);
+                                                            productImage2InputRef.current?.click();
+                                                        }}
+                                                        style={{ ...actionButtonStyle, background: '#8f8f8f', padding: '6px 8px', boxShadow: 'none' }}
+                                                    >
+                                                        Z dysku
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void handlePickAreaProduct('productImage2')}
+                                                        style={{ ...actionButtonStyle, background: '#9b59ff', padding: '6px 8px', boxShadow: 'none' }}
+                                                    >
+                                                        Zaznacz obszar
+                                                    </button>
+                                                </div>
+                                            ) : null}
+                                        </div>
                                     </div>
                                 </div>
                             </FieldRow>
