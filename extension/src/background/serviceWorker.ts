@@ -71,13 +71,8 @@ chrome.action.onClicked.addListener(async tab => {
       await setBadge('ON', '#2e7d32');
       return;
     }
-    // Fallback: inject the script, then toggle once loaded.
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: ['contentScript.js']
-    });
-    await chrome.tabs.sendMessage(tab.id, { type: 'AIGRAFKA_TOGGLE_PANEL' }).catch(() => null);
-    await setBadge('ON', '#2e7d32');
+    // Content script is declared in the manifest and should already be present.
+    await setBadge('OFF', '#ef6c00');
   } catch (err) {
     console.error('[AIgrafka] inject failed', err);
     void setBadge('ERR', '#c62828');
