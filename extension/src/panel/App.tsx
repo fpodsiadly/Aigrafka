@@ -18,7 +18,7 @@ interface FormState extends BodyMetrics {
     tokens: number;
     accepted: boolean;
     variantCount: number;
-    modelChoice: 'banana' | 'banana-pro';
+    modelChoice: 'banana' | 'banana-pro' | 'banana-pro-2';
 }
 
 type ProductImageKey = 'productImage1' | 'productImage2';
@@ -1650,6 +1650,10 @@ const App: React.FC = () => {
                                             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
                                                 <input type="radio" name="modelChoice" value="banana-pro" checked={form.modelChoice === 'banana-pro'} onChange={e => update('modelChoice', e.target.value as FormState['modelChoice'])} />
                                                 <span>Banana Pro</span>
+                                            </label>
+                                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                                                <input type="radio" name="modelChoice" value="banana-pro-2" checked={form.modelChoice === 'banana-pro-2'} onChange={e => update('modelChoice', e.target.value as FormState['modelChoice'])} />
+                                                <span>Banana Pro 2</span>
                                             </label>
                                         </div>
                                     </FieldRow>

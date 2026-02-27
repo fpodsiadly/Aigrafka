@@ -176,6 +176,7 @@ async def generate_tryon(
     model_map = {
         "banana": "gemini-2.5-flash-image",
         "banana-pro": "gemini-3-pro-image-preview",
+        "banana-pro-2": "gemini-3.1-flash-image-preview",
     }
     chosen_model = model_map.get(model_choice) if model_choice else None
 
