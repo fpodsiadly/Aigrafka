@@ -19,6 +19,7 @@ class GeminiClient:
         self.api_key = api_key or settings.gemini_api_key or ""
         # Primary model: Gemini 3 image generation (generateContent)
         self.model = model or settings.gemini_model or "gemini-3-pro-image-preview"
+        self.image_size = settings.gemini_image_size
         self.timeout = timeout or settings.http_timeout
         # Reuse a single genai client; mirrors OpenVTO reference behavior
         self._client = genai.Client(api_key=self.api_key) if self.api_key else None
@@ -55,7 +56,7 @@ class GeminiClient:
             image_config = types.ImageConfig(aspect_ratio="3:4")
         else:
             try:
-                image_config = types.ImageConfig(aspect_ratio="3:4", image_size="1K")
+                image_config = types.ImageConfig(aspect_ratio="3:4", image_size=self.image_size)
             except Exception:
                 image_config = types.ImageConfig(aspect_ratio="3:4")
 

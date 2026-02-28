@@ -8,11 +8,13 @@ class Settings(BaseSettings):
     gemini_api_key: Optional[str] = Field(default=None, alias="GEMINI_API_KEY")
     # Default to the faster image model; can be overridden via GEMINI_MODEL
     gemini_model: str = Field(default="gemini-2.5-flash-image")
+    # Lower output image size improves latency on image generation models.
+    gemini_image_size: str = Field(default="768", alias="GEMINI_IMAGE_SIZE")
     http_timeout: float = Field(default=30.0, ge=1.0)
     max_selfie_mb: int = Field(default=8, ge=1, le=32)
     max_product_image_mb: int = Field(default=10, ge=1, le=64)
     product_image_timeout: float = Field(default=15.0, ge=1.0)
-    max_side_px: int = Field(default=960, ge=256, le=4096)
+    max_side_px: int = Field(default=768, ge=256, le=4096)
     variants: int = Field(default=1, ge=1, le=3)
     cors_origins: str = Field(default="*", alias="CORS_ORIGINS")
     database_url: str = Field(..., alias="DATABASE_URL", min_length=1)
