@@ -127,6 +127,7 @@ const authTokenKey = 'aigrafka-auth-token-v1';
 const placeholderPreview = 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=900&q=80';
 const placeholderSelfie = 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=200&q=70';
 const REQUEST_TIMEOUT_MS = 70_000; // Render free tier cold start can be slow; give more headroom
+const GENERATION_TIMEOUT_MESSAGE = 'Przekroczono limit czasu oczekiwania na stylizację. Serwer mógł być w stanie cold start — spróbuj ponownie.';
 
 const badge = {
     background: '#e2e2e2',
@@ -280,6 +281,18 @@ function toDataUrl(base64: string | null, mimeType?: string | null): string {
     return `data:${mime};base64,${base64}`;
 }
 
+function toRequestErrorMessage(error: unknown, fallback: string, signal?: AbortSignal): string {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+        const reason = signal?.reason;
+        if (typeof reason === 'string' && reason.trim()) return reason;
+        if (reason instanceof Error && reason.message) return reason.message;
+        return fallback;
+    }
+
+    if (error instanceof Error && error.message) return error.message;
+    return fallback;
+}
+
 const PanelHeader = ({
     logoSrc,
     loggedIn,
@@ -411,6 +424,7 @@ const App: React.FC = () => {
     const [uploadMenuFor, setUploadMenuFor] = useState<ProductImageKey | null>(null);
     const [waitingPulse, setWaitingPulse] = useState<number>(0);
     const [isSharing, setIsSharing] = useState<boolean>(false);
+    const [generationError, setGenerationError] = useState<string>('');
     const googleButtonRef = useRef<HTMLDivElement | null>(null);
     const productImage1InputRef = useRef<HTMLInputElement | null>(null);
     const productImage2InputRef = useRef<HTMLInputElement | null>(null);
@@ -873,6 +887,7 @@ const App: React.FC = () => {
         setView('generating');
 
         setStatus('');
+        setGenerationError('');
         setIsLoading(true);
         setPreviewUrl('');
         setVariants([]);
@@ -909,7 +924,7 @@ const App: React.FC = () => {
         }
 
         const controller = new AbortController();
-        const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        const timeoutId = window.setTimeout(() => controller.abort(GENERATION_TIMEOUT_MESSAGE), REQUEST_TIMEOUT_MS);
 
         let succeeded = false;
 
@@ -989,16 +1004,13 @@ const App: React.FC = () => {
             }
         } catch (error) {
             console.error(error);
-            let message = error instanceof DOMException && error.name === 'AbortError'
-                ? 'Przekroczono limit czasu. Spróbuj ponownie.'
-                : error instanceof Error
-                    ? error.message || 'Nie udało się wygenerować.'
-                    : 'Nie udało się wygenerować.';
+            let message = toRequestErrorMessage(error, 'Nie udało się wygenerować stylizacji.', controller.signal);
             if (message.includes('Failed to fetch product page')) {
                 message = 'Sklep blokuje pobranie strony produktu. Wklej bezpośredni link do zdjęcia produktu (JPG/PNG) albo spróbuj innego URL produktu.';
             }
-            setView('form');
+            setView('generating');
             setPreviewUrl(placeholderPreview);
+            setGenerationError(message);
             setStatusError(message);
         } finally {
             clearTimeout(timeoutId);
@@ -1013,6 +1025,7 @@ const App: React.FC = () => {
     }
 
     function handleGenerateMore() {
+        setGenerationError('');
         void runGeneration();
     }
 
@@ -1233,13 +1246,38 @@ const App: React.FC = () => {
                 overlay.style.display = prevDisplay;
 
                 if (!(target instanceof Element)) return null;
-                const imageEl = target instanceof HTMLImageElement
-                    ? target
-                    : (target.closest('img') as HTMLImageElement | null);
 
-                if (!imageEl) return null;
+                const mediaCandidate = (() => {
+                    if (target instanceof HTMLImageElement || target instanceof HTMLVideoElement || target instanceof HTMLCanvasElement || target instanceof HTMLIFrameElement) {
+                        return target;
+                    }
 
-                const rect = imageEl.getBoundingClientRect();
+                    const explicitMedia = target.closest('img,video,canvas,iframe,[role="img"],picture,figure');
+                    if (explicitMedia instanceof Element) return explicitMedia;
+
+                    let current: Element | null = target;
+                    while (current) {
+                        if (current instanceof HTMLElement) {
+                            const style = window.getComputedStyle(current);
+                            if (style.backgroundImage && style.backgroundImage !== 'none') {
+                                return current;
+                            }
+                        }
+                        current = current.parentElement;
+                    }
+                    return null;
+                })();
+
+                if (!mediaCandidate) {
+                    const fallbackSize = 320;
+                    const width = Math.min(fallbackSize, window.innerWidth);
+                    const height = Math.min(fallbackSize, window.innerHeight);
+                    const x = Math.max(0, Math.min(window.innerWidth - width, Math.round(clientX - width / 2)));
+                    const y = Math.max(0, Math.min(window.innerHeight - height, Math.round(clientY - height / 2)));
+                    return { x, y, width, height };
+                }
+
+                const rect = mediaCandidate.getBoundingClientRect();
                 const left = Math.max(0, rect.left);
                 const top = Math.max(0, rect.top);
                 const right = Math.min(window.innerWidth, rect.right);
@@ -1390,11 +1428,9 @@ const App: React.FC = () => {
         if (!uploadMenuFor) return;
 
         const onPointerDown = (event: MouseEvent) => {
-            const target = event.target as Node | null;
-            if (!target) return;
-
-            const insideFirst = productImage1MenuRef.current?.contains(target) ?? false;
-            const insideSecond = productImage2MenuRef.current?.contains(target) ?? false;
+            const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+            const insideFirst = path.some(node => node instanceof Node && (productImage1MenuRef.current?.contains(node) ?? false));
+            const insideSecond = path.some(node => node instanceof Node && (productImage2MenuRef.current?.contains(node) ?? false));
 
             if (!insideFirst && !insideSecond) {
                 setUploadMenuFor(null);
@@ -2062,11 +2098,36 @@ const App: React.FC = () => {
                             </div>
                         </div>
 
-                        <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)', padding: '8px 10px' }}>
-                            <div style={{ color: '#5c5c5c', fontSize: 10, lineHeight: 1.25, textAlign: 'center' }}>
-                                Po zakończeniu generowania automatycznie przejdziesz do podglądu stylizacji.
+                        {generationError ? (
+                            <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)', padding: '8px 10px' }}>
+                                <div style={{ color: '#8f1f1f', fontSize: 11, lineHeight: 1.3, textAlign: 'center', fontWeight: 700, marginBottom: 8 }}>
+                                    {generationError}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleGenerateMore}
+                                    style={{
+                                        ...actionButtonStyle,
+                                        width: '100%',
+                                        padding: '9px 10px',
+                                        background: canSubmit ? '#9b59ff' : '#b7b7b7',
+                                        cursor: canSubmit ? 'pointer' : 'not-allowed',
+                                        boxShadow: 'none',
+                                        borderRadius: 8,
+                                        fontSize: 12
+                                    }}
+                                    disabled={!canSubmit || isLoading}
+                                >
+                                    Spróbuj ponownie
+                                </button>
                             </div>
-                        </div>
+                        ) : (
+                            <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)', padding: '8px 10px' }}>
+                                <div style={{ color: '#5c5c5c', fontSize: 10, lineHeight: 1.25, textAlign: 'center' }}>
+                                    Po zakończeniu generowania automatycznie przejdziesz do podglądu stylizacji.
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 
