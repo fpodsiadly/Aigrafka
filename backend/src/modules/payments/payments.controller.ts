@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, Post, Req } from '@nestjs/common';
+import { Body, Controller, Post, Req } from '@nestjs/common';
 import { PaymentsService } from './payments.service.js';
 import { CheckoutDto } from './dto/checkout.dto.js';
 import { Request } from 'express';
@@ -9,12 +9,12 @@ export class PaymentsController {
 
   @Post('checkout')
   createCheckout(@Body() body: CheckoutDto) {
-    return this.paymentsService.createCheckoutSession(body.pack, body.userId);
+    return this.paymentsService.createCheckoutSession(body.pack, body.userId, body.email);
   }
 
   @Post('webhook')
-  async handleWebhook(@Req() req: Request, @Headers('stripe-signature') sig?: string) {
+  async handleWebhook(@Req() req: Request) {
     const rawBody: Buffer = (req as any).rawBody || (req as any).body;
-    return this.paymentsService.handleWebhook(rawBody, sig);
+    return this.paymentsService.handleWebhook(rawBody);
   }
 }

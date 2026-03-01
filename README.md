@@ -6,7 +6,7 @@ Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań 
 
 - extension/ – WebExtension (Vite, React, TS, MV3), content script wstrzykuje panel „Przymierzator” w Shadow DOM, background service worker obsługuje komunikację/płatności.
 - backend/ – FastAPI (demo try-on proxy do Gemini/OpenVTO); **stary NestJS backend jest zdeprecjonowany i nieużywany w demie**.
-- api/ – (opcjonalnie) serverless funkcje Stripe/cron (jeśli wrócą); w demie nieużywane przy deployu na Render.
+- api/ – (opcjonalnie) serverless funkcje webhook/cron; w demie nieużywane przy deployu na Render.
 - ai/ – worker dev (pętla BRPOP; w prod używamy cron function w api/cron/worker).
 - shared/ – wspólne typy (BodyMetrics, GenerateRequest).
 
@@ -14,7 +14,7 @@ Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań 
 
 - Frontend: WebExtensions API, React, TypeScript, Vite, Shadow DOM, CSS (bez Tailwind).
 - Backend (demo): FastAPI, httpx, Pillow; proxy do Gemini (`imagegeneration` domyślnie) z promptem OpenVTO, image-to-image (selfie + produkt reserved.com).
-- (Deprecated) NestJS: poprzedni backend z JWT/Stripe/Prisma – nieużywany w demie.
+- (Deprecated) NestJS: poprzedni backend z JWT/Prisma i przygotowanym flow Przelewy24 – nieużywany w demie.
 - AI: Gemini (Nano Banana Pro) jako generator; prompt oparty o OpenVTO; pobieranie produktu z reserved.com (`og:image`).
 
 ## Szybki start (dev)
@@ -59,7 +59,29 @@ Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań 
 
 - Zaimplementować realny Banana.dev w cron workerze, upload do Blob zamiast placeholdera.
 - Dodać upload/selfie flow w API + panelu (z Blob) i politykę retencji.
-- Ustawić realne ceny/priceId Stripe i wyłączyć DEMO_MODE.
+- Uzupełnić klucze Przelewy24 (`P24_*`) i podpiąć flow płatności do aktywnego backendu FastAPI.
+
+## Płatności Przelewy24 (przygotowane w zdeprecjonowanym NestJS)
+
+W repo zostały przygotowane endpointy `POST /payments/checkout` i `POST /payments/webhook`
+pod Przelewy24 (register + verify + naliczenie tokenów), ale znajdują się w starym backendzie NestJS (`backend/src/*`).
+
+Wymagane zmienne środowiskowe:
+
+- `P24_MERCHANT_ID`
+- `P24_POS_ID`
+- `P24_CRC`
+- `P24_API_USER`
+- `P24_API_SECRET`
+- `P24_ENV` (`sandbox` lub `prod`)
+
+Opcjonalne:
+
+- `P24_API_BASE`, `P24_PANEL_BASE`
+- `P24_DEMO_MODE`
+- `P24_PRICE_STARTER_GROSZE`, `P24_PRICE_PRO_GROSZE`
+- `P24_DEFAULT_CUSTOMER_EMAIL`
+- `P24_STATUS_URL`
 - Audyt bezpieczeństwa: rate limiting, walidacja plików, refresh tokeny.
 
 ## Uwagi dot. compliance

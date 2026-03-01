@@ -5,6 +5,8 @@ Demo backend acting as a secure proxy/orchestrator for virtual try-on powered by
 ## Features
 
 - POST `/generate`: accepts user selfie upload + reserved.com product URL; returns generated image (base64) and status.
+- POST `/payments/checkout`: rejestruje transakcję Przelewy24 i zwraca URL przekierowania.
+- POST `/payments/webhook`: odbiera notyfikację Przelewy24, robi `transaction/verify` i nalicza tokeny.
 - Prompt built from OpenVTO principles: preserve identity, realistic fit, photorealistic output; uses selfie + product image (og:image) from reserved.com.
 - Gemini client stub ready to swap for real API call.
 - Async FastAPI structure, modular to extract AI layer later.
@@ -69,9 +71,31 @@ curl -X POST \
 ## Notes
 
 - `GeminiClient` is a demo stub; replace payload/endpoint per actual Gemini spec.
-- No auth, payments, or tokens per demo scope.
+- Auth i tokeny są aktywne; checkout tokenów działa przez Przelewy24.
 - Pillow validates uploads only minimally; extend if needed.
 - Product image fetch is cached in-memory for 5 minutes; only reserved.com is allowed.
+
+## Płatności Przelewy24 (FastAPI)
+
+Endpointy:
+
+- `POST /payments/checkout` (wymaga Bearer token) — body: `{ "pack": "starter" | "pro" }`
+- `POST /payments/webhook` — callback z Przelewy24 (`urlStatus`)
+
+Wymagane env:
+
+- `P24_MERCHANT_ID`
+- `P24_POS_ID`
+- `P24_CRC`
+- `P24_API_USER`
+- `P24_API_SECRET`
+
+Zalecane env:
+
+- `P24_ENV=sandbox|prod`
+- `CHECKOUT_SUCCESS_URL`
+- `CHECKOUT_STATUS_URL` (np. `https://api.twojadomena.pl/payments/webhook`)
+- `P24_PRICE_STARTER_GROSZE`, `P24_PRICE_PRO_GROSZE`
 
 ## Benchmark A/B (latency)
 

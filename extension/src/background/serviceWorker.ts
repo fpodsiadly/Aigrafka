@@ -27,20 +27,42 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === 'OPEN_CHECKOUT') {
-    // Placeholder: ask backend for Stripe Checkout URL.
+    // Ask backend for checkout URL (Przelewy24/other provider).
     fetch(`${apiBase}/payments/checkout`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pack: 'starter' })
+      headers: {
+        'Content-Type': 'application/json',
+        ...(message?.authToken ? { Authorization: `Bearer ${message.authToken}` } : {})
+      },
+      body: JSON.stringify({
+        pack: message?.pack || 'starter',
+        userId: message?.userId,
+        email: message?.email
+      })
     })
-      .then(resp => resp.json())
+      .then(async resp => {
+        if (!resp.ok) {
+          const text = await resp.text();
+          let message = text || 'Checkout request failed';
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed?.detail) message = typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail);
+          } catch {
+            /* ignore parse */
+          }
+          throw new Error(message);
+        }
+        return resp.json();
+      })
       .then(data => {
         if (data?.checkoutUrl) {
           chrome.tabs.create({ url: data.checkoutUrl });
+          sendResponse({ ok: true });
+          return;
         }
-        sendResponse({ ok: true });
+        sendResponse({ ok: false, error: 'Backend nie zwrócił checkoutUrl.' });
       })
-      .catch(() => sendResponse({ ok: false }));
+      .catch((error: Error) => sendResponse({ ok: false, error: error?.message || 'Nie udało się otworzyć checkout.' }));
     return true; // keep channel alive
   }
   return false;

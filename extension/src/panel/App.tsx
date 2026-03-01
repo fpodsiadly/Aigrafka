@@ -214,6 +214,10 @@ const rowStyle: React.CSSProperties = {
     marginBottom: '6px'
 };
 
+function hasAnyBodyMetrics(metrics: BodyMetrics): boolean {
+    return [metrics.height, metrics.chest, metrics.waist, metrics.hips].some(value => value.trim().length > 0);
+}
+
 function extractBase64(value: ApiBase64): string | null {
     if (typeof value === 'string') return value;
     if (value && typeof value === 'object' && typeof value.image_base64 === 'string') return value.image_base64;
@@ -412,6 +416,8 @@ const App: React.FC = () => {
     });
     const [view, setView] = useState<'form' | 'generating' | 'result'>('form');
     const [showMeasurements, setShowMeasurements] = useState<boolean>(false);
+    const [autoExpandedMeasurementsKey, setAutoExpandedMeasurementsKey] = useState<string | null>(null);
+    const [measurementsToggledManually, setMeasurementsToggledManually] = useState<boolean>(false);
     const [showAuthDialog, setShowAuthDialog] = useState<boolean>(false);
     const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
     const [authEmail, setAuthEmail] = useState<string>('');
@@ -440,6 +446,7 @@ const App: React.FC = () => {
 
     const hasSelfie = Boolean(form.selfie);
     const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
+    const measurementsSessionKey = auth.userId ? `user:${auth.userId}` : 'guest';
 
     useEffect(() => {
         storage.get().then(stored => {
@@ -463,6 +470,27 @@ const App: React.FC = () => {
         setSelfiePreview('');
         return undefined;
     }, [form.selfie]);
+
+    useEffect(() => {
+        setMeasurementsToggledManually(false);
+    }, [measurementsSessionKey]);
+
+    useEffect(() => {
+        if (measurementsToggledManually) return;
+        if (autoExpandedMeasurementsKey === measurementsSessionKey) return;
+        if (hasAnyBodyMetrics(form)) return;
+
+        setShowMeasurements(true);
+        setAutoExpandedMeasurementsKey(measurementsSessionKey);
+    }, [
+        form.height,
+        form.chest,
+        form.waist,
+        form.hips,
+        measurementsSessionKey,
+        autoExpandedMeasurementsKey,
+        measurementsToggledManually
+    ]);
 
     function update<K extends keyof FormState>(key: K, value: FormState[K]) {
         setForm(prev => ({ ...prev, [key]: value }));
@@ -673,30 +701,30 @@ const App: React.FC = () => {
         }
 
         try {
-            const response = await fetch(`${apiBase}/auth/topup`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${auth.accessToken}`
-                },
-                body: JSON.stringify({ amount: 10 })
+            const response = await new Promise<{ ok?: boolean; error?: string }>(resolve => {
+                chrome.runtime?.sendMessage?.(
+                    {
+                        type: 'OPEN_CHECKOUT',
+                        pack: 'starter',
+                        authToken: auth.accessToken,
+                        userId: auth.userId,
+                        email: auth.email
+                    },
+                    result => {
+                        if (chrome.runtime?.lastError) {
+                            resolve({ ok: false, error: chrome.runtime.lastError.message });
+                            return;
+                        }
+                        resolve(result ?? { ok: false, error: 'Brak odpowiedzi z tła rozszerzenia.' });
+                    }
+                );
             });
 
-            if (!response.ok) {
-                const text = await response.text();
-                let message = 'Nie udało się doładować tokenów.';
-                try {
-                    const parsed = JSON.parse(text);
-                    message = parsed?.detail || message;
-                } catch {
-                    if (text) message = text;
-                }
-                throw new Error(message);
+            if (!response?.ok) {
+                throw new Error(response?.error || 'Nie udało się rozpocząć płatności.');
             }
 
-            const data: AuthMeResponse = await response.json();
-            setAuth(prev => ({ ...prev, tokens: data.tokens, email: data.email }));
-            setStatus('Dodano 10 tokenów.');
+            setStatus('Przekierowano do płatności Przelewy24.');
         } catch (error) {
             console.error(error);
             setStatus(error instanceof Error ? error.message : 'Nie udało się doładować tokenów.');
@@ -1487,7 +1515,10 @@ const App: React.FC = () => {
                                 </div>
                                 <button
                                     type="button"
-                                    onClick={() => setShowMeasurements(prev => !prev)}
+                                    onClick={() => {
+                                        setMeasurementsToggledManually(true);
+                                        setShowMeasurements(prev => !prev);
+                                    }}
                                     style={{ ...actionButtonStyle, background: '#9b59ff', padding: '8px 12px', boxShadow: 'none' }}
                                     aria-expanded={showMeasurements}
                                 >
@@ -2132,7 +2163,13 @@ const App: React.FC = () => {
                 )}
 
                 <div style={{ textAlign: 'center', color: '#5b5b5b', fontSize: 9, marginTop: 4 }}>
-                    AIgrafka.pl | Regulamin | Polityka prywatności | Kontakt
+                    <a href="https://aigrafka.pl" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>AIgrafka.pl</a>
+                    {' | '}
+                    <a href="https://aigrafka.pl/regulamin" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>Regulamin</a>
+                    {' | '}
+                    <a href="https://aigrafka.pl/polityka-prywatnosci" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>Polityka prywatności</a>
+                    {' | '}
+                    <a href="https://aigrafka.pl/kontakt" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>Kontakt</a>
                 </div>
 
             </div>

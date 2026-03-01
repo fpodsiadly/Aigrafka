@@ -8,4 +8,8 @@ export class CheckoutDto {
   @IsOptional()
   @IsString()
   userId?: string;
+
+  @IsOptional()
+  @IsString()
+  email?: string;
 }

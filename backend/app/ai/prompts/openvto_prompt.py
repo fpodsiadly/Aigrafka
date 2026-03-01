@@ -110,6 +110,13 @@ def build_openvto_prompt(
         "When no second back reference exists, keep back details conservative and avoid speculative patterns/text."
     )
 
+    branding_background_text = (
+        "Background branding requirement (AIgrafka): remove any existing marketplace/store watermark, logo, or text from source visuals. "
+        "Create a clean studio-like light gray backdrop with a subtle repeating brand pattern composed of soft purple circular logo marks and the text 'aigrafka.pl'. "
+        "Keep branding elegant and low-contrast, evenly spaced, behind the model only, and never covering the face, garment edges, or key product details. "
+        "The final composition should look like a premium e-commerce catalog photo with consistent AIgrafka visual identity."
+    )
+
     return (
         "You are an AI virtual try-on system following OpenVTO principles. "
         "Inputs: (1) user selfie image; (2) product garment image from the e-commerce page or upload. "
@@ -130,13 +137,14 @@ def build_openvto_prompt(
         "Fit the garment naturally and realistically: correct scale, accurate seams, proper collar/neck alignment, "
         "realistic draping, folds, and fabric physics consistent with the material. "
         f"{back_requirement_text} "
+        f"{branding_background_text} "
         "Show garment coverage clearly: reflect true length on the user's reported height (e.g., dress/skirt hem position, sleeve length, neckline depth/shape). "
         "Depict sleeves and neckline faithfully to the product reference; do not invent alternative cuts. "
         "Avoid hiding garment edges—ensure hems, cuffs, and neckline are visible and true to length. "
         "Merge lighting and color so the garment matches the selfie lighting conditions; "
         "avoid mismatched shadows, highlights, or color casts. "
         f"{measurements_text} "
-        "Background: keep simple, clean, and consistent with the selfie; do not invent busy or stylized scenes. "
+        "Background: keep clean and controlled with the branded catalog look; avoid busy or cinematic scenes. "
         "No cinematic grading, no fashion editorial stylization. "
         "Return only the final rendered image. "
         f"{source_text}"

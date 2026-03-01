@@ -64,6 +64,21 @@ def init_profile_tables() -> None:
         conn.execute(text('ALTER TABLE "Profile" ADD COLUMN IF NOT EXISTS "consentGiven" BOOLEAN NOT NULL DEFAULT FALSE'))
 
 
+def init_payment_tables() -> None:
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(text(
+            """
+            CREATE TABLE IF NOT EXISTS fastapi_payment_events (
+                event_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                amount_tokens INTEGER NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        ))
+
+
 def get_profile_by_user_id(user_id: str) -> Optional[dict]:
     engine = get_engine()
     with engine.connect() as conn:
@@ -369,3 +384,44 @@ def deduct_tokens_if_possible(user_id: str, amount: int) -> Optional[int]:
     if not row:
         return None
     return int(row["tokens"])
+
+
+def credit_tokens_for_payment(event_id: str, user_id: str, amount_tokens: int) -> bool:
+    engine = get_engine()
+    with engine.begin() as conn:
+        inserted = conn.execute(
+            text(
+                """
+                INSERT INTO fastapi_payment_events (event_id, user_id, amount_tokens)
+                VALUES (:event_id, :user_id, :amount_tokens)
+                ON CONFLICT (event_id) DO NOTHING
+                RETURNING event_id
+                """
+            ),
+            {
+                "event_id": event_id,
+                "user_id": user_id,
+                "amount_tokens": amount_tokens,
+            },
+        ).mappings().first()
+
+        if not inserted:
+            return False
+
+        row = conn.execute(
+            text(
+                """
+                UPDATE "User"
+                SET tokens = tokens + :amount,
+                    "updatedAt" = NOW()
+                WHERE id = :user_id
+                RETURNING tokens
+                """
+            ),
+            {"amount": amount_tokens, "user_id": user_id},
+        ).mappings().first()
+
+        if not row:
+            raise ValueError("User not found")
+
+    return True
