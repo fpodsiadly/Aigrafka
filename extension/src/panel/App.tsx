@@ -418,6 +418,7 @@ const App: React.FC = () => {
     const [showMeasurements, setShowMeasurements] = useState<boolean>(false);
     const [autoExpandedMeasurementsKey, setAutoExpandedMeasurementsKey] = useState<string | null>(null);
     const [measurementsToggledManually, setMeasurementsToggledManually] = useState<boolean>(false);
+    const [storageHydrated, setStorageHydrated] = useState<boolean>(false);
     const [showAuthDialog, setShowAuthDialog] = useState<boolean>(false);
     const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
     const [authEmail, setAuthEmail] = useState<string>('');
@@ -447,6 +448,7 @@ const App: React.FC = () => {
     const hasSelfie = Boolean(form.selfie);
     const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
     const measurementsSessionKey = auth.userId ? `user:${auth.userId}` : 'guest';
+    const isProfileHydrating = Boolean(auth.loggedIn && auth.userId && profileReadyForUser !== auth.userId);
 
     useEffect(() => {
         storage.get().then(stored => {
@@ -458,6 +460,8 @@ const App: React.FC = () => {
                 }), {});
                 setSavedFlags(marks);
             }
+        }).finally(() => {
+            setStorageHydrated(true);
         });
     }, []);
 
@@ -476,20 +480,21 @@ const App: React.FC = () => {
     }, [measurementsSessionKey]);
 
     useEffect(() => {
-        if (measurementsToggledManually) return;
+        if (!storageHydrated) return;
+        if (isProfileHydrating) return;
         if (autoExpandedMeasurementsKey === measurementsSessionKey) return;
-        if (hasAnyBodyMetrics(form)) return;
 
-        setShowMeasurements(true);
+        setShowMeasurements(!hasAnyBodyMetrics(form));
         setAutoExpandedMeasurementsKey(measurementsSessionKey);
     }, [
+        storageHydrated,
+        isProfileHydrating,
         form.height,
         form.chest,
         form.waist,
         form.hips,
         measurementsSessionKey,
-        autoExpandedMeasurementsKey,
-        measurementsToggledManually
+        autoExpandedMeasurementsKey
     ]);
 
     function update<K extends keyof FormState>(key: K, value: FormState[K]) {
