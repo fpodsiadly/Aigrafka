@@ -21,8 +21,10 @@ Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań 
 
 1. Extension: `cd extension && npm install && npm run dev` (panel preview http://localhost:5173).
 2. Backend (FastAPI): `cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`.
-  - Skopiuj `.env.example` → `.env`, ustaw `DATABASE_URL`, `JWT_SECRET`, `GEMINI_API_KEY`.
-   - `uvicorn app.main:app --reload --port 8000` lub `make dev`.
+
+- Skopiuj `.env.example` → `.env`, ustaw `DATABASE_URL`, `JWT_SECRET`, `GEMINI_API_KEY`.
+- `uvicorn app.main:app --reload --port 8000` lub `make dev`.
+
 3. Połącz front-back: ustaw `VITE_API_BASE=https://api.aigrafka.pl` w extension (lub `http://localhost:8000` przy dev backendzie).
 4. Deployment: patrz sekcja „Render”.
 
