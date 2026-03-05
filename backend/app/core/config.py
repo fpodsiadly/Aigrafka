@@ -1,6 +1,6 @@
 from functools import lru_cache
 from typing import Optional
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -16,10 +16,11 @@ class Settings(BaseSettings):
     product_image_timeout: float = Field(default=15.0, ge=1.0)
     max_side_px: int = Field(default=768, ge=256, le=4096)
     variants: int = Field(default=1, ge=1, le=3)
-    cors_origins: str = Field(default="*", alias="CORS_ORIGINS")
+    cors_origins: str = Field(default="http://localhost:5173,http://127.0.0.1:5173", alias="CORS_ORIGINS")
     database_url: str = Field(..., alias="DATABASE_URL", min_length=1)
-    jwt_secret: str = Field(default="dev-insecure-change-me", alias="JWT_SECRET", min_length=8)
-    jwt_exp_minutes: int = Field(default=60 * 24 * 7, alias="JWT_EXP_MINUTES", ge=5, le=60 * 24 * 30)
+    jwt_secret: str = Field(..., alias="JWT_SECRET", min_length=32)
+    jwt_exp_minutes: int = Field(default=60, alias="JWT_EXP_MINUTES", ge=5, le=60 * 24)
+    dev_mode: bool = Field(default=False, alias="DEV_MODE")
     initial_user_tokens: int = Field(default=5, alias="INITIAL_USER_TOKENS", ge=0, le=100000)
     token_cost_per_stylization: int = Field(default=1, alias="TOKEN_COST_PER_STYLIZATION", ge=1, le=1000)
     google_client_id: Optional[str] = Field(default=None, alias="GOOGLE_CLIENT_ID")
@@ -42,6 +43,16 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         extra = "ignore"
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def validate_jwt_secret(cls, value: str) -> str:
+        secret = value.strip()
+        if len(secret) < 32:
+            raise ValueError("JWT_SECRET must be at least 32 characters long")
+        if secret.lower() in {"dev-insecure-change-me", "changeme", "secret", "password"}:
+            raise ValueError("JWT_SECRET is too weak")
+        return secret
 
 
 @lru_cache(maxsize=1)

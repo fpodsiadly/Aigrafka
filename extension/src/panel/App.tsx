@@ -121,9 +121,10 @@ const initialState: FormState = {
     ...initialMetrics
 };
 
-const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
+const apiBase = import.meta.env.VITE_API_BASE ?? 'https://api.aigrafka.pl';
 const storageKey = 'aigrafka-form-v2';
 const authTokenKey = 'aigrafka-auth-token-v1';
+let inMemoryAuthToken: string | null = null;
 const placeholderPreview = 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=900&q=80';
 const placeholderSelfie = 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=200&q=70';
 const REQUEST_TIMEOUT_MS = 70_000; // Render free tier cold start can be slow; give more headroom
@@ -158,19 +159,6 @@ const inputStyle: React.CSSProperties = {
     borderRadius: 9,
     fontSize: '11px',
     color: '#1e1e1e'
-};
-
-const dropZoneStyle: React.CSSProperties = {
-    border: '2px dashed #b8b8b8',
-    borderRadius: 12,
-    padding: '10px',
-    background: '#f2f2f2',
-    color: '#2a2a2a',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    cursor: 'pointer',
-    justifyContent: 'space-between'
 };
 
 const validProductUrl = (url: string) => {
@@ -259,7 +247,7 @@ const authStorage = {
                 chrome.storage.local.get([authTokenKey], result => resolve(result?.[authTokenKey] ?? null));
             });
         }
-        return localStorage.getItem(authTokenKey);
+        return inMemoryAuthToken;
     },
     async setToken(token: string): Promise<void> {
         if (chrome?.storage?.local) {
@@ -267,7 +255,7 @@ const authStorage = {
                 chrome.storage.local.set({ [authTokenKey]: token }, () => resolve());
             });
         }
-        localStorage.setItem(authTokenKey, token);
+        inMemoryAuthToken = token;
     },
     async clearToken(): Promise<void> {
         if (chrome?.storage?.local) {
@@ -275,7 +263,7 @@ const authStorage = {
                 chrome.storage.local.remove([authTokenKey], () => resolve());
             });
         }
-        localStorage.removeItem(authTokenKey);
+        inMemoryAuthToken = null;
     }
 };
 
@@ -359,19 +347,6 @@ const PanelHeader = ({
                 </div>
             )}
         </div>
-    </div>
-);
-
-const StatPill = ({ tokens }: { tokens: number }) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, ...badge }}>
-        <span style={{ fontWeight: 700, color: '#e5e5e5' }}>Tokeny stylizacji:</span>
-        <span style={{ background: '#00b943', color: '#0f1a0f', fontWeight: 800, padding: '6px 10px', borderRadius: 8, minWidth: 40, textAlign: 'center' }}>{tokens}</span>
-        <button
-            style={{ ...actionButtonStyle, background: '#00e676', color: '#0f2e17', padding: '10px 12px', boxShadow: '0 8px 20px rgba(0,230,118,0.25)' }}
-            onClick={() => chrome.runtime?.sendMessage?.({ type: 'OPEN_CHECKOUT' })}
-        >
-            Dokup tokeny
-        </button>
     </div>
 );
 

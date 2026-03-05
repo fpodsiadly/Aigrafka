@@ -11,14 +11,17 @@ from app.core.db import init_auth_tables, init_payment_tables, init_profile_tabl
 app = FastAPI(title="AIgrafka Demo Backend", version="0.1.0")
 
 settings = get_settings()
-raw_origins = settings.cors_origins or "*"
-origins = [o.strip() for o in raw_origins.split(",") if o.strip()] or ["*"]
+raw_origins = settings.cors_origins or ""
+origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
 
-# Be generous: allow all origins including extension/file schemes.
+if not origins:
+    raise RuntimeError("CORS_ORIGINS must contain at least one allowed origin")
+if "*" in origins:
+    raise RuntimeError("Wildcard '*' in CORS_ORIGINS is not allowed")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r".*",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

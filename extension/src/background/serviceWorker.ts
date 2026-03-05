@@ -1,5 +1,5 @@
 // Simple message handler for checkout/open backend actions.
-const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:4000';
+const apiBase = import.meta.env.VITE_API_BASE ?? 'https://api.aigrafka.pl';
 
 async function setBadge(text: string, color: string) {
   try {

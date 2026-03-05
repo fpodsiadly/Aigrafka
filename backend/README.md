@@ -34,7 +34,7 @@ backend/
 1. Python 3.11+
 2. `cd backend && python3 -m venv .venv && source .venv/bin/activate`
 3. `pip install -r requirements.txt`
-4. Skopiuj `.env.example` do `.env` i uzupełnij `GEMINI_API_KEY`
+4. Skopiuj `.env.example` do `.env` i uzupełnij `DATABASE_URL`, `JWT_SECRET`, `GEMINI_API_KEY`
 5. Run dev: `uvicorn app.main:app --reload --port 8000`
 
 ### Makefile skróty
@@ -72,8 +72,16 @@ curl -X POST \
 
 - `GeminiClient` is a demo stub; replace payload/endpoint per actual Gemini spec.
 - Auth i tokeny są aktywne; checkout tokenów działa przez Przelewy24.
+- `/auth/topup` działa tylko w trybie developerskim (`DEV_MODE=true`) lub lokalnie (`localhost/127.0.0.1`).
 - Pillow validates uploads only minimally; extend if needed.
 - Product image fetch is cached in-memory for 5 minutes; only reserved.com is allowed.
+
+## Security defaults
+
+- `JWT_SECRET` jest wymagany i musi mieć co najmniej 32 znaki.
+- Domyślny TTL access tokenu to `JWT_EXP_MINUTES=60`.
+- `CORS_ORIGINS` musi zawierać jawnie dozwolone originy (wildcard `*` jest blokowany).
+- `POST /auth/login` i `POST /auth/register` mają wbudowany rate limiting (per IP oraz IP+email) i zwracają `Retry-After` przy `429`.
 
 ## Płatności Przelewy24 (FastAPI)
 
