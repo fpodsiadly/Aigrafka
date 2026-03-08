@@ -1,91 +1,142 @@
 # AIgrafka
 
-Przeglądarkowa wtyczka (Chrome/Firefox/Safari) do wirtualnej przymiarki ubrań z AI (virtual try-on) i zakupów tokenów. Składa się z rozszerzenia (content script + React w Shadow DOM), backendu FastAPI oraz typów współdzielonych.
+AIgrafka to rozszerzenie przeglądarki do wirtualnej przymiarki ubrań z AI (virtual try-on) oraz zakupu tokenów stylizacji. Projekt składa się z frontendu extension (React + MV3), aktywnego backendu FastAPI i współdzielonych typów.
 
-## Struktura repo
+## Co jest w repo
 
-- extension/ – WebExtension (Vite, React, TS, MV3), content script wstrzykuje panel „Przymierzator” w Shadow DOM, background service worker obsługuje komunikację/płatności.
-- backend/ – FastAPI (demo try-on proxy do Gemini/OpenVTO); **stary NestJS backend jest zdeprecjonowany i nieużywany w demie**.
-- api/ – (opcjonalnie) serverless funkcje webhook/cron; w demie nieużywane przy deployu na Render.
-- ai/ – worker dev (pętla BRPOP; w prod używamy cron function w api/cron/worker).
-- shared/ – wspólne typy (BodyMetrics, GenerateRequest).
+- `extension/` - WebExtension (Vite, React, TypeScript, MV3), panel osadzany przez content script w Shadow DOM.
+- `backend/` - aktywny backend FastAPI (auth, profile, generate, payments Przelewy24).
+- `shared/` - wspólne typy TypeScript.
+- `ai/` - pomocniczy worker Redis (mock/legacy pipeline).
+- `api/` - opcjonalne funkcje serverless (legacy/integracyjne).
+- `backend/src/` - stary backend NestJS (deprecated, nieuzywany w aktualnym deployu).
 
-## Stack
+## Architektura w praktyce
 
-- Frontend: WebExtensions API, React, TypeScript, Vite, Shadow DOM, CSS (bez Tailwind).
-- Backend (demo): FastAPI, httpx, Pillow; proxy do Gemini (`imagegeneration` domyślnie) z promptem OpenVTO, image-to-image (selfie + produkt reserved.com).
-- (Deprecated) NestJS: poprzedni backend z JWT/Prisma – nieużywany w demie.
-- AI: Gemini (Nano Banana Pro) jako generator; prompt oparty o OpenVTO; pobieranie produktu z reserved.com (`og:image`).
+- Uzytkownik uruchamia panel extension na stronie sklepu.
+- Extension wysyla dane (selfie + produkt URL/zdjecie + opcje) do FastAPI `POST /generate`.
+- Backend pobiera obraz produktu, buduje prompt OpenVTO i wywoluje Gemini image generation.
+- Wynik wraca jako 1-3 warianty obrazow base64.
+- Platnosci tokenow obsluguje Przelewy24 (`/payments/checkout`, `/payments/webhook`).
 
-## Szybki start (dev)
+## Szybki start lokalnie
 
-1. Extension: `cd extension && npm install && npm run dev` (panel preview http://localhost:5173).
-2. Backend (FastAPI): `cd backend && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`.
+1. Uruchom backend:
 
-- Skopiuj `.env.example` → `.env`, ustaw `DATABASE_URL`, `JWT_SECRET`, `GEMINI_API_KEY`.
-- `uvicorn app.main:app --reload --port 8000` lub `make dev`.
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
 
-3. Połącz front-back: ustaw `VITE_API_BASE=https://api.aigrafka.pl` w extension (lub `http://localhost:8000` przy dev backendzie).
-4. Deployment: patrz sekcja „Render”.
+2. Ustaw minimalne env w `backend/.env`:
 
-## Build
+- `DATABASE_URL`
+- `JWT_SECRET` (min. 32 znaki)
+- `GEMINI_API_KEY`
 
-- Extension: `cd extension && npm run build` → pliki w `extension/dist`; załaduj jako unpacked (MV3).
-- Backend FastAPI: brak kompilacji; uruchom `uvicorn app.main:app --reload --port 8000`.
-- (opcjonalne) `api/` może służyć jako serverless na innej platformie; w demie główny backend to FastAPI.
+3. Start backendu:
 
-## Deployment (Render)
+```bash
+cd backend
+uvicorn app.main:app --reload --port 8000
+```
 
-- Root: `backend/`
-- Build Command: `pip install -r requirements.txt`
-- Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- Env (przykład): `PYTHON_VERSION=3.11`, `DATABASE_URL=...`, `JWT_SECRET=<silny sekret min. 32 znaki>`, `CORS_ORIGINS=https://aigrafka.pl,https://api.aigrafka.pl`, opcjonalnie limity `MAX_SELFIE_MB`, `MAX_PRODUCT_IMAGE_MB`, `MAX_SIDE_PX`, `VARIANTS`, `HTTP_TIMEOUT`, `PRODUCT_IMAGE_TIMEOUT`.
-- Health check: GET `/health`.
+4. Uruchom extension:
 
-## Konfiguracja backendu FastAPI (env)
+```bash
+cd extension
+npm install
+npm run dev
+```
 
-- GEMINI_API_KEY (wymagane)
-- DATABASE_URL (wymagane)
-- JWT_SECRET (wymagane, min. 32 znaki)
-- JWT_EXP_MINUTES (domyślnie 60)
-- DEV_MODE (domyślnie `false`; włącza dev endpoint `/auth/topup`)
-- GEMINI_MODEL (opcjonalne)
-- HTTP_TIMEOUT (domyślnie 30s)
-- MAX_SELFIE_MB (domyślnie 8)
-- MAX_PRODUCT_IMAGE_MB (domyślnie 10)
-- PRODUCT_IMAGE_TIMEOUT (domyślnie 15s)
+5. Ustaw `VITE_API_BASE` na backend lokalny lub produkcyjny:
 
-## API (demo)
+- lokalnie: `http://localhost:8000`
+- produkcyjnie: `https://api.aigrafka.pl`
 
-- POST `/generate` (multipart): `product_url` (reserved.com) + `selfie` (image) + opcjonalne `variants` (1–4).
-  - Zwraca: `{ status, image_base64, mime_type, model, variants: [{ image_base64, mime_type, width, height, latency_ms }] }`.
-  - Selfie normalizowane do JPEG, resize do max ~1280 px; obraz produktu pobierany z `og:image`, normalizowany do JPEG, resize do max ~1280 px; limity: selfie `MAX_SELFIE_MB`, produkt `MAX_PRODUCT_IMAGE_MB`.
+6. Build extension do instalacji unpacked:
 
-## Płatności Przelewy24 (FastAPI)
+```bash
+cd extension
+npm run build
+```
 
-Aktywne endpointy znajdują się w `backend/app/api/payments.py`:
+## Najwazniejsze endpointy (FastAPI)
 
-- `POST /payments/checkout` (wymaga Bearer token)
-- `POST /payments/webhook` (callback P24 + verify + naliczenie tokenów)
+- `POST /generate` - generowanie stylizacji (multipart: selfie + produkt + opcje).
+- `POST /auth/register` - rejestracja.
+- `POST /auth/login` - logowanie.
+- `GET /auth/me` - dane i saldo tokenow.
+- `POST /profile` - zapis profilu sylwetki.
+- `GET /profile` - odczyt profilu sylwetki.
+- `POST /payments/checkout` - rozpoczecie checkout Przelewy24 (Bearer required).
+- `POST /payments/webhook` - callback i weryfikacja platnosci P24.
+- `GET /health` - health check pod deploy/cron.
 
-Wymagane zmienne środowiskowe:
+## Bezpieczenstwo (aktualny stan)
+
+- Wymuszony `JWT_SECRET` (min. 32 znaki), brak slabych defaultow.
+- Krotki domyslny TTL access tokenu: `JWT_EXP_MINUTES=60`.
+- Ograniczony CORS: jawna lista originow, wildcard `*` zablokowany.
+- Rate limiting na `POST /auth/login` i `POST /auth/register` (per IP i per IP+email).
+- Odpowiedz `429` zawiera naglowek `Retry-After`.
+- `/auth/topup` dziala tylko dla dev/local (`DEV_MODE=true` lub localhost).
+
+## Zmienne srodowiskowe (backend)
+
+Wymagane:
+
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `GEMINI_API_KEY`
+
+Wazne opcjonalne:
+
+- `JWT_EXP_MINUTES`
+- `DEV_MODE`
+- `CORS_ORIGINS`
+- `GEMINI_MODEL`
+- `GEMINI_IMAGE_SIZE`
+- `MAX_SELFIE_MB`
+- `MAX_PRODUCT_IMAGE_MB`
+- `MAX_SIDE_PX`
+- `HTTP_TIMEOUT`
+- `PRODUCT_IMAGE_TIMEOUT`
+
+Platnosci Przelewy24:
 
 - `P24_MERCHANT_ID`
 - `P24_POS_ID`
 - `P24_CRC`
 - `P24_API_USER`
 - `P24_API_SECRET`
-- `P24_ENV` (`sandbox` lub `prod`)
+- `P24_ENV`
+- `CHECKOUT_SUCCESS_URL`
+- `CHECKOUT_STATUS_URL`
 
-Opcjonalne:
+## Deploy (Render)
 
-- `P24_API_BASE`, `P24_PANEL_BASE`
-- `P24_DEMO_MODE`
-- `P24_PRICE_STARTER_GROSZE`, `P24_PRICE_PRO_GROSZE`
-- `P24_DEFAULT_CUSTOMER_EMAIL`
-- `CHECKOUT_SUCCESS_URL`, `CHECKOUT_STATUS_URL`
+- Service root: `backend/`
+- Build command: `pip install -r requirements.txt`
+- Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Health check: `GET /health`
+- Keep-warm cron (opcjonalnie): `GET /health` co 5 min
 
-## Uwagi dot. compliance
+## Status modulow
 
-- Wymagana zgoda na przetwarzanie wizerunku; retencja obrazów ograniczona i kasowalna na żądanie.
-- Przechowywanie danych w regionie UE; logi dostępu z rotacją; usuwanie danych zgodnie z RODO.
+- Produkcyjnie aktywne: `extension/` + `backend/`.
+- Legacy/deprecated: `backend/src/` (NestJS), czesc `api/` i `ai/`.
+
+## Dokumentacja modulowa
+
+- Backend: `backend/README.md`
+- AI worker: `ai/README.md`
+- Shared typy: `shared/README.md`
+
+## Compliance i dane
+
+- Wymagana zgoda uzytkownika na przetwarzanie wizerunku.
+- Zalecane: retencja obrazow, procedura usuwania danych, log audit trail i polityka RODO.
