@@ -23,6 +23,12 @@ function removePanel() {
 function injectPanel() {
   if (document.getElementById(CONTAINER_ID)) return;
 
+  const logoPatternUrl = chrome.runtime.getURL('icons/logo_white.svg');
+  const textPatternSvg = encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="220" height="110" viewBox="0 0 220 110"><text x="20" y="62" fill="rgba(255,255,255,0.55)" font-size="44" font-family="Space Grotesk, Segoe UI, sans-serif">aigrafka.pl</text></svg>'
+  );
+  const textPatternUrl = `data:image/svg+xml,${textPatternSvg}`;
+
   const host = document.createElement('div');
   host.id = CONTAINER_ID;
   host.style.position = 'fixed';
@@ -35,7 +41,7 @@ function injectPanel() {
   host.style.maxHeight = 'calc(100vh - 12px)';
   host.style.maxWidth = 'calc(100vw - 12px)';
   host.style.borderRadius = '18px';
-  host.style.background = '#dcdcdc';
+  host.style.background = '#d2d2d2';
   host.style.border = '1px solid #2a2a2a';
   host.style.boxShadow = '0 16px 40px rgba(0,0,0,0.38)';
   host.style.overflow = 'hidden';
@@ -58,7 +64,14 @@ function injectPanel() {
       min-height: 0;
       max-width: none;
       max-height: calc(100vh - 12px);
-      background: #dcdcdc;
+      background-color: #d2d2d2;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.08)),
+        url('${textPatternUrl}'),
+        url('${logoPatternUrl}');
+      background-repeat: repeat, repeat, repeat;
+      background-size: auto, 220px 110px, 88px 88px;
+      background-position: 0 0, 0 0, 20px 18px;
       overflow-x: hidden;
       overflow-y: auto;
       color: #1e1e1e;
