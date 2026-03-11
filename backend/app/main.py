@@ -13,15 +13,21 @@ app = FastAPI(title="AIgrafka Demo Backend", version="0.1.0")
 settings = get_settings()
 raw_origins = settings.cors_origins or ""
 origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
+allow_any_web_origin = settings.cors_allow_any_web_origin
 
-if not origins:
+if not allow_any_web_origin and not origins:
     raise RuntimeError("CORS_ORIGINS must contain at least one allowed origin")
 if "*" in origins:
     raise RuntimeError("Wildcard '*' in CORS_ORIGINS is not allowed")
 
+# Extension panel runs in content-script context on many e-commerce domains.
+# For this mode we allow any http/https origin while still disallowing credentials.
+origin_regex = r"^https?://.*$" if allow_any_web_origin else None
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=origin_regex,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
