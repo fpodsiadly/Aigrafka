@@ -1,3 +1,6 @@
+import logging
+import time
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -42,9 +45,21 @@ app.include_router(payments_router, prefix="")
 
 @app.on_event("startup")
 def startup() -> None:
-    init_auth_tables()
-    init_profile_tables()
-    init_payment_tables()
+    # Render free-tier PostgreSQL can be sleeping at deploy time.
+    # Retry with exponential backoff before giving up.
+    last_exc: Exception | None = None
+    for attempt in range(6):
+        try:
+            init_auth_tables()
+            init_profile_tables()
+            init_payment_tables()
+            return
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            wait = 2 ** attempt  # 1 s, 2 s, 4 s, 8 s, 16 s, 32 s
+            logging.warning("DB init attempt %d/6 failed (%s) — retrying in %ds", attempt + 1, exc, wait)
+            time.sleep(wait)
+    raise RuntimeError("Database initialisation failed after 6 attempts") from last_exc
 
 
 @app.get("/health")
