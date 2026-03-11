@@ -5,6 +5,12 @@ import { resolve } from 'path';
 // Build content script as a single self-contained bundle (no imports).
 export default defineConfig({
   plugins: [react()],
+  server: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+      'Cross-Origin-Embedder-Policy': 'unsafe-none',
+    }
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,

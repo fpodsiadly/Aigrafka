@@ -2124,23 +2124,41 @@ const App: React.FC = () => {
                                 <div style={{ color: '#8f1f1f', fontSize: 11, lineHeight: 1.3, textAlign: 'center', fontWeight: 700, marginBottom: 8 }}>
                                     {generationError}
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={handleGenerateMore}
-                                    style={{
-                                        ...actionButtonStyle,
-                                        width: '100%',
-                                        padding: '9px 10px',
-                                        background: canSubmit ? '#9b59ff' : '#b7b7b7',
-                                        cursor: canSubmit ? 'pointer' : 'not-allowed',
-                                        boxShadow: 'none',
-                                        borderRadius: 8,
-                                        fontSize: 12
-                                    }}
-                                    disabled={!canSubmit || isLoading}
-                                >
-                                    Spróbuj ponownie
-                                </button>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                    <button
+                                        type="button"
+                                        onClick={handleGenerateMore}
+                                        style={{
+                                            ...actionButtonStyle,
+                                            flex: 1,
+                                            padding: '9px 10px',
+                                            background: canSubmit ? '#9b59ff' : '#b7b7b7',
+                                            cursor: canSubmit ? 'pointer' : 'not-allowed',
+                                            boxShadow: 'none',
+                                            borderRadius: 8,
+                                            fontSize: 12
+                                        }}
+                                        disabled={!canSubmit || isLoading}
+                                    >
+                                        Spróbuj ponownie
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => { setGenerationError(''); setView('form'); }}
+                                        style={{
+                                            ...actionButtonStyle,
+                                            flex: 1,
+                                            padding: '9px 10px',
+                                            background: '#e2e2e2',
+                                            color: '#1f1f1f',
+                                            boxShadow: 'none',
+                                            borderRadius: 8,
+                                            fontSize: 12
+                                        }}
+                                    >
+                                        Zacznij od nowa
+                                    </button>
+                                </div>
                             </div>
                         ) : (
                             <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)', padding: '8px 10px' }}>
