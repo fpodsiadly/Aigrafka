@@ -173,12 +173,7 @@ async def generate_tryon(
 
     back_reference_available = secondary_product_image_bytes is not None
 
-    model_map = {
-        "banana": "gemini-2.5-flash-image",
-        "banana-pro": "gemini-3-pro-image-preview",
-        "banana-pro-2": "gemini-3.1-flash-image-preview",
-    }
-    chosen_model = model_map.get(model_choice) if model_choice else None
+    chosen_model = "gemini-3.1-flash-image-preview"
 
     client = GeminiClient(model=chosen_model)
     successful: list[ImageVariant] = []

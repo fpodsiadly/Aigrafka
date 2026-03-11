@@ -13,10 +13,12 @@ def get_engine():
     global _engine
     if _engine is None:
         settings = get_settings()
-        connect_args = {}
-        if "render.com" in settings.database_url and "sslmode=" not in settings.database_url:
-            connect_args = {"sslmode": "require"}
-        _engine = create_engine(settings.database_url, pool_pre_ping=True, future=True, connect_args=connect_args)
+        db_url = settings.database_url
+        is_local = any(h in db_url for h in ("localhost", "127.0.0.1", "::1"))
+        if not is_local and "sslmode=" not in db_url:
+            separator = "&" if "?" in db_url else "?"
+            db_url = f"{db_url}{separator}sslmode=require"
+        _engine = create_engine(db_url, pool_pre_ping=True, future=True)
     return _engine
 
 

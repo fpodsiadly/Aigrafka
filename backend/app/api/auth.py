@@ -213,14 +213,21 @@ def login_with_google(body: GoogleAuthRequest) -> AuthResponse:
     try:
         claims = google_id_token.verify_oauth2_token(body.id_token, GoogleRequest(), client_id)
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token") from exc
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Nieprawidłowy token Google — spróbuj zalogować się ponownie.") from exc
 
     email = str(claims.get("email") or "").strip().lower()
     email_verified = bool(claims.get("email_verified"))
     if not email or not email_verified:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Google account email is not verified")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Konto Google nie ma zweryfikowanego adresu e-mail.")
 
-    user = get_or_create_user_by_email(email, settings.initial_user_tokens)
+    try:
+        user = get_or_create_user_by_email(email, settings.initial_user_tokens)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Błąd bazy danych — spróbuj ponownie za chwilę.",
+        ) from exc
+
     token = create_access_token(str(user["id"]), str(user["email"]))
     return AuthResponse(
         access_token=token,

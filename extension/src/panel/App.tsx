@@ -18,15 +18,15 @@ interface FormState extends BodyMetrics {
     tokens: number;
     accepted: boolean;
     variantCount: number;
-    modelChoice: 'banana' | 'banana-pro' | 'banana-pro-2';
+    modelChoice: 'banana-pro-2';
 }
 
 type ProductImageKey = 'productImage1' | 'productImage2';
 
-type StorableKey = keyof Pick<FormState, 'height' | 'chest' | 'waist' | 'hips' | 'category' | 'productUrl' | 'fitStyle' | 'modelChoice'>;
+type StorableKey = keyof Pick<FormState, 'height' | 'chest' | 'waist' | 'hips' | 'category' | 'productUrl' | 'fitStyle'>;
 type SavedFlags = Partial<Record<StorableKey, boolean>>;
 type Persistable = Pick<FormState, StorableKey>;
-const storableKeys: StorableKey[] = ['category', 'productUrl', 'modelChoice'];
+const storableKeys: StorableKey[] = ['category', 'productUrl'];
 
 type ApiBase64 = string | { image_base64?: string } | null | undefined;
 
@@ -111,7 +111,7 @@ const initialState: FormState = {
     selfie: null,
     category: '',
     fitStyle: 'masculine',
-    modelChoice: 'banana-pro',
+    modelChoice: 'banana-pro-2',
     productUrl: '',
     productImage1: null,
     productImage2: null,
@@ -278,7 +278,17 @@ function toRequestErrorMessage(error: unknown, fallback: string, signal?: AbortS
         const reason = signal?.reason;
         if (typeof reason === 'string' && reason.trim()) return reason;
         if (reason instanceof Error && reason.message) return reason.message;
-        return fallback;
+        return 'Przekroczono limit czasu. Spróbuj ponownie.';
+    }
+
+    if (error instanceof TypeError) {
+        const msg = error.message.toLowerCase();
+        if (msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('load failed')) {
+            return 'Brak połączenia z serwerem AIgrafka. Sprawdź internet lub spróbuj ponownie za chwilę.';
+        }
+        if (msg.includes('cors')) {
+            return 'Błąd CORS — serwer nie zezwolił na połączenie z tej strony. Odśwież rozszerzenie.';
+        }
     }
 
     if (error instanceof Error && error.message) return error.message;
@@ -949,13 +959,27 @@ const App: React.FC = () => {
                     if (auth.loggedIn) await refreshAuthFromServer();
                 }
                 const text = await response.text();
-                let message = text || 'API error';
+                let apiDetail = '';
                 try {
                     const parsed = JSON.parse(text);
-                    if (parsed?.detail) message = typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail);
-                } catch (e) {
-                    /* ignore parse */
-                }
+                    if (parsed?.detail) apiDetail = typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail);
+                } catch (e) { /* ignore */ }
+
+                const statusMessages: Record<number, string> = {
+                    400: `Nieprawidłowe dane żądania${apiDetail ? ': ' + apiDetail : '.'}`,
+                    401: 'Sesja wygasła — zaloguj się ponownie.',
+                    402: 'Za mało tokenów stylizacji. Doładuj konto.',
+                    403: 'Brak uprawnień do wykonania tej operacji.',
+                    413: 'Przesłane zdjęcie jest zbyt duże. Zmniejsz plik poniżej 8 MB.',
+                    422: `Błąd walidacji danych${apiDetail ? ': ' + apiDetail : '. Sprawdź poprawność zdjęcia i linku produktu.'}`,
+                    429: 'Zbyt wiele żądań. Poczekaj chwilę przed kolejną próbą.',
+                    500: 'Błąd wewnętrzny serwera. Spróbuj ponownie za chwilę.',
+                    502: 'Serwer chwilowo niedostępny (502). Spróbuj ponownie.',
+                    503: 'Serwer jest przeciążony lub startuje (503). Spróbuj za kilka sekund.',
+                    504: 'Serwer nie odpowiada w czasie (504). Spróbuj ponownie.',
+                };
+                const message = statusMessages[response.status]
+                    ?? (apiDetail || `Błąd serwera (HTTP ${response.status}).`);
                 throw new Error(message);
             }
 
@@ -1685,27 +1709,7 @@ const App: React.FC = () => {
                                 </div>
                             </FieldRow>
 
-                            <details style={{ marginTop: 4, background: '#ededed', borderRadius: 10, border: '2px solid #c7c7c7', padding: '6px 8px' }}>
-                                <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#2a2a2a' }}>Ustawienia AI</summary>
-                                <div style={{ marginTop: 6 }}>
-                                    <FieldRow label="Model:">
-                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 11 }}>
-                                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                                                <input type="radio" name="modelChoice" value="banana" checked={form.modelChoice === 'banana'} onChange={e => update('modelChoice', e.target.value as FormState['modelChoice'])} />
-                                                <span>Banana</span>
-                                            </label>
-                                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                                                <input type="radio" name="modelChoice" value="banana-pro" checked={form.modelChoice === 'banana-pro'} onChange={e => update('modelChoice', e.target.value as FormState['modelChoice'])} />
-                                                <span>Banana Pro</span>
-                                            </label>
-                                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                                                <input type="radio" name="modelChoice" value="banana-pro-2" checked={form.modelChoice === 'banana-pro-2'} onChange={e => update('modelChoice', e.target.value as FormState['modelChoice'])} />
-                                                <span>Banana Pro 2</span>
-                                            </label>
-                                        </div>
-                                    </FieldRow>
-                                </div>
-                            </details>
+
                         </div>
 
                         <div style={{ ...badge, boxShadow: '0 8px 16px rgba(0,0,0,0.08)', padding: '8px 10px' }}>
