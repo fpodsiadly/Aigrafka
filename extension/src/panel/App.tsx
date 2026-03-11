@@ -26,7 +26,7 @@ type ProductImageKey = 'productImage1' | 'productImage2';
 type StorableKey = keyof Pick<FormState, 'height' | 'chest' | 'waist' | 'hips' | 'category' | 'productUrl' | 'fitStyle'>;
 type SavedFlags = Partial<Record<StorableKey, boolean>>;
 type Persistable = Pick<FormState, StorableKey>;
-const storableKeys: StorableKey[] = ['category', 'productUrl'];
+const storableKeys: StorableKey[] = ['height', 'chest', 'waist', 'hips', 'fitStyle', 'category', 'productUrl'];
 
 type ApiBase64 = string | { image_base64?: string } | null | undefined;
 
@@ -110,7 +110,7 @@ const initialMetrics: BodyMetrics = {
 const initialState: FormState = {
     selfie: null,
     category: '',
-    fitStyle: 'masculine',
+    fitStyle: 'unisex',
     modelChoice: 'banana-pro-2',
     productUrl: '',
     productImage1: null,
@@ -484,6 +484,11 @@ const App: React.FC = () => {
 
     function update<K extends keyof FormState>(key: K, value: FormState[K]) {
         setForm(prev => ({ ...prev, [key]: value }));
+        if ((storableKeys as string[]).includes(key)) {
+            storage.get().then(current => {
+                storage.set({ ...current, [key]: value as string });
+            });
+        }
     }
 
     async function loadProfile(userId: string, token: string) {
@@ -728,7 +733,8 @@ const App: React.FC = () => {
         return `BLIK`;
     }
 
-    const measurementSummary = `${form.height || '-'} / ${form.chest || '-'} / ${form.waist || '-'} / ${form.hips || '-'}`.replace(/\s+/g, '');
+    const fitStyleLabel: Record<FormState['fitStyle'], string> = { masculine: 'mężczyzna', feminine: 'kobieta', unisex: 'unisex' };
+    const measurementSummary = `${form.height || '-'}/${form.chest || '-'}/${form.waist || '-'}/${form.hips || '-'}/${fitStyleLabel[form.fitStyle]}`;
 
     async function handlePayBlik() {
         // Placeholder for real payment integration

@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     gemini_model: str = Field(default="gemini-2.5-flash-image")
     # Lower output image size improves latency on image generation models.
     gemini_image_size: str = Field(default="768", alias="GEMINI_IMAGE_SIZE")
-    http_timeout: float = Field(default=30.0, ge=1.0)
+    http_timeout: float = Field(default=90.0, ge=1.0, alias="HTTP_TIMEOUT")
     max_selfie_mb: int = Field(default=8, ge=1, le=32)
     max_product_image_mb: int = Field(default=10, ge=1, le=64)
     product_image_timeout: float = Field(default=15.0, ge=1.0)
