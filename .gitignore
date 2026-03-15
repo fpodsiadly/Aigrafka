@@ -43,9 +43,5 @@ backend/.venv/
 **/*.pyc
 .pytest_cache/
 
-# Generated assets
-extension/icons/*.png
-extension/icons/*.ico
-
 # TypeScript
 *.tsbuildinfo
