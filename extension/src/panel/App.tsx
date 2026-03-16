@@ -126,7 +126,18 @@ const storageKey = 'aigrafka-form-v2';
 const authTokenKey = 'aigrafka-auth-token-v1';
 let inMemoryAuthToken: string | null = null;
 const placeholderPreview = 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=900&q=80';
-const placeholderSelfie = 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=200&q=70';
+const SelfieEmpty: React.FC = () => (
+    <svg viewBox="0 0 88 88" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', height: '100%' }}>
+        <rect width="88" height="88" fill="#ececec" />
+        <circle cx="44" cy="32" r="14" fill="#c4b0e8" />
+        <ellipse cx="44" cy="72" rx="22" ry="16" fill="#c4b0e8" />
+        <circle cx="44" cy="32" r="10" fill="#e9e0f8" />
+        <path d="M30 72 Q30 54 44 54 Q58 54 58 72" fill="#d6c8f0" />
+        <circle cx="40" cy="30" r="2" fill="#7f3bff" />
+        <circle cx="48" cy="30" r="2" fill="#7f3bff" />
+        <path d="M40 36 Q44 39 48 36" stroke="#7f3bff" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+    </svg>
+);
 const REQUEST_TIMEOUT_MS = 70_000; // Render free tier cold start can be slow; give more headroom
 const GENERATION_TIMEOUT_MESSAGE = 'Przekroczono limit czasu oczekiwania na stylizację. Serwer mógł być w stanie cold start — spróbuj ponownie.';
 
@@ -135,7 +146,7 @@ const badge = {
     color: '#1f1f1f',
     border: '2px solid #bdbdbd',
     borderRadius: '12px',
-    padding: '8px 10px'
+    padding: '10px 12px'
 };
 
 const sectionTitleStyle: React.CSSProperties = {
@@ -186,8 +197,8 @@ const actionButtonStyle: React.CSSProperties = {
 };
 
 const fieldLabelStyle: React.CSSProperties = {
-    flex: '0 0 84px',
-    maxWidth: '84px',
+    flex: '0 0 110px',
+    maxWidth: '110px',
     fontWeight: 700,
     fontSize: '11px',
     color: '#1e1e1e',
@@ -196,10 +207,10 @@ const fieldLabelStyle: React.CSSProperties = {
 
 const rowStyle: React.CSSProperties = {
     display: 'flex',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     flexWrap: 'wrap',
     gap: '6px',
-    marginBottom: '6px'
+    marginBottom: '8px'
 };
 
 function hasAnyBodyMetrics(metrics: BodyMetrics): boolean {
@@ -389,6 +400,9 @@ const App: React.FC = () => {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [savedFlags, setSavedFlags] = useState<SavedFlags>({});
     const [selfiePreview, setSelfiePreview] = useState<string>('');
+    const [productPreview1, setProductPreview1] = useState<string>('');
+    const [productPreview2, setProductPreview2] = useState<string>('');
+    const [hoveredProductBtn, setHoveredProductBtn] = useState<ProductImageKey | null>(null);
     const [variants, setVariants] = useState<VariantPreview[]>([]);
     const [selectedVariant, setSelectedVariant] = useState<number>(0);
     const [generationMeta, setGenerationMeta] = useState<{ model?: string; latencyMs?: number }>({});
@@ -424,14 +438,14 @@ const App: React.FC = () => {
     const productImage2MenuRef = useRef<HTMLDivElement | null>(null);
 
     const canSubmit = useMemo(() => {
-        const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
+        const hasProductImage = Boolean(form.productImage1) || Boolean(form.productImage2);
         const hasSelfie = !!form.selfie;
-        if (!form.accepted || !hasProduct || !hasSelfie) return false;
+        if (!form.accepted || !hasProductImage || !hasSelfie) return false;
         return auth.loggedIn ? auth.tokens >= form.variantCount : true;
     }, [form, auth]);
 
     const hasSelfie = Boolean(form.selfie);
-    const hasProduct = Boolean(form.productUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
+    const hasProduct = Boolean(form.productImage1) || Boolean(form.productImage2);
     const measurementsSessionKey = auth.userId ? `user:${auth.userId}` : 'guest';
     const isProfileHydrating = Boolean(auth.loggedIn && auth.userId && profileReadyForUser !== auth.userId);
 
@@ -459,6 +473,26 @@ const App: React.FC = () => {
         setSelfiePreview('');
         return undefined;
     }, [form.selfie]);
+
+    useEffect(() => {
+        if (form.productImage1) {
+            const url = URL.createObjectURL(form.productImage1);
+            setProductPreview1(url);
+            return () => URL.revokeObjectURL(url);
+        }
+        setProductPreview1('');
+        return undefined;
+    }, [form.productImage1]);
+
+    useEffect(() => {
+        if (form.productImage2) {
+            const url = URL.createObjectURL(form.productImage2);
+            setProductPreview2(url);
+            return () => URL.revokeObjectURL(url);
+        }
+        setProductPreview2('');
+        return undefined;
+    }, [form.productImage2]);
 
     useEffect(() => {
         setMeasurementsToggledManually(false);
@@ -888,14 +922,14 @@ const App: React.FC = () => {
 
         const normalizedProductUrl = form.productUrl ? normalizeProductUrl(form.productUrl) : '';
 
-        const hasProduct = Boolean(normalizedProductUrl) || Boolean(form.productImage1) || Boolean(form.productImage2);
-        if (!hasProduct) {
-            setStatusError('Dodaj produkt: link SPP lub zdjęcie.');
+        const hasProductImage = Boolean(form.productImage1) || Boolean(form.productImage2);
+        if (!hasProductImage) {
+            setStatusError('Dodaj zdjęcie produktu (pierwsze lub drugie).');
             return;
         }
 
         if (normalizedProductUrl && !validProductUrl(normalizedProductUrl)) {
-            setStatusError('Podaj poprawny link produktu (http/https).');
+            setStatusError('Link do produktu ma nieprawidłowy format (wymagane http/https).');
             return;
         }
 
@@ -1501,7 +1535,7 @@ const App: React.FC = () => {
     return (
         <div className="aigrafka-shell" style={{ display: 'flex', flexDirection: 'column', background: '#dcdcdc', color: '#1e1e1e', height: 'auto', width: '100%' }}>
             <PanelHeader logoSrc={logoSrc} loggedIn={auth.loggedIn} userEmail={auth.email} onLogin={handleLogin} onLogout={handleLogout} />
-            <div style={{ padding: '8px 8px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ padding: '10px 12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {view === 'form' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: '#1c1c1c' }}>Witaj! Co dziś przymierzymy?</div>
@@ -1509,7 +1543,7 @@ const App: React.FC = () => {
                 )}
 
                 {view === 'form' && (
-                    <form id="aigrafka-form" onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <form id="aigrafka-form" onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                         <div style={{ ...badge, boxShadow: '0 8px 16px rgba(0,0,0,0.08)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                                 <div style={sectionTitleStyle}>Twoje dane</div>
@@ -1578,8 +1612,10 @@ const App: React.FC = () => {
 
                             <FieldRow label="Selfie:">
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', width: '100%' }}>
-                                    <div style={{ width: 88, height: 88, borderRadius: 12, overflow: 'hidden', border: '2px solid #bdbdbd', background: '#f0f0f0', flex: '0 0 88px' }}>
-                                        <img src={selfiePreview || placeholderSelfie} alt="Selfie" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    <div style={{ width: 88, height: 88, borderRadius: 12, overflow: 'hidden', border: `2px solid ${selfiePreview ? '#9b59ff' : '#bdbdbd'}`, background: '#f0f0f0', flex: '0 0 88px' }}>
+                                        {selfiePreview
+                                            ? <img src={selfiePreview} alt="Selfie" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            : <SelfieEmpty />}
                                     </div>
                                     <label
                                         style={{
@@ -1612,27 +1648,34 @@ const App: React.FC = () => {
                             </div>
 
                             <FieldRow label="Link do produktu:">
-                                <input style={inputStyle} value={form.productUrl} onChange={e => update('productUrl', e.target.value)} placeholder="Wpisz link do produktu lub link do zdjęcia produktu" type="url" />
+                                <input style={inputStyle} value={form.productUrl} onChange={e => update('productUrl', e.target.value)} placeholder="Wklej link do produktu w celu śledzenia" type="url" />
                             </FieldRow>
 
                             <FieldRow label="Kategoria produktu:">
-                                <input style={inputStyle} value={form.category} onChange={e => update('category', e.target.value)} placeholder="Komplet dresowy" />
+                                <input style={inputStyle} value={form.category} onChange={e => update('category', e.target.value)} placeholder="Podaj kategorię swojego produktu" />
                             </FieldRow>
 
                             <FieldRow label="Zdjęcia produktu:">
                                 <div style={{ display: 'flex', gap: 6, width: '100%' }}>
-                                    <div onDragOver={e => e.preventDefault()} onDrop={e => handleDropProduct('productImage1', e)} style={{ flex: 1, minWidth: 0 }}>
+                    <div onDragOver={e => e.preventDefault()} onDrop={e => handleDropProduct('productImage1', e)} style={{ flex: 1, minWidth: 0 }}>
                                         <div
                                             ref={productImage1MenuRef}
                                             style={{ position: 'relative' }}
+                                            onMouseEnter={() => form.productImage1 && setHoveredProductBtn('productImage1')}
+                                            onMouseLeave={() => setHoveredProductBtn(null)}
                                         >
                                             <button
                                                 type="button"
                                                 onClick={() => setUploadMenuFor(prev => prev === 'productImage1' ? null : 'productImage1')}
-                                                style={{ ...actionButtonStyle, background: '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12 }}
+                                                style={{ ...actionButtonStyle, background: form.productImage1 ? '#7f3bff' : '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12 }}
                                             >
-                                                {form.productImage1 ? 'Dodano' : '+ Dodaj pierwsze'}
+                                                {form.productImage1 ? '✓ Pierwsze' : '+ Dodaj pierwsze'}
                                             </button>
+                                            {hoveredProductBtn === 'productImage1' && productPreview1 && (
+                                                <div style={{ position: 'absolute', bottom: 38, left: '50%', transform: 'translateX(-50%)', zIndex: 50, borderRadius: 10, overflow: 'hidden', border: '2px solid #9b59ff', boxShadow: '0 6px 18px rgba(0,0,0,0.22)', background: '#fff', pointerEvents: 'none' }}>
+                                                    <img src={productPreview1} alt="Podgląd" style={{ width: 96, height: 96, objectFit: 'cover', display: 'block' }} />
+                                                </div>
+                                            )}
                                             <input
                                                 ref={productImage1InputRef}
                                                 type="file"
@@ -1671,14 +1714,21 @@ const App: React.FC = () => {
                                             ref={productImage2MenuRef}
                                             title="Drugie zdjęcie jest opcjonalne i pomaga lepiej odwzorować tył ubrania w 3. wariancie."
                                             style={{ position: 'relative' }}
+                                            onMouseEnter={() => form.productImage2 && setHoveredProductBtn('productImage2')}
+                                            onMouseLeave={() => setHoveredProductBtn(null)}
                                         >
                                             <button
                                                 type="button"
                                                 onClick={() => setUploadMenuFor(prev => prev === 'productImage2' ? null : 'productImage2')}
-                                                style={{ ...actionButtonStyle, background: '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12 }}
+                                                style={{ ...actionButtonStyle, background: form.productImage2 ? '#7f3bff' : '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12 }}
                                             >
-                                                {form.productImage2 ? 'Dodano' : '+ Dodaj drugie'}
+                                                {form.productImage2 ? '✓ Drugie' : '+ Dodaj drugie'}
                                             </button>
+                                            {hoveredProductBtn === 'productImage2' && productPreview2 && (
+                                                <div style={{ position: 'absolute', bottom: 38, left: '50%', transform: 'translateX(-50%)', zIndex: 50, borderRadius: 10, overflow: 'hidden', border: '2px solid #9b59ff', boxShadow: '0 6px 18px rgba(0,0,0,0.22)', background: '#fff', pointerEvents: 'none' }}>
+                                                    <img src={productPreview2} alt="Podgląd" style={{ width: 96, height: 96, objectFit: 'cover', display: 'block' }} />
+                                                </div>
+                                            )}
                                             <input
                                                 ref={productImage2InputRef}
                                                 type="file"
@@ -1718,9 +1768,9 @@ const App: React.FC = () => {
 
                         </div>
 
-                        <div style={{ ...badge, boxShadow: '0 8px 16px rgba(0,0,0,0.08)', padding: '8px 10px' }}>
+                        <div style={{ ...badge, boxShadow: '0 8px 16px rgba(0,0,0,0.08)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <div style={{ ...fieldLabelStyle, fontWeight: 800, fontSize: 12, flex: '0 0 84px', maxWidth: 84 }}>Tokeny Stylizacji</div>
+                                <div style={{ ...fieldLabelStyle, fontWeight: 800, fontSize: 12 }}>Tokeny Stylizacji</div>
                                 <div style={{ flex: 1, minWidth: 0, display: 'flex', gap: 6, alignItems: 'center' }}>
                                     {auth.loggedIn ? (
                                         <>
@@ -1778,7 +1828,7 @@ const App: React.FC = () => {
                             <div style={{ height: 1, background: '#c7c7c7', margin: '8px 0' }} />
 
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <div style={{ ...fieldLabelStyle, fontWeight: 800, fontSize: 12, flex: '0 0 84px', maxWidth: 84 }}>Liczba Stylizacji</div>
+                                <div style={{ ...fieldLabelStyle, fontWeight: 800, fontSize: 12 }}>Liczba Stylizacji</div>
                                 <div style={{ flex: 1, minWidth: 0, display: 'flex', gap: 6, alignItems: 'center' }}>
                                     <input
                                         style={{ ...inputStyle, flex: 1, textAlign: 'center', padding: '6px 8px' }}
@@ -1928,7 +1978,7 @@ const App: React.FC = () => {
                             </div>
                         ) : null}
 
-                        <div style={{ ...badge, marginTop: 10, padding: '8px 10px', borderRadius: 10 }}>
+                        <div style={{ ...badge, marginTop: 10 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
                                 <div style={{ ...sectionTitleStyle, fontSize: 10, marginBottom: 0, letterSpacing: 0 }}>Generuj więcej stylizacji tego produktu</div>
                                 <span
@@ -2120,7 +2170,7 @@ const App: React.FC = () => {
                         </div>
 
                         {generationError ? (
-                            <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)', padding: '8px 10px' }}>
+                            <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)' }}>
                                 <div style={{ color: '#8f1f1f', fontSize: 11, lineHeight: 1.3, textAlign: 'center', fontWeight: 700, marginBottom: 8 }}>
                                     {generationError}
                                 </div>
@@ -2161,7 +2211,7 @@ const App: React.FC = () => {
                                 </div>
                             </div>
                         ) : (
-                            <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)', padding: '8px 10px' }}>
+                            <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)' }}>
                                 <div style={{ color: '#5c5c5c', fontSize: 10, lineHeight: 1.25, textAlign: 'center' }}>
                                     Po zakończeniu generowania automatycznie przejdziesz do podglądu stylizacji.
                                 </div>
