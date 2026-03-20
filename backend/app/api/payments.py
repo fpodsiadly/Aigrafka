@@ -155,6 +155,19 @@ def _is_notification_sign_valid(payload: P24WebhookPayload, config: P24Config) -
     return expected == payload.sign
 
 
+@router.post("/dev-add-tokens")
+async def dev_add_tokens(user_id: str = Depends(get_current_user_id)) -> dict:
+    """Dev-only endpoint: credit 5 tokens directly. Only works when DEV_MODE=true."""
+    settings = get_settings()
+    if not settings.dev_mode:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only available in dev mode")
+
+    event_id = f"dev:{user_id}:{uuid4().hex}"
+    credit_tokens_for_payment(event_id, user_id, 5)
+    user = get_user_by_id(user_id)
+    return {"ok": True, "tokens": user["tokens"] if user else None}
+
+
 @router.post("/checkout", response_model=CheckoutResponse)
 async def create_checkout(body: CheckoutRequest, user_id: str = Depends(get_current_user_id)) -> CheckoutResponse:
     settings = get_settings()

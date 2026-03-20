@@ -256,7 +256,7 @@ const authStorage = {
                 chrome.storage.local.get([authTokenKey], result => resolve(result?.[authTokenKey] ?? null));
             });
         }
-        return inMemoryAuthToken;
+        try { return localStorage.getItem(authTokenKey); } catch { return inMemoryAuthToken; }
     },
     async setToken(token: string): Promise<void> {
         if (chrome?.storage?.local) {
@@ -264,7 +264,7 @@ const authStorage = {
                 chrome.storage.local.set({ [authTokenKey]: token }, () => resolve());
             });
         }
-        inMemoryAuthToken = token;
+        try { localStorage.setItem(authTokenKey, token); } catch { inMemoryAuthToken = token; }
     },
     async clearToken(): Promise<void> {
         if (chrome?.storage?.local) {
@@ -272,6 +272,7 @@ const authStorage = {
                 chrome.storage.local.remove([authTokenKey], () => resolve());
             });
         }
+        try { localStorage.removeItem(authTokenKey); } catch { /* ignore */ }
         inMemoryAuthToken = null;
     }
 };
@@ -703,6 +704,28 @@ const App: React.FC = () => {
     async function handleTopUpTokens() {
         if (!auth.loggedIn || !auth.accessToken) {
             setStatus('Najpierw zaloguj się, aby doładować tokeny.');
+            return;
+        }
+
+        // On localhost: call dev endpoint to persist tokens to the DB
+        const hostname = window.location.hostname;
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            try {
+                const res = await fetch(`${apiBase}/payments/dev-add-tokens`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${auth.accessToken}` }
+                });
+                if (res.ok) {
+                    const data = await res.json() as { ok: boolean; tokens: number };
+                    setAuth(prev => ({ ...prev, tokens: data.tokens ?? prev.tokens + 5 }));
+                    setStatusSuccess('(dev) Dodano 5 tokenów testowych.');
+                } else {
+                    setStatusError('Nie udało się dodać tokenów (dev).');
+                }
+            } catch (error) {
+                console.error(error);
+                setStatusError('Błąd połączenia z serwerem (dev).');
+            }
             return;
         }
 
