@@ -15,7 +15,6 @@ interface FormState extends BodyMetrics {
     productUrl: string;
     productImage1: File | null;
     productImage2: File | null;
-    tokens: number;
     accepted: boolean;
     variantCount: number;
     modelChoice: 'banana-pro-2';
@@ -115,7 +114,6 @@ const initialState: FormState = {
     productUrl: '',
     productImage1: null,
     productImage2: null,
-    tokens: 5,
     accepted: false,
     variantCount: 1,
     ...initialMetrics
@@ -350,7 +348,7 @@ const PanelHeader = ({
                     boxShadow: 'none'
                 }}
             >
-                {loggedIn ? 'Wyloguj się' : 'Rejestracja'}
+                {loggedIn ? 'Wyloguj się' : 'Zaloguj się'}
             </button>
             {loggedIn && userEmail && (
                 <div
@@ -373,16 +371,10 @@ const PanelHeader = ({
 
 const FieldRow = ({
     label,
-    children,
-    rememberKey,
-    remember,
-    savedFlags
+    children
 }: {
     label: string;
     children: React.ReactNode;
-    rememberKey?: StorableKey;
-    remember?: (key: StorableKey) => void;
-    savedFlags?: SavedFlags;
 }) => (
     <div style={rowStyle}>
         <div style={fieldLabelStyle}>{label}</div>
@@ -398,7 +390,6 @@ const App: React.FC = () => {
     const [statusTone, setStatusTone] = useState<'success' | 'error'>('success');
     const [previewUrl, setPreviewUrl] = useState<string>('');
     const [isLoading, setIsLoading] = useState<boolean>(false);
-    const [savedFlags, setSavedFlags] = useState<SavedFlags>({});
     const [selfiePreview, setSelfiePreview] = useState<string>('');
     const [productPreview1, setProductPreview1] = useState<string>('');
     const [productPreview2, setProductPreview2] = useState<string>('');
@@ -416,7 +407,6 @@ const App: React.FC = () => {
     const [view, setView] = useState<'form' | 'generating' | 'result'>('form');
     const [showMeasurements, setShowMeasurements] = useState<boolean>(false);
     const [autoExpandedMeasurementsKey, setAutoExpandedMeasurementsKey] = useState<string | null>(null);
-    const [measurementsToggledManually, setMeasurementsToggledManually] = useState<boolean>(false);
     const [storageHydrated, setStorageHydrated] = useState<boolean>(false);
     const [showAuthDialog, setShowAuthDialog] = useState<boolean>(false);
     const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -436,6 +426,7 @@ const App: React.FC = () => {
     const productImage2InputRef = useRef<HTMLInputElement | null>(null);
     const productImage1MenuRef = useRef<HTMLDivElement | null>(null);
     const productImage2MenuRef = useRef<HTMLDivElement | null>(null);
+    const storageSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const canSubmit = useMemo(() => {
         const hasProductImage = Boolean(form.productImage1) || Boolean(form.productImage2);
@@ -453,11 +444,6 @@ const App: React.FC = () => {
         storage.get().then(stored => {
             if (stored) {
                 setForm(prev => ({ ...prev, ...stored }));
-                const marks = Object.keys(stored).reduce<SavedFlags>((acc, key) => ({
-                    ...acc,
-                    [key as StorableKey]: true
-                }), {});
-                setSavedFlags(marks);
             }
         }).finally(() => {
             setStorageHydrated(true);
@@ -495,10 +481,6 @@ const App: React.FC = () => {
     }, [form.productImage2]);
 
     useEffect(() => {
-        setMeasurementsToggledManually(false);
-    }, [measurementsSessionKey]);
-
-    useEffect(() => {
         if (!storageHydrated) return;
         if (isProfileHydrating) return;
         if (autoExpandedMeasurementsKey === measurementsSessionKey) return;
@@ -518,11 +500,6 @@ const App: React.FC = () => {
 
     function update<K extends keyof FormState>(key: K, value: FormState[K]) {
         setForm(prev => ({ ...prev, [key]: value }));
-        if ((storableKeys as string[]).includes(key)) {
-            storage.get().then(current => {
-                storage.set({ ...current, [key]: value as string });
-            });
-        }
     }
 
     async function loadProfile(userId: string, token: string) {
@@ -760,31 +737,24 @@ const App: React.FC = () => {
         }
     }
 
-    function getModelCostText() {
-        //   const unitPrice = form.modelChoice === 'banana-pro' ? 1.0 : 0.5;
-        //  const total = unitPrice * form.variantCount;
-        //  const totalStr = total.toFixed(2).replace('.', ',');
-        return `BLIK`;
-    }
-
     const fitStyleLabel: Record<FormState['fitStyle'], string> = { masculine: 'mężczyzna', feminine: 'kobieta', unisex: 'unisex' };
     const measurementSummary = `${form.height || '-'}/${form.chest || '-'}/${form.waist || '-'}/${form.hips || '-'}/${fitStyleLabel[form.fitStyle]}`;
 
-    async function handlePayBlik() {
-        // Placeholder for real payment integration
-        setStatus(`Opłata ${getModelCostText()} (symulacja BLIK)...`);
-    }
-
-    // Auto-sync locked fields to storage whenever they change
+    // Debounced persist of storable fields (400 ms after last change)
     useEffect(() => {
-        const toPersist: Partial<Persistable> = {};
-        storableKeys.forEach(k => {
-            if (savedFlags[k]) {
-                (toPersist as any)[k] = form[k];
-            }
-        });
-        storage.set(toPersist);
-    }, [form, savedFlags]);
+        if (!storageHydrated) return;
+        if (storageSaveTimerRef.current) clearTimeout(storageSaveTimerRef.current);
+        storageSaveTimerRef.current = setTimeout(() => {
+            const toPersist: Partial<Persistable> = {};
+            storableKeys.forEach(k => {
+                (toPersist as Record<string, unknown>)[k] = form[k];
+            });
+            void storage.set(toPersist as Persistable);
+        }, 400);
+        return () => {
+            if (storageSaveTimerRef.current) clearTimeout(storageSaveTimerRef.current);
+        };
+    }, [storageHydrated, form.height, form.chest, form.waist, form.hips, form.fitStyle, form.category, form.productUrl]);
 
     useEffect(() => {
         authStorage.getToken().then(token => {
@@ -902,20 +872,24 @@ const App: React.FC = () => {
         });
     }, [showAuthDialog, googleInitialized]);
 
-    function rememberField(key: StorableKey) {
-        const nextValue = !savedFlags[key];
-        setSavedFlags(prev => ({ ...prev, [key]: nextValue }));
+    useEffect(() => {
+        if (!showAuthDialog) return;
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') closeAuthDialog();
+        };
+        document.addEventListener('keydown', onKeyDown);
+        return () => document.removeEventListener('keydown', onKeyDown);
+    }, [showAuthDialog]);
 
-        storage.get().then(current => {
-            const updated = { ...current } as Partial<Persistable>;
-            if (nextValue) {
-                (updated as any)[key] = form[key];
-            } else {
-                delete updated[key];
+    useEffect(() => {
+        const onVisibility = () => {
+            if (document.visibilityState === 'visible' && auth.loggedIn) {
+                void refreshAuthFromServer();
             }
-            storage.set(updated);
-        });
-    }
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+        return () => document.removeEventListener('visibilitychange', onVisibility);
+    }, [auth.loggedIn, auth.accessToken]);
 
     async function runGeneration() {
         if (!canSubmit || !form.selfie) return;
@@ -939,7 +913,9 @@ const App: React.FC = () => {
         }
 
         if (!auth.loggedIn) {
-            await handlePayBlik();
+            handleLogin();
+            setStatusError('Zaloguj się, aby wygenerować stylizację.');
+            return;
         }
 
         setView('generating');
@@ -1062,8 +1038,6 @@ const App: React.FC = () => {
             });
 
             const variantCount = normalizedVariants.length || 1;
-            const latencyText = normalizedVariants[0]?.latencyMs ? ` • ${Math.round(normalizedVariants[0].latencyMs)} ms` : '';
-            const modelText = data.model ? ` • ${data.model}` : '';
             setView('result');
             if (isFallback) {
                 setStatusError('Generacja nieudana. Spróbuj ponownie.');
@@ -1093,6 +1067,7 @@ const App: React.FC = () => {
 
     async function handleSubmit(event: React.FormEvent) {
         event.preventDefault();
+        setGenerationError('');
         await runGeneration();
     }
 
@@ -1221,6 +1196,16 @@ const App: React.FC = () => {
         }
     }
 
+    function handleDownload() {
+        const url = activeVariant?.url || previewUrl;
+        if (!url) return;
+        const a = document.createElement('a');
+        a.href = url;
+        const ext = activeVariant?.mimeType?.includes('png') ? 'png' : 'jpg';
+        a.download = `aigrafka-stylizacja.${ext}`;
+        a.click();
+    }
+
     function displayFileName(file: File | null, fallback: string) {
         if (!file) return fallback;
         const name = file.name;
@@ -1239,7 +1224,12 @@ const App: React.FC = () => {
         const dt = event.dataTransfer;
 
         if (dt.files && dt.files.length > 0) {
-            handleFileSelect(key, dt.files[0]);
+            const file = dt.files[0];
+            if (file.size > 8 * 1024 * 1024) {
+                setStatusError('Plik jest za duży. Maksymalny rozmiar to 8 MB.');
+                return;
+            }
+            handleFileSelect(key, file);
             return;
         }
 
@@ -1547,7 +1537,7 @@ const App: React.FC = () => {
                         <div style={{ ...badge, boxShadow: '0 8px 16px rgba(0,0,0,0.08)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                                 <div style={sectionTitleStyle}>Twoje dane</div>
-                                <span style={{ width: 16, height: 16, borderRadius: 6, background: '#8bb0d6', color: '#ffffff', fontSize: 11, display: 'grid', placeItems: 'center', fontWeight: 800 }}>i</span>
+                                <span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: 6, background: '#8bb0d6', color: '#ffffff', fontSize: 11, display: 'grid', placeItems: 'center', fontWeight: 800 }}>i</span>
                             </div>
 
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
@@ -1559,10 +1549,7 @@ const App: React.FC = () => {
                                 </div>
                                 <button
                                     type="button"
-                                    onClick={() => {
-                                        setMeasurementsToggledManually(true);
-                                        setShowMeasurements(prev => !prev);
-                                    }}
+                                    onClick={() => setShowMeasurements(prev => !prev)}
                                     style={{ ...actionButtonStyle, background: '#9b59ff', padding: '8px 12px', boxShadow: 'none' }}
                                     aria-expanded={showMeasurements}
                                 >
@@ -1644,11 +1631,28 @@ const App: React.FC = () => {
                         <div style={{ ...badge, boxShadow: '0 8px 16px rgba(0,0,0,0.08)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                                 <div style={sectionTitleStyle}>Wybrany produkt</div>
-                                <span style={{ width: 16, height: 16, borderRadius: 6, background: '#8bb0d6', color: '#ffffff', fontSize: 11, display: 'grid', placeItems: 'center', fontWeight: 800 }}>i</span>
+                                <span aria-hidden="true" style={{ width: 16, height: 16, borderRadius: 6, background: '#8bb0d6', color: '#ffffff', fontSize: 11, display: 'grid', placeItems: 'center', fontWeight: 800 }}>i</span>
                             </div>
 
                             <FieldRow label="Link do produktu:">
-                                <input style={inputStyle} value={form.productUrl} onChange={e => update('productUrl', e.target.value)} placeholder="Wklej link do produktu w celu śledzenia" type="url" />
+                                <div style={{ display: 'flex', gap: 6, width: '100%' }}>
+                                    <input style={inputStyle} value={form.productUrl} onChange={e => update('productUrl', e.target.value)} placeholder="Wklej link do produktu w celu śledzenia" type="text" />
+                                    <button
+                                        type="button"
+                                        title="Wstaw URL aktywnej karty"
+                                        onClick={() => {
+                                            chrome?.tabs?.query?.({ active: true, currentWindow: true }, tabs => {
+                                                const url = tabs[0]?.url;
+                                                if (url && /^https?:\/\//i.test(url)) {
+                                                    update('productUrl', url);
+                                                }
+                                            });
+                                        }}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', padding: '7px 9px', fontSize: 10, flexShrink: 0, whiteSpace: 'nowrap', boxShadow: 'none' }}
+                                    >
+                                        Aktywna karta
+                                    </button>
+                                </div>
                             </FieldRow>
 
                             <FieldRow label="Kategoria produktu:">
@@ -1657,7 +1661,7 @@ const App: React.FC = () => {
 
                             <FieldRow label="Zdjęcia produktu:">
                                 <div style={{ display: 'flex', gap: 6, width: '100%' }}>
-                    <div onDragOver={e => e.preventDefault()} onDrop={e => handleDropProduct('productImage1', e)} style={{ flex: 1, minWidth: 0 }}>
+                                    <div onDragOver={e => e.preventDefault()} onDrop={e => handleDropProduct('productImage1', e)} style={{ flex: 1, minWidth: 0 }}>
                                         <div
                                             ref={productImage1MenuRef}
                                             style={{ position: 'relative' }}
@@ -1666,6 +1670,7 @@ const App: React.FC = () => {
                                         >
                                             <button
                                                 type="button"
+                                                aria-label="Pierwsze zdjęcie produktu"
                                                 onClick={() => setUploadMenuFor(prev => prev === 'productImage1' ? null : 'productImage1')}
                                                 style={{ ...actionButtonStyle, background: form.productImage1 ? '#7f3bff' : '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12 }}
                                             >
@@ -1719,6 +1724,7 @@ const App: React.FC = () => {
                                         >
                                             <button
                                                 type="button"
+                                                aria-label="Drugie zdjęcie produktu (opcjonalne)"
                                                 onClick={() => setUploadMenuFor(prev => prev === 'productImage2' ? null : 'productImage2')}
                                                 style={{ ...actionButtonStyle, background: form.productImage2 ? '#7f3bff' : '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12 }}
                                             >
@@ -1803,24 +1809,20 @@ const App: React.FC = () => {
                                             </button>
                                         </>
                                     ) : (
-                                        <input
+                                        <button
+                                            type="button"
+                                            onClick={handleLogin}
                                             style={{
-                                                ...inputStyle,
+                                                ...actionButtonStyle,
                                                 flex: 1,
-                                                textAlign: 'center',
-                                                padding: '6px 8px',
-                                                minWidth: 0,
-                                                cursor: 'not-allowed',
-                                                background: '#ececec',
-                                                borderColor: '#c3c3c3',
-                                                color: '#585858',
-                                                WebkitTextFillColor: '#585858',
-                                                opacity: 1
+                                                padding: '7px 9px',
+                                                fontSize: 10,
+                                                background: '#9b59ff',
+                                                boxShadow: 'none'
                                             }}
-                                            value={getModelCostText()}
-                                            readOnly
-                                            disabled
-                                        />
+                                        >
+                                            Zaloguj się
+                                        </button>
                                     )}
                                 </div>
                             </div>
@@ -1870,8 +1872,7 @@ const App: React.FC = () => {
                         </div>
 
                         <button
-                            type="button"
-                            onClick={handleGenerateMore}
+                            type="submit"
                             style={{
                                 ...actionButtonStyle,
                                 width: '100%',
@@ -1959,10 +1960,25 @@ const App: React.FC = () => {
                             >
                                 Kopiuj
                             </button>
+                            <button
+                                type="button"
+                                onClick={handleDownload}
+                                aria-label="Pobierz wygenerowaną stylizację"
+                                style={{
+                                    ...actionButtonStyle,
+                                    background: '#9b59ff',
+                                    padding: '10px 12px',
+                                    flex: 1
+                                }}
+                            >
+                                Pobierz
+                            </button>
                         </div>
 
                         {status ? (
                             <div
+                                role="status"
+                                aria-live="polite"
                                 style={{
                                     marginTop: 8,
                                     fontSize: 12,
@@ -1978,10 +1994,19 @@ const App: React.FC = () => {
                             </div>
                         ) : null}
 
+                        {(generationMeta.latencyMs || generationMeta.model) ? (
+                            <div style={{ fontSize: 10, color: '#7c7c7c', marginTop: 4, textAlign: 'center' }}>
+                                {generationMeta.model && <span>Model: {generationMeta.model}</span>}
+                                {generationMeta.model && generationMeta.latencyMs ? <span> · </span> : null}
+                                {generationMeta.latencyMs ? <span>{(generationMeta.latencyMs / 1000).toFixed(1)}s</span> : null}
+                            </div>
+                        ) : null}
+
                         <div style={{ ...badge, marginTop: 10 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
                                 <div style={{ ...sectionTitleStyle, fontSize: 10, marginBottom: 0, letterSpacing: 0 }}>Generuj więcej stylizacji tego produktu</div>
                                 <span
+                                    aria-hidden="true"
                                     style={{
                                         width: 14,
                                         height: 14,
@@ -2018,17 +2043,12 @@ const App: React.FC = () => {
                             ) : (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                                     <div style={{ flex: 1, minWidth: 0, fontWeight: 700, color: '#1e1e1e', fontSize: 11, minHeight: 26, display: 'flex', alignItems: 'center', lineHeight: 1 }}>Tokeny Stylizacji</div>
-                                    <input
-                                        style={{ ...inputStyle, width: 58, textAlign: 'center', padding: '4px 6px', fontSize: 12, minHeight: 26 }}
-                                        value={getModelCostText()}
-                                        readOnly
-                                    />
                                     <button
                                         type="button"
-                                        onClick={handleTopUpTokens}
-                                        style={{ ...actionButtonStyle, background: '#9b59ff', boxShadow: 'none', padding: '6px 10px', fontSize: 10, borderRadius: 8, width: 96, flexShrink: 0, whiteSpace: 'nowrap' }}
+                                        onClick={handleLogin}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', boxShadow: 'none', padding: '6px 10px', fontSize: 10, borderRadius: 9, flexShrink: 0, whiteSpace: 'nowrap' }}
                                     >
-                                        Dokup tokeny
+                                        Zaloguj się
                                     </button>
                                 </div>
                             )}
@@ -2047,14 +2067,14 @@ const App: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={() => update('variantCount', Math.max(1, form.variantCount - 1))}
-                                        style={{ ...actionButtonStyle, background: '#9b59ff', flex: 1, padding: '4px 0', boxShadow: 'none', borderRadius: 8, fontSize: 13 }}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', flex: 1, padding: '4px 0', boxShadow: 'none', borderRadius: 9, fontSize: 13 }}
                                     >
                                         −
                                     </button>
                                     <button
                                         type="button"
                                         onClick={() => update('variantCount', Math.min(3, form.variantCount + 1))}
-                                        style={{ ...actionButtonStyle, background: '#9b59ff', flex: 1, padding: '4px 0', boxShadow: 'none', borderRadius: 8, fontSize: 13 }}
+                                        style={{ ...actionButtonStyle, background: '#9b59ff', flex: 1, padding: '4px 0', boxShadow: 'none', borderRadius: 9, fontSize: 13 }}
                                     >
                                         +
                                     </button>
@@ -2068,7 +2088,7 @@ const App: React.FC = () => {
                                         Potwierdzam prawo do wykorzystania wizerunku i akceptuję{' '}
                                         <a href="https://aigrafka.pl/regulamin" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Regulamin</a>
                                         {' '}i{' '}
-                                        <a href="https://aigrafka.pl/polityka-prywatnosci" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Politykę Prywatności</a>
+                                        <a href="https://aigrafka.pl/polityka-prywatnosci" target="_blank" rel="noreferrer" style={{ color: '#6f45cc', fontWeight: 700, textDecoration: 'none' }}>Politykę prywatności</a>
                                     </span>
                                 </label>
                             </div>
@@ -2083,7 +2103,7 @@ const App: React.FC = () => {
                                     background: canSubmit ? '#9b59ff' : '#b7b7b7',
                                     cursor: canSubmit ? 'pointer' : 'not-allowed',
                                     boxShadow: 'none',
-                                    borderRadius: 8,
+                                    borderRadius: 9,
                                     fontSize: 12
                                 }}
                                 disabled={!canSubmit || isLoading}
@@ -2141,30 +2161,6 @@ const App: React.FC = () => {
                                             />
                                         );
                                     })}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)', padding: 8 }}>
-                            <div style={{ border: '2px solid #2f2f2f', borderRadius: 2, background: '#f9f9f9', padding: 8 }}>
-                                <div style={{ color: '#8a8a8a', fontSize: 9, marginBottom: 6 }}>Reklama — placeholder</div>
-                                <div style={{ background: '#ffffff', border: '1px solid #d6d6d6', borderRadius: 2, padding: '8px 8px 10px' }}>
-                                    <div style={{ color: '#1b1b1b', fontWeight: 800, fontSize: 12, marginBottom: 8, letterSpacing: 0.1 }}>oferty-praca.pl</div>
-
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                                        {[1, 2, 3].map(item => (
-                                            <div key={item} style={{ border: '1px solid #dadada', borderRadius: 4, padding: '8px 8px 6px', background: '#fff' }}>
-                                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                                                    <div style={{ minWidth: 0, flex: 1 }}>
-                                                        <div style={{ color: '#8b8b8b', fontSize: 9, marginBottom: 2 }}>Warszawa</div>
-                                                        <div style={{ color: '#222', fontSize: 12, fontWeight: 800, lineHeight: 1.15 }}>Specjalista marketingu</div>
-                                                    </div>
-                                                    <div style={{ background: '#1f1f1f', color: '#fff', fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '6px 9px', whiteSpace: 'nowrap' }}>Aplikuj</div>
-                                                </div>
-                                                <div style={{ marginTop: 5, color: '#ff6a3d', fontSize: 10, fontWeight: 700 }}>8 000 - 12 000 PLN</div>
-                                            </div>
-                                        ))}
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -2246,6 +2242,9 @@ const App: React.FC = () => {
                     onClick={closeAuthDialog}
                 >
                     <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="auth-dialog-title"
                         style={{
                             width: '100%',
                             maxWidth: 360,
@@ -2258,7 +2257,7 @@ const App: React.FC = () => {
                         onClick={e => e.stopPropagation()}
                     >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                            <div style={{ ...sectionTitleStyle, fontSize: 15 }}>Konto AIgrafka</div>
+                            <div id="auth-dialog-title" style={{ ...sectionTitleStyle, fontSize: 15 }}>Konto AIgrafka</div>
                             <button
                                 type="button"
                                 onClick={closeAuthDialog}
