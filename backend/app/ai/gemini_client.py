@@ -37,8 +37,9 @@ class GeminiClient:
                 "error": "GEMINI_API_KEY is not configured",
             }
 
-        # Build parts: selfie (reference/body), product (clothing), prompt last
+        # Build parts: prompt first (docs best practice for reference images), then selfie, then product
         parts = [
+            types.Part(text=prompt),
             types.Part(
                 inline_data=types.Blob(
                     mime_type="image/jpeg",
@@ -51,7 +52,6 @@ class GeminiClient:
                     data=product_image_bytes,
                 )
             ),
-            types.Part(text=prompt),
         ]
 
         # Model-specific image config
@@ -74,6 +74,8 @@ class GeminiClient:
             top_p=0.95,
             response_modalities=["TEXT", "IMAGE"],  # TEXT required by gemini-3.x preview models
             image_config=image_config,
+            # "high" thinking: model runs internal composition passes before final render → better quality
+            thinking_config=types.ThinkingConfig(thinking_level="high"),
         )
 
         # Run the sync SDK call off the event loop to respect async interface
@@ -96,7 +98,9 @@ class GeminiClient:
                 "error": str(exc),
             }
 
-        # Extract first inline_data bytes from candidates
+        # Extract final inline_data bytes from candidates.
+        # With thinking enabled, draft/thought images precede the final image —
+        # take the LAST non-thought inline_data part (which is the final render).
         def extract_inline_data(resp: Any) -> tuple[Optional[bytes], Optional[str]]:
             try:
                 candidates = getattr(resp, "candidates", []) or []
@@ -104,11 +108,18 @@ class GeminiClient:
                     return None, None
                 parts_resp = getattr(candidates[0], "content", None)
                 parts_list = getattr(parts_resp, "parts", []) if parts_resp else []
+                result_bytes: Optional[bytes] = None
+                result_mime: Optional[str] = None
                 for part in parts_list:
+                    # Skip thought/draft parts (present when include_thoughts=True)
+                    if getattr(part, "thought", False):
+                        continue
                     inline = getattr(part, "inline_data", None)
                     if inline and getattr(inline, "data", None):
-                        return inline.data, getattr(inline, "mime_type", "image/png")
-                return None, None
+                        # Keep overwriting — last image wins (final render)
+                        result_bytes = inline.data
+                        result_mime = getattr(inline, "mime_type", "image/png")
+                return result_bytes, result_mime
             except Exception:
                 return None, None
 
