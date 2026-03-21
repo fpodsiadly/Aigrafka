@@ -70,8 +70,6 @@ class GeminiClient:
                 image_config = types.ImageConfig()
 
         config = types.GenerateContentConfig(
-            temperature=1.0,
-            top_p=0.95,
             response_modalities=["TEXT", "IMAGE"],  # TEXT required by gemini-3.x preview models
             image_config=image_config,
             # "high" thinking: model runs internal composition passes before final render → better quality
