@@ -707,28 +707,34 @@ const App: React.FC = () => {
             return;
         }
 
-        // On localhost: try dev endpoint, fall back to local-only increment
-        const hostname = window.location.hostname;
-        if (hostname === 'localhost' || hostname === '127.0.0.1') {
-            try {
-                const res = await fetch(`${apiBase}/payments/dev-add-tokens`, {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${auth.accessToken}` }
-                });
-                if (res.ok) {
-                    const data = await res.json() as { ok: boolean; tokens: number };
-                    setAuth(prev => ({ ...prev, tokens: data.tokens ?? prev.tokens + 5 }));
-                } else {
-                    // endpoint unavailable (e.g. DEV_MODE not set) — increment locally
-                    setAuth(prev => ({ ...prev, tokens: prev.tokens + 5 }));
-                }
-            } catch {
-                setAuth(prev => ({ ...prev, tokens: prev.tokens + 5 }));
+        // Always try the dev endpoint first. If the backend has DEV_MODE=true it returns tokens
+        // immediately. On production (DEV_MODE=false) it returns 403 → fall through to real checkout.
+        try {
+            const res = await fetch(`${apiBase}/payments/dev-add-tokens`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${auth.accessToken}` }
+            });
+            if (res.ok) {
+                const data = await res.json() as { ok: boolean; tokens: number };
+                setAuth(prev => ({ ...prev, tokens: data.tokens ?? prev.tokens + 5 }));
+                setStatusSuccess('Dodano 5 tokenów.');
+                return;
             }
-            setStatusSuccess('(dev) Dodano 5 tokenów testowych.');
+            // 403 = DEV_MODE disabled → fall through to payment flow below
+            if (res.status !== 403) {
+                // Any other error on dev endpoint — just bump locally (offline/unreachable)
+                setAuth(prev => ({ ...prev, tokens: prev.tokens + 5 }));
+                setStatusSuccess('(offline) Dodano 5 tokenów testowych.');
+                return;
+            }
+        } catch {
+            // Network unreachable (e.g. backend offline) → bump locally so dev flow still works
+            setAuth(prev => ({ ...prev, tokens: prev.tokens + 5 }));
+            setStatusSuccess('(offline) Dodano 5 tokenów testowych.');
             return;
         }
 
+        // DEV_MODE=false → real payment checkout
         try {
             const response = await new Promise<{ ok?: boolean; error?: string }>(resolve => {
                 chrome.runtime?.sendMessage?.(
@@ -1358,6 +1364,10 @@ const App: React.FC = () => {
                 pickStyle.remove();
                 hint.remove();
                 dragOverlay?.remove();
+                // Always restore text selection and clear any accidental selection
+                document.body.style.userSelect = '';
+                (document.body.style as CSSStyleDeclaration & { webkitUserSelect: string }).webkitUserSelect = '';
+                window.getSelection()?.removeAllRanges();
                 if (panelHost) panelHost.style.display = '';
                 resolve(result);
             }
@@ -1412,8 +1422,12 @@ const App: React.FC = () => {
                 if (e.button !== 0 || dragActive) return;
                 // Only start drag prep when clicking on a non-image area
                 if (!findImgEl(elementAt(e.clientX, e.clientY))) {
+                    e.preventDefault(); // prevent text selection on drag start
                     startX = e.clientX; startY = e.clientY;
                     dragReady = true;
+                    // Disable text selection globally for the duration of the drag
+                    document.body.style.userSelect = 'none';
+                    (document.body.style as CSSStyleDeclaration & { webkitUserSelect: string }).webkitUserSelect = 'none';
                 }
             }
 
@@ -1422,6 +1436,11 @@ const App: React.FC = () => {
                 const wasDragActive = dragActive;
                 dragReady = false;
                 dragActive = false;
+                // Restore text selection
+                document.body.style.userSelect = '';
+                (document.body.style as CSSStyleDeclaration & { webkitUserSelect: string }).webkitUserSelect = '';
+                // Clear any text selection that may have accumulated before drag overlay appeared
+                window.getSelection()?.removeAllRanges();
                 if (!wasDragActive) return;
                 const x = Math.min(startX, e.clientX);
                 const y = Math.min(startY, e.clientY);
@@ -1592,25 +1611,24 @@ const App: React.FC = () => {
                             </div>
 
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-                                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', minWidth: 0, flex: '1 1 170px', flexWrap: 'wrap' }}>
+                                <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', minWidth: 0, flex: '1 1 120px', flexWrap: 'wrap' }}>
                                     <div style={{ fontWeight: 800, fontSize: 13, color: '#1e1e1e' }}>Opis sylwetki</div>
-                                    <div style={{ fontWeight: 800, color: '#1e1e1e', fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>
+                                    <div style={{ fontWeight: 700, color: '#555', fontVariantNumeric: 'tabular-nums', fontSize: 11 }}>
                                         {measurementSummary}
                                     </div>
                                 </div>
                                 <button
                                     type="button"
                                     onClick={() => setShowMeasurements(prev => !prev)}
-                                    style={{ ...actionButtonStyle, background: '#9b59ff', padding: '8px 12px', boxShadow: 'none' }}
+                                    style={{ background: 'transparent', border: '1.5px solid #9b59ff', color: '#7c3aed', fontWeight: 700, fontSize: 10, padding: '5px 10px', borderRadius: 8, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
                                     aria-expanded={showMeasurements}
                                 >
-                                    {showMeasurements ? 'Minimalizuj opis sylwetki' : 'Zmień opis sylwetki'}
+                                    {showMeasurements ? 'Minimalizuj' : 'Zmień opis sylwetki'}
                                 </button>
                             </div>
 
                             {showMeasurements && (
-                                <div style={{ marginBottom: 8, background: '#ededed', border: '2px solid #c7c7c7', borderRadius: 10, padding: '8px' }}>
-                                    <div style={{ fontSize: 11, fontWeight: 800, color: '#1e1e1e', marginBottom: 6 }}>Opis sylwetki</div>
+                                <div style={{ marginBottom: 8, background: '#f5f5f5', border: '1.5px solid #d4d4d4', borderRadius: 10, padding: '10px 10px 8px' }}>
 
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
                                         <div>
@@ -1633,16 +1651,16 @@ const App: React.FC = () => {
 
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
                                         <div>
-                                            <div style={{ fontSize: 10, fontWeight: 700, color: '#4b4b4b', marginBottom: 3 }}>Klatka piersiowa (cm)</div>
-                                            <input style={{ ...inputStyle, padding: '5px 8px' }} value={form.chest} onChange={e => update('chest', e.target.value)} inputMode="numeric" placeholder="Podaj klatkę" />
+                                            <div style={{ fontSize: 10, fontWeight: 700, color: '#4b4b4b', marginBottom: 3 }}>Klatka (cm)</div>
+                                            <input style={{ ...inputStyle, padding: '5px 8px' }} value={form.chest} onChange={e => update('chest', e.target.value)} inputMode="numeric" placeholder="Klatka" />
                                         </div>
                                         <div>
                                             <div style={{ fontSize: 10, fontWeight: 700, color: '#4b4b4b', marginBottom: 3 }}>Talia (cm)</div>
-                                            <input style={{ ...inputStyle, padding: '5px 8px' }} value={form.waist} onChange={e => update('waist', e.target.value)} inputMode="numeric" placeholder="Podaj talię" />
+                                            <input style={{ ...inputStyle, padding: '5px 8px' }} value={form.waist} onChange={e => update('waist', e.target.value)} inputMode="numeric" placeholder="Talia" />
                                         </div>
                                         <div>
                                             <div style={{ fontSize: 10, fontWeight: 700, color: '#4b4b4b', marginBottom: 3 }}>Biodra (cm)</div>
-                                            <input style={{ ...inputStyle, padding: '5px 8px' }} value={form.hips} onChange={e => update('hips', e.target.value)} inputMode="numeric" placeholder="Podaj biodra" />
+                                            <input style={{ ...inputStyle, padding: '5px 8px' }} value={form.hips} onChange={e => update('hips', e.target.value)} inputMode="numeric" placeholder="Biodra" />
                                         </div>
                                     </div>
                                 </div>
@@ -1723,9 +1741,17 @@ const App: React.FC = () => {
                                                 type="button"
                                                 aria-label="Pierwsze zdjęcie produktu"
                                                 onClick={() => setUploadMenuFor(prev => prev === 'productImage1' ? null : 'productImage1')}
-                                                style={{ ...actionButtonStyle, background: form.productImage1 ? '#7f3bff' : '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12 }}
+                                                style={{ ...actionButtonStyle, background: form.productImage1 ? '#7f3bff' : '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12, position: 'relative' }}
                                             >
                                                 {form.productImage1 ? '✓ Pierwsze' : '+ Dodaj pierwsze'}
+                                                {form.productImage1 && (
+                                                    <span
+                                                        role="button"
+                                                        aria-label="Usuń pierwsze zdjęcie"
+                                                        onClick={e => { e.stopPropagation(); update('productImage1', null); setUploadMenuFor(null); }}
+                                                        style={{ position: 'absolute', top: -6, right: -6, width: 16, height: 16, borderRadius: '50%', background: '#ff4444', color: '#fff', fontSize: 10, fontWeight: 900, display: 'grid', placeItems: 'center', lineHeight: 1, cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.35)', zIndex: 10 }}
+                                                    >×</span>
+                                                )}
                                             </button>
                                             {hoveredProductBtn === 'productImage1' && productPreview1 && (
                                                 <div style={{ position: 'absolute', bottom: 38, left: '50%', transform: 'translateX(-50%)', zIndex: 50, borderRadius: 10, overflow: 'hidden', border: '2px solid #9b59ff', boxShadow: '0 6px 18px rgba(0,0,0,0.22)', background: '#fff', pointerEvents: 'none' }}>
@@ -1777,9 +1803,17 @@ const App: React.FC = () => {
                                                 type="button"
                                                 aria-label="Drugie zdjęcie produktu (opcjonalne)"
                                                 onClick={() => setUploadMenuFor(prev => prev === 'productImage2' ? null : 'productImage2')}
-                                                style={{ ...actionButtonStyle, background: form.productImage2 ? '#7f3bff' : '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12 }}
+                                                style={{ ...actionButtonStyle, background: form.productImage2 ? '#7f3bff' : '#9b59ff', border: '2px solid #7f3bff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%', minHeight: 32, fontSize: 12, position: 'relative' }}
                                             >
                                                 {form.productImage2 ? '✓ Drugie' : '+ Dodaj drugie'}
+                                                {form.productImage2 && (
+                                                    <span
+                                                        role="button"
+                                                        aria-label="Usuń drugie zdjęcie"
+                                                        onClick={e => { e.stopPropagation(); update('productImage2', null); setUploadMenuFor(null); }}
+                                                        style={{ position: 'absolute', top: -6, right: -6, width: 16, height: 16, borderRadius: '50%', background: '#ff4444', color: '#fff', fontSize: 10, fontWeight: 900, display: 'grid', placeItems: 'center', lineHeight: 1, cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.35)', zIndex: 10 }}
+                                                    >×</span>
+                                                )}
                                             </button>
                                             {hoveredProductBtn === 'productImage2' && productPreview2 && (
                                                 <div style={{ position: 'absolute', bottom: 38, left: '50%', transform: 'translateX(-50%)', zIndex: 50, borderRadius: 10, overflow: 'hidden', border: '2px solid #9b59ff', boxShadow: '0 6px 18px rgba(0,0,0,0.22)', background: '#fff', pointerEvents: 'none' }}>
