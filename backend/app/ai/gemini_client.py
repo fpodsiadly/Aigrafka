@@ -21,7 +21,7 @@ class GeminiClient:
         settings = get_settings()
         self.api_key = api_key or settings.gemini_api_key or ""
         # Primary model: Gemini 3 image generation (generateContent)
-        self.model = model or settings.gemini_model or "gemini-3-pro-image-preview"
+        self.model = model or settings.gemini_model or "gemini-3.1-flash-image-preview"
         self.image_size = settings.gemini_image_size
         self.timeout = timeout or settings.http_timeout
         # Reuse a single genai client; mirrors OpenVTO reference behavior
@@ -55,7 +55,7 @@ class GeminiClient:
         ]
 
         # Model-specific image config
-        MODELS_WITHOUT_SIZE = {"gemini-2.5-flash-image"}
+        MODELS_WITHOUT_SIZE = {"gemini-2.5-flash-image"}  # gemini-3.1-flash-image-preview supports image_size
         use_image_size = self.model not in MODELS_WITHOUT_SIZE
         # Validate image_size — only "1K", "2K", "4K" are accepted by the API.
         # Env vars could contain legacy values like "768" which cause 400.

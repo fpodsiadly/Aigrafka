@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     gemini_api_key: Optional[str] = Field(default=None, alias="GEMINI_API_KEY")
     # Default to the faster image model; can be overridden via GEMINI_MODEL
-    gemini_model: str = Field(default="gemini-2.5-flash-image")
+    gemini_model: str = Field(default="gemini-3.1-flash-image-preview")
     # Valid values for gemini-3.x image models: "512", "1K", "2K", "4K"
     gemini_image_size: str = Field(default="1K", alias="GEMINI_IMAGE_SIZE")
     http_timeout: float = Field(default=90.0, ge=1.0, alias="HTTP_TIMEOUT")
