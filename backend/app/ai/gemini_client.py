@@ -55,12 +55,15 @@ class GeminiClient:
         ]
 
         # Model-specific image config
-        # Some models reject image_size; wrap both attempts defensively
         MODELS_WITHOUT_SIZE = {"gemini-2.5-flash-image"}
         use_image_size = self.model not in MODELS_WITHOUT_SIZE
+        # Validate image_size — only "1K", "2K", "4K" are accepted by the API.
+        # Env vars could contain legacy values like "768" which cause 400.
+        VALID_IMAGE_SIZES = {"512", "1K", "2K", "4K"}
+        safe_image_size = self.image_size if self.image_size in VALID_IMAGE_SIZES else "1K"
         try:
             if use_image_size:
-                image_config = types.ImageConfig(aspect_ratio="3:4", image_size=self.image_size)
+                image_config = types.ImageConfig(aspect_ratio="3:4", image_size=safe_image_size)
             else:
                 image_config = types.ImageConfig(aspect_ratio="3:4")
         except Exception:
