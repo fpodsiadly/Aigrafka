@@ -56,7 +56,7 @@ function injectPanel() {
   style.textContent = `
     :host { all: initial; }
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&display=swap');
-    * { box-sizing: border-box; font-family: 'Space Grotesk', 'DM Sans', 'Segoe UI', sans-serif; }
+    * { box-sizing: border-box; font-family: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif; }
     #aigrafka-panel-root { width: 100%; height: fit-content; }
     .aigrafka-shell {
       width: 100%;

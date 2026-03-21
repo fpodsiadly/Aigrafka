@@ -16,13 +16,9 @@ async function setBadge(text: string, color: string) {
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === 'AIGRAFKA_CAPTURE_VISIBLE_TAB') {
-    chrome.tabs.captureVisibleTab(chrome.windows.WINDOW_ID_CURRENT, { format: 'png' }, dataUrl => {
-      if (chrome.runtime.lastError || !dataUrl) {
-        sendResponse({ ok: false, error: chrome.runtime.lastError?.message || 'Capture failed' });
-        return;
-      }
-      sendResponse({ ok: true, dataUrl });
-    });
+    chrome.tabs.captureVisibleTab(chrome.windows.WINDOW_ID_CURRENT, { format: 'png' })
+      .then(dataUrl => sendResponse({ ok: true, dataUrl }))
+      .catch(e => sendResponse({ ok: false, error: e?.message || 'Capture failed' }));
     return true;
   }
 

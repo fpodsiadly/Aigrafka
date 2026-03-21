@@ -50,7 +50,7 @@ ZIP_FILENAME="aigrafka-extension-${NEW_VERSION}-${DATE}.zip"
 ZIP_PATH="$RELEASE_DIR/$ZIP_FILENAME"
 echo "📦 Creating ZIP archive..."
 cd "$DIST_DIR"
-zip -q -r "../../$ZIP_PATH" . -x "*.DS_Store"
+zip -q -r "../../$ZIP_PATH" . -x "*.DS_Store" -x "__MACOSX/*"
 cd - > /dev/null
 echo "   ✓ Created: $ZIP_PATH"
 

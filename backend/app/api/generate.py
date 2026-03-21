@@ -190,7 +190,7 @@ async def generate_tryon(
     )
 
     charged_tokens = 0
-    if user_id:
+    if user_id and not settings.dev_mode:
         charged_tokens = variant_count * settings.token_cost_per_stylization
         updated_tokens = deduct_tokens_if_possible(user_id, charged_tokens)
         if updated_tokens is None:

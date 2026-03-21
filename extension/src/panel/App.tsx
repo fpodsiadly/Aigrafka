@@ -707,7 +707,7 @@ const App: React.FC = () => {
             return;
         }
 
-        // On localhost: call dev endpoint to persist tokens to the DB
+        // On localhost: try dev endpoint, fall back to local-only increment
         const hostname = window.location.hostname;
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
             try {
@@ -718,14 +718,14 @@ const App: React.FC = () => {
                 if (res.ok) {
                     const data = await res.json() as { ok: boolean; tokens: number };
                     setAuth(prev => ({ ...prev, tokens: data.tokens ?? prev.tokens + 5 }));
-                    setStatusSuccess('(dev) Dodano 5 tokenów testowych.');
                 } else {
-                    setStatusError('Nie udało się dodać tokenów (dev).');
+                    // endpoint unavailable (e.g. DEV_MODE not set) — increment locally
+                    setAuth(prev => ({ ...prev, tokens: prev.tokens + 5 }));
                 }
-            } catch (error) {
-                console.error(error);
-                setStatusError('Błąd połączenia z serwerem (dev).');
+            } catch {
+                setAuth(prev => ({ ...prev, tokens: prev.tokens + 5 }));
             }
+            setStatusSuccess('(dev) Dodano 5 tokenów testowych.');
             return;
         }
 
@@ -1226,7 +1226,10 @@ const App: React.FC = () => {
         a.href = url;
         const ext = activeVariant?.mimeType?.includes('png') ? 'png' : 'jpg';
         a.download = `aigrafka-stylizacja.${ext}`;
+        a.style.display = 'none';
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
     }
 
     function displayFileName(file: File | null, fallback: string) {
@@ -1292,148 +1295,173 @@ const App: React.FC = () => {
 
     async function pickAreaOnPage(): Promise<{ x: number; y: number; width: number; height: number } | null> {
         return new Promise(resolve => {
-            const overlay = document.createElement('div');
-            overlay.style.position = 'fixed';
-            overlay.style.inset = '0';
-            overlay.style.zIndex = '2147483648';
-            overlay.style.cursor = 'crosshair';
-            overlay.style.background = 'rgba(0,0,0,0.08)';
+            // Hide the extension panel so it doesn't cover the page
+            const panelHost = document.getElementById('aigrafka-extension-root') as HTMLElement | null;
+            if (panelHost) panelHost.style.display = 'none';
 
+            // Inject highlight ring CSS into main document (box-shadow overrides page styles)
+            const pickStyle = document.createElement('style');
+            pickStyle.textContent = `[data-aigrafka-pick]{box-shadow:0 0 0 3px #7c3aed,0 0 0 8px rgba(124,58,237,0.22)!important;cursor:crosshair!important;outline:none!important;}`;
+            document.head.appendChild(pickStyle);
+
+            // Non-blocking floating hint bar
             const hint = document.createElement('div');
-            hint.textContent = 'Kliknij zdjęcie produktu lub przeciągnij obszar • ESC anuluje';
-            hint.style.position = 'fixed';
-            hint.style.top = '12px';
-            hint.style.left = '50%';
-            hint.style.transform = 'translateX(-50%)';
-            hint.style.padding = '6px 10px';
-            hint.style.background = 'rgba(25,25,25,0.9)';
-            hint.style.color = '#fff';
-            hint.style.fontSize = '12px';
-            hint.style.borderRadius = '8px';
-            overlay.appendChild(hint);
+            hint.textContent = 'Najedź na zdjęcie produktu i kliknij  •  lub zaznacz obszar przeciąganiem  •  ESC = anuluj';
+            Object.assign(hint.style, {
+                position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+                background: 'rgba(12,8,28,0.93)', color: '#fff', padding: '9px 20px',
+                borderRadius: '10px', fontSize: '13px', fontFamily: "'Space Grotesk',system-ui,sans-serif",
+                zIndex: '2147483648', pointerEvents: 'none', whiteSpace: 'nowrap',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.45)',
+            });
+            document.body.appendChild(hint);
 
-            const selection = document.createElement('div');
-            selection.style.position = 'fixed';
-            selection.style.border = '2px solid #9b59ff';
-            selection.style.background = 'rgba(155,89,255,0.16)';
-            selection.style.display = 'none';
-            selection.style.pointerEvents = 'none';
-            overlay.appendChild(selection);
+            let highlighted: HTMLElement | null = null;
+            // Drag-to-select state (fallback for areas without <img> elements)
+            let dragReady = false;
+            let dragActive = false;
+            let startX = 0, startY = 0;
+            let dragOverlay: HTMLDivElement | null = null;
+            let dragSelBox: HTMLDivElement | null = null;
 
-            let startX = 0;
-            let startY = 0;
-            let dragging = false;
-
-            const tryPickImageAtPoint = (clientX: number, clientY: number) => {
-                const prevDisplay = overlay.style.display;
-                overlay.style.display = 'none';
-                const target = document.elementFromPoint(clientX, clientY);
-                overlay.style.display = prevDisplay;
-
-                if (!(target instanceof Element)) return null;
-
-                const mediaCandidate = (() => {
-                    if (target instanceof HTMLImageElement || target instanceof HTMLVideoElement || target instanceof HTMLCanvasElement || target instanceof HTMLIFrameElement) {
-                        return target;
+            // Find nearest image-like ancestor
+            function findImgEl(el: Element | null): HTMLElement | null {
+                let cur: Element | null = el;
+                while (cur && cur !== document.body) {
+                    const tag = cur.tagName.toLowerCase();
+                    if (tag === 'img' || tag === 'video' || tag === 'canvas' || tag === 'picture') return cur as HTMLElement;
+                    if (cur.getAttribute('role') === 'img') return cur as HTMLElement;
+                    if (cur instanceof HTMLElement && cur.offsetWidth > 50 && cur.offsetHeight > 50) {
+                        const bg = getComputedStyle(cur).backgroundImage;
+                        if (bg && bg !== 'none' && bg.startsWith('url(')) return cur;
                     }
-
-                    const explicitMedia = target.closest('img,video,canvas,iframe,[role="img"],picture,figure');
-                    if (explicitMedia instanceof Element) return explicitMedia;
-
-                    let current: Element | null = target;
-                    while (current) {
-                        if (current instanceof HTMLElement) {
-                            const style = window.getComputedStyle(current);
-                            if (style.backgroundImage && style.backgroundImage !== 'none') {
-                                return current;
-                            }
-                        }
-                        current = current.parentElement;
-                    }
-                    return null;
-                })();
-
-                if (!mediaCandidate) {
-                    const fallbackSize = 320;
-                    const width = Math.min(fallbackSize, window.innerWidth);
-                    const height = Math.min(fallbackSize, window.innerHeight);
-                    const x = Math.max(0, Math.min(window.innerWidth - width, Math.round(clientX - width / 2)));
-                    const y = Math.max(0, Math.min(window.innerHeight - height, Math.round(clientY - height / 2)));
-                    return { x, y, width, height };
+                    cur = cur.parentElement;
                 }
+                return null;
+            }
 
-                const rect = mediaCandidate.getBoundingClientRect();
-                const left = Math.max(0, rect.left);
-                const top = Math.max(0, rect.top);
-                const right = Math.min(window.innerWidth, rect.right);
-                const bottom = Math.min(window.innerHeight, rect.bottom);
-                const width = right - left;
-                const height = bottom - top;
+            // Peek at element under cursor without the panel blocking hit-testing
+            function elementAt(x: number, y: number): Element | null {
+                if (panelHost) panelHost.style.visibility = 'hidden';
+                const el = document.elementFromPoint(x, y);
+                if (panelHost) panelHost.style.visibility = '';
+                return el;
+            }
 
-                if (width < 12 || height < 12) return null;
-
-                return { x: left, y: top, width, height };
-            };
-
-            const cleanup = (result: { x: number; y: number; width: number; height: number } | null) => {
+            function cleanup(result: { x: number; y: number; width: number; height: number } | null) {
+                document.removeEventListener('mousemove', onMouseMove, true);
+                document.removeEventListener('mousedown', onMouseDown, true);
+                document.removeEventListener('mouseup', onMouseUp, true);
+                document.removeEventListener('click', onClick, true);
                 document.removeEventListener('keydown', onKeyDown);
-                overlay.removeEventListener('mousedown', onMouseDown);
-                overlay.removeEventListener('mousemove', onMouseMove);
-                overlay.removeEventListener('mouseup', onMouseUp);
-                overlay.remove();
+                if (highlighted) highlighted.removeAttribute('data-aigrafka-pick');
+                pickStyle.remove();
+                hint.remove();
+                dragOverlay?.remove();
+                if (panelHost) panelHost.style.display = '';
                 resolve(result);
-            };
+            }
 
-            const onKeyDown = (event: KeyboardEvent) => {
-                if (event.key === 'Escape') cleanup(null);
-            };
-
-            const onMouseDown = (event: MouseEvent) => {
-                if (event.button !== 0) return;
-                dragging = true;
-                startX = event.clientX;
-                startY = event.clientY;
-                selection.style.display = 'block';
-                selection.style.left = `${startX}px`;
-                selection.style.top = `${startY}px`;
-                selection.style.width = '0px';
-                selection.style.height = '0px';
-            };
-
-            const onMouseMove = (event: MouseEvent) => {
-                if (!dragging) return;
-                const x = Math.min(startX, event.clientX);
-                const y = Math.min(startY, event.clientY);
-                const width = Math.abs(event.clientX - startX);
-                const height = Math.abs(event.clientY - startY);
-                selection.style.left = `${x}px`;
-                selection.style.top = `${y}px`;
-                selection.style.width = `${width}px`;
-                selection.style.height = `${height}px`;
-            };
-
-            const onMouseUp = (event: MouseEvent) => {
-                if (!dragging) return;
-                dragging = false;
-                const x = Math.min(startX, event.clientX);
-                const y = Math.min(startY, event.clientY);
-                const width = Math.abs(event.clientX - startX);
-                const height = Math.abs(event.clientY - startY);
-
-                if (width < 12 || height < 12) {
-                    const imageArea = tryPickImageAtPoint(event.clientX, event.clientY);
-                    cleanup(imageArea);
+            function onMouseMove(e: MouseEvent) {
+                if (dragActive) {
+                    // Update drag selection rectangle
+                    const x = Math.min(startX, e.clientX);
+                    const y = Math.min(startY, e.clientY);
+                    const w = Math.abs(e.clientX - startX);
+                    const h = Math.abs(e.clientY - startY);
+                    if (dragSelBox) Object.assign(dragSelBox.style, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${h}px` });
                     return;
                 }
 
-                cleanup({ x, y, width, height });
-            };
+                if (dragReady) {
+                    // Threshold check: if moved >8px, activate drag overlay
+                    if (Math.abs(e.clientX - startX) > 8 || Math.abs(e.clientY - startY) > 8) {
+                        dragActive = true;
+                        dragOverlay = document.createElement('div');
+                        Object.assign(dragOverlay.style, { position: 'fixed', inset: '0', zIndex: '2147483648', cursor: 'crosshair', background: 'rgba(0,0,0,0.07)' });
+                        dragSelBox = document.createElement('div');
+                        Object.assign(dragSelBox.style, {
+                            position: 'fixed', border: '2px solid #7c3aed', background: 'rgba(124,58,237,0.11)',
+                            pointerEvents: 'none', left: `${Math.min(startX, e.clientX)}px`, top: `${Math.min(startY, e.clientY)}px`,
+                            width: `${Math.abs(e.clientX - startX)}px`, height: `${Math.abs(e.clientY - startY)}px`,
+                        });
+                        dragOverlay.appendChild(dragSelBox);
+                        document.body.appendChild(dragOverlay);
+                        hint.textContent = 'Przeciągnij aby zaznaczyć obszar  •  ESC = anuluj';
+                        if (highlighted) { highlighted.removeAttribute('data-aigrafka-pick'); highlighted = null; }
+                    }
+                    return;
+                }
 
+                // Hover-highlight mode: find and outline the image element under cursor
+                const found = findImgEl(elementAt(e.clientX, e.clientY));
+                if (highlighted && highlighted !== found) {
+                    highlighted.removeAttribute('data-aigrafka-pick');
+                    highlighted = null;
+                }
+                if (found && found !== highlighted) {
+                    found.setAttribute('data-aigrafka-pick', '');
+                    highlighted = found;
+                    hint.textContent = '✓ Kliknij aby wybrać ten obraz  •  lub zaznacz obszar  •  ESC = anuluj';
+                } else if (!found) {
+                    hint.textContent = 'Najedź na zdjęcie produktu i kliknij  •  lub zaznacz obszar przeciąganiem  •  ESC = anuluj';
+                }
+            }
+
+            function onMouseDown(e: MouseEvent) {
+                if (e.button !== 0 || dragActive) return;
+                // Only start drag prep when clicking on a non-image area
+                if (!findImgEl(elementAt(e.clientX, e.clientY))) {
+                    startX = e.clientX; startY = e.clientY;
+                    dragReady = true;
+                }
+            }
+
+            function onMouseUp(e: MouseEvent) {
+                if (e.button !== 0) return;
+                const wasDragActive = dragActive;
+                dragReady = false;
+                dragActive = false;
+                if (!wasDragActive) return;
+                const x = Math.min(startX, e.clientX);
+                const y = Math.min(startY, e.clientY);
+                const width = Math.abs(e.clientX - startX);
+                const height = Math.abs(e.clientY - startY);
+                if (width < 12 || height < 12) {
+                    dragOverlay?.remove(); dragOverlay = null; dragSelBox = null;
+                    hint.textContent = 'Najedź na zdjęcie produktu i kliknij  •  lub zaznacz obszar przeciąganiem  •  ESC = anuluj';
+                    return;
+                }
+                cleanup({ x, y, width, height });
+            }
+
+            function onClick(e: MouseEvent) {
+                // During drag, mouse-up already handled it
+                if (dragActive || dragReady) return;
+                const found = findImgEl(elementAt(e.clientX, e.clientY));
+                // If not an image element, let the click pass through to the page
+                // (gallery arrows, thumbnails, navigation — all still work)
+                if (!found) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const r = found.getBoundingClientRect();
+                cleanup({
+                    x: Math.max(0, r.left),
+                    y: Math.max(0, r.top),
+                    width: Math.max(12, Math.min(r.width, window.innerWidth - Math.max(0, r.left))),
+                    height: Math.max(12, Math.min(r.height, window.innerHeight - Math.max(0, r.top))),
+                });
+            }
+
+            function onKeyDown(e: KeyboardEvent) {
+                if (e.key === 'Escape') cleanup(null);
+            }
+
+            document.addEventListener('mousemove', onMouseMove, true);
+            document.addEventListener('mousedown', onMouseDown, true);
+            document.addEventListener('mouseup', onMouseUp, true);
+            document.addEventListener('click', onClick, true);
             document.addEventListener('keydown', onKeyDown);
-            overlay.addEventListener('mousedown', onMouseDown);
-            overlay.addEventListener('mousemove', onMouseMove);
-            overlay.addEventListener('mouseup', onMouseUp);
-            document.body.appendChild(overlay);
         });
     }
 
@@ -1446,10 +1474,10 @@ const App: React.FC = () => {
         });
 
         const dpr = window.devicePixelRatio || 1;
-        const sx = Math.max(0, Math.floor(area.x * dpr));
-        const sy = Math.max(0, Math.floor(area.y * dpr));
-        const sw = Math.max(1, Math.floor(area.width * dpr));
-        const sh = Math.max(1, Math.floor(area.height * dpr));
+        const sx = Math.max(0, Math.round(area.x * dpr));
+        const sy = Math.max(0, Math.round(area.y * dpr));
+        const sw = Math.max(1, Math.round(area.width * dpr));
+        const sh = Math.max(1, Math.round(area.height * dpr));
         const safeW = Math.min(sw, image.width - sx);
         const safeH = Math.min(sh, image.height - sy);
 
