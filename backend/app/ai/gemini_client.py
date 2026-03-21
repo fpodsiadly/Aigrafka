@@ -72,8 +72,6 @@ class GeminiClient:
         config = types.GenerateContentConfig(
             response_modalities=["TEXT", "IMAGE"],  # TEXT required by gemini-3.x preview models
             image_config=image_config,
-            # "high" thinking: model runs internal composition passes before final render → better quality
-            thinking_config=types.ThinkingConfig(thinking_level="high"),
         )
 
         # Run the sync SDK call off the event loop to respect async interface
