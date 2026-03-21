@@ -712,59 +712,59 @@ const App: React.FC = () => {
 
         setIsTopUpLoading(true);
         try {
-        // Always try the dev endpoint first. If the backend has DEV_MODE=true it returns tokens
-        // immediately. On production (DEV_MODE=false) it returns 403 → fall through to real checkout.
-        try {
-            const res = await fetch(`${apiBase}/payments/dev-add-tokens`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${auth.accessToken}` }
-            });
-            if (res.ok) {
-                const data = await res.json() as { ok: boolean; tokens: number };
-                setAuth(prev => ({ ...prev, tokens: data.tokens ?? prev.tokens + 5 }));
-                setStatusSuccess('Dodano 5 tokenów.');
+            // Always try the dev endpoint first. If the backend has DEV_MODE=true it returns tokens
+            // immediately. On production (DEV_MODE=false) it returns 403 → fall through to real checkout.
+            try {
+                const res = await fetch(`${apiBase}/payments/dev-add-tokens`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${auth.accessToken}` }
+                });
+                if (res.ok) {
+                    const data = await res.json() as { ok: boolean; tokens: number };
+                    setAuth(prev => ({ ...prev, tokens: data.tokens ?? prev.tokens + 5 }));
+                    setStatusSuccess('Dodano 5 tokenów.');
+                    return;
+                }
+                // 403 = DEV_MODE disabled → fall through to payment flow below
+                if (res.status !== 403) {
+                    setStatusError('Błąd doładowania tokenów. Spróbuj ponownie.');
+                    return;
+                }
+            } catch {
+                setStatusError('Nie można połączyć się z serwerem. Sprawdź połączenie internetowe.');
                 return;
             }
-            // 403 = DEV_MODE disabled → fall through to payment flow below
-            if (res.status !== 403) {
-                setStatusError('Błąd doładowania tokenów. Spróbuj ponownie.');
-                return;
-            }
-        } catch {
-            setStatusError('Nie można połączyć się z serwerem. Sprawdź połączenie internetowe.');
-            return;
-        }
 
-        // DEV_MODE=false → real payment checkout
-        try {
-            const response = await new Promise<{ ok?: boolean; error?: string }>(resolve => {
-                chrome.runtime?.sendMessage?.(
-                    {
-                        type: 'OPEN_CHECKOUT',
-                        pack: 'starter',
-                        authToken: auth.accessToken,
-                        userId: auth.userId,
-                        email: auth.email
-                    },
-                    result => {
-                        if (chrome.runtime?.lastError) {
-                            resolve({ ok: false, error: chrome.runtime.lastError.message });
-                            return;
+            // DEV_MODE=false → real payment checkout
+            try {
+                const response = await new Promise<{ ok?: boolean; error?: string }>(resolve => {
+                    chrome.runtime?.sendMessage?.(
+                        {
+                            type: 'OPEN_CHECKOUT',
+                            pack: 'starter',
+                            authToken: auth.accessToken,
+                            userId: auth.userId,
+                            email: auth.email
+                        },
+                        result => {
+                            if (chrome.runtime?.lastError) {
+                                resolve({ ok: false, error: chrome.runtime.lastError.message });
+                                return;
+                            }
+                            resolve(result ?? { ok: false, error: 'Brak odpowiedzi z tła rozszerzenia.' });
                         }
-                        resolve(result ?? { ok: false, error: 'Brak odpowiedzi z tła rozszerzenia.' });
-                    }
-                );
-            });
+                    );
+                });
 
-            if (!response?.ok) {
-                throw new Error(response?.error || 'Nie udało się rozpocząć płatności.');
+                if (!response?.ok) {
+                    throw new Error(response?.error || 'Nie udało się rozpocząć płatności.');
+                }
+
+                setStatus('Przekierowano do płatności Przelewy24.');
+            } catch (error) {
+                console.error(error);
+                setStatus(error instanceof Error ? error.message : 'Nie udało się doładować tokenów.');
             }
-
-            setStatus('Przekierowano do płatności Przelewy24.');
-        } catch (error) {
-            console.error(error);
-            setStatus(error instanceof Error ? error.message : 'Nie udało się doładować tokenów.');
-        }
         } finally {
             setIsTopUpLoading(false);
         }
