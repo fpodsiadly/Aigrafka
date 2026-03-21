@@ -2078,11 +2078,9 @@ const App: React.FC = () => {
                             </div>
                         ) : null}
 
-                        {(generationMeta.latencyMs || generationMeta.model) ? (
+                        {generationMeta.latencyMs ? (
                             <div style={{ fontSize: 10, color: '#7c7c7c', marginTop: 4, textAlign: 'center' }}>
-                                {generationMeta.model && <span>Model: {generationMeta.model}</span>}
-                                {generationMeta.model && generationMeta.latencyMs ? <span> · </span> : null}
-                                {generationMeta.latencyMs ? <span>{(generationMeta.latencyMs / 1000).toFixed(1)}s</span> : null}
+                                <span>{(generationMeta.latencyMs / 1000).toFixed(1)}s</span>
                             </div>
                         ) : null}
 
