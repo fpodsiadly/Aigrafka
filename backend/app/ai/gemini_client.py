@@ -1,12 +1,15 @@
 import asyncio
 import base64
 import io
+import logging
 from typing import Any, Optional
 
 from google import genai
 from google.genai import types
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiClient:
@@ -51,19 +54,25 @@ class GeminiClient:
             types.Part(text=prompt),
         ]
 
-        # Model-specific image config: 2.5-flash cannot take image_size
-        if self.model == "gemini-2.5-flash-image":
-            image_config = types.ImageConfig(aspect_ratio="3:4")
-        else:
-            try:
+        # Model-specific image config
+        # Some models reject image_size; wrap both attempts defensively
+        MODELS_WITHOUT_SIZE = {"gemini-2.5-flash-image"}
+        use_image_size = self.model not in MODELS_WITHOUT_SIZE
+        try:
+            if use_image_size:
                 image_config = types.ImageConfig(aspect_ratio="3:4", image_size=self.image_size)
-            except Exception:
+            else:
                 image_config = types.ImageConfig(aspect_ratio="3:4")
+        except Exception:
+            try:
+                image_config = types.ImageConfig(aspect_ratio="3:4")
+            except Exception:
+                image_config = types.ImageConfig()
 
         config = types.GenerateContentConfig(
             temperature=1.0,
             top_p=0.95,
-            response_modalities=["IMAGE"],
+            response_modalities=["TEXT", "IMAGE"],  # TEXT required by gemini-3.x preview models
             image_config=image_config,
         )
 
@@ -78,6 +87,7 @@ class GeminiClient:
         try:
             response = await asyncio.wait_for(asyncio.to_thread(_do_generate), timeout=self.timeout)
         except Exception as exc:
+            logger.error("GeminiClient.generate_image exception model=%s error=%s", self.model, exc, exc_info=True)
             return {
                 "image_base64": self.FALLBACK_IMAGE_BASE64,
                 "mime_type": "image/png",

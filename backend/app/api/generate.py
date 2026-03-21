@@ -25,6 +25,7 @@ class ImageVariant(BaseModel):
     width: Optional[int] = None
     height: Optional[int] = None
     latency_ms: Optional[float] = None
+    error: Optional[str] = None  # populated when status == 'fallback'
 
 
 class GenerateResponse(BaseModel):
@@ -33,6 +34,7 @@ class GenerateResponse(BaseModel):
     mime_type: Optional[str] = None  # backwards compatibility
     variants: list[ImageVariant]
     model: Optional[str] = None
+    detail: Optional[str] = None  # human-readable error detail when status != 'generated'
 
 
 settings = get_settings()
@@ -248,6 +250,7 @@ async def generate_tryon(
                 width=width,
                 height=height,
                 latency_ms=latency_ms,
+                error=result.get("error") if result.get("status") == "fallback" else None,
             )
 
             if result.get("status") == "generated" and variant.image_base64:
@@ -262,6 +265,13 @@ async def generate_tryon(
     variants_payload = successful or fallbacks
     first = variants_payload[0] if variants_payload else None
     overall_status = "generated" if successful else "fallback" if variants_payload else "failed"
+    # Collect first error detail from fallback variants for client-side display
+    fallback_detail: Optional[str] = None
+    if overall_status != "generated":
+        for v in fallbacks:
+            if v.error:
+                fallback_detail = v.error
+                break
 
     total_ms = (perf_counter() - t_enter) * 1000.0
     logger.info(
@@ -279,4 +289,5 @@ async def generate_tryon(
         mime_type=first.mime_type if first else None,
         variants=variants_payload,
         model=client.model,
+        detail=fallback_detail,
     )

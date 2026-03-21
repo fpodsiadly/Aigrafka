@@ -43,6 +43,7 @@ interface GenerateResponse {
     mime_type?: string | null;
     model?: string | null;
     variants?: ApiVariant[];
+    detail?: string | null;  // error detail when status != 'generated'
 }
 
 interface AuthApiResponse {
@@ -941,12 +942,6 @@ const App: React.FC = () => {
             return;
         }
 
-        if (!auth.loggedIn) {
-            handleLogin();
-            setStatusError('Zaloguj się, aby wygenerować stylizację.');
-            return;
-        }
-
         setView('generating');
 
         setStatus('');
@@ -1069,7 +1064,11 @@ const App: React.FC = () => {
             const variantCount = normalizedVariants.length || 1;
             setView('result');
             if (isFallback) {
-                setStatusError('Generacja nieudana. Spróbuj ponownie.');
+                const detail = data.detail ? `: ${data.detail}` : '';
+                const fallbackMsg = `Generacja nieudana${detail}. Spróbuj ponownie.`;
+                console.warn('[AIgrafka] generation fallback', { status: data.status, detail: data.detail, model: data.model, variants: normalizedVariants.length });
+                setStatusError(fallbackMsg);
+                setGenerationError(fallbackMsg);
                 succeeded = false;
                 setPreviewUrl(placeholderPreview);
                 setVariants([]);
