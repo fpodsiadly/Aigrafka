@@ -1,6 +1,9 @@
 import asyncio
+import ipaddress
 import re
+import socket
 import time
+from collections import OrderedDict
 from io import BytesIO
 from typing import Optional
 from urllib.parse import urljoin, urlparse, urlunparse
@@ -9,6 +12,9 @@ import httpx
 from PIL import Image
 
 from app.core.config import get_settings
+
+# Decompression bomb protection — PIL raises DecompressionBombError above this
+Image.MAX_IMAGE_PIXELS = 50_000_000
 
 settings = get_settings()
 
@@ -23,7 +29,8 @@ DEFAULT_HEADERS = {
 MAX_IMAGE_BYTES = settings.max_product_image_mb * 1024 * 1024
 MAX_SIDE_PX = settings.max_side_px
 CACHE_TTL = 300  # seconds
-_CACHE: dict[str, tuple[float, bytes]] = {}
+MAX_CACHE_ENTRIES = 500
+_CACHE: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
 
 
 def _extract_image_candidate(html: str) -> Optional[str]:
@@ -107,12 +114,52 @@ def _get_cached(url: str) -> Optional[bytes]:
 
 def _set_cache(url: str, data: bytes) -> None:
     _CACHE[url] = (time.time(), data)
+    while len(_CACHE) > MAX_CACHE_ENTRIES:
+        _CACHE.popitem(last=False)
+
+
+async def _ensure_public_url(url: str) -> None:
+    """Raise ValueError if URL resolves to a private/loopback address (SSRF guard)."""
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or '').lower().strip('[]')
+    if not hostname:
+        raise ValueError("URL has no hostname")
+    if hostname in ('localhost', '0.0.0.0', '::1', '[::]'):
+        raise ValueError("URL hostname not allowed")
+    # IP literal check
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
+            raise ValueError("URL resolves to a private address")
+        return
+    except ValueError as exc:
+        if "private address" in str(exc) or "not allowed" in str(exc) or "no hostname" in str(exc):
+            raise
+    # DNS resolution check (run off the event loop to avoid blocking)
+    loop = asyncio.get_event_loop()
+    try:
+        addr_infos = await loop.run_in_executor(
+            None,
+            lambda: socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM),
+        )
+    except OSError:
+        raise ValueError("Unable to resolve URL hostname")
+    for _, _, _, _, sockaddr in addr_infos:
+        addr = sockaddr[0]
+        try:
+            ip = ipaddress.ip_address(addr)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
+                raise ValueError("URL resolves to a private address")
+        except ValueError:
+            raise
 
 
 async def fetch_product_image(url: str, timeout: Optional[float] = None) -> bytes:
     parsed_url = urlparse(url)
     if parsed_url.scheme not in {"https", "http"} or not parsed_url.netloc:
         raise ValueError("Invalid product URL")
+
+    await _ensure_public_url(url)
 
     timeout = timeout or settings.product_image_timeout
 
@@ -139,6 +186,7 @@ async def fetch_product_image(url: str, timeout: Optional[float] = None) -> byte
             raise ValueError("Product page does not expose an image")
 
         image_url = _sanitize_image_url(image_candidate, url)
+        await _ensure_public_url(image_url)
 
         try:
             img_resp = await client.get(image_url)

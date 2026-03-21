@@ -46,7 +46,7 @@ function injectPanel() {
   host.style.boxShadow = '0 16px 40px rgba(0,0,0,0.38)';
   host.style.overflow = 'hidden';
 
-  const shadow = host.attachShadow({ mode: 'open' });
+  const shadow = host.attachShadow({ mode: 'closed' });
   const mount = document.createElement('div');
   mount.id = 'aigrafka-panel-root';
   mount.style.width = '100%';

@@ -422,7 +422,9 @@ const App: React.FC = () => {
     const [uploadMenuFor, setUploadMenuFor] = useState<ProductImageKey | null>(null);
     const [waitingPulse, setWaitingPulse] = useState<number>(0);
     const [isSharing, setIsSharing] = useState<boolean>(false);
+    const [isTopUpLoading, setIsTopUpLoading] = useState<boolean>(false);
     const [generationError, setGenerationError] = useState<string>('');
+    const [elapsedSec, setElapsedSec] = useState<number>(0);
     const googleButtonRef = useRef<HTMLDivElement | null>(null);
     const productImage1InputRef = useRef<HTMLInputElement | null>(null);
     const productImage2InputRef = useRef<HTMLInputElement | null>(null);
@@ -708,6 +710,8 @@ const App: React.FC = () => {
             return;
         }
 
+        setIsTopUpLoading(true);
+        try {
         // Always try the dev endpoint first. If the backend has DEV_MODE=true it returns tokens
         // immediately. On production (DEV_MODE=false) it returns 403 → fall through to real checkout.
         try {
@@ -723,15 +727,11 @@ const App: React.FC = () => {
             }
             // 403 = DEV_MODE disabled → fall through to payment flow below
             if (res.status !== 403) {
-                // Any other error on dev endpoint — just bump locally (offline/unreachable)
-                setAuth(prev => ({ ...prev, tokens: prev.tokens + 5 }));
-                setStatusSuccess('(offline) Dodano 5 tokenów testowych.');
+                setStatusError('Błąd doładowania tokenów. Spróbuj ponownie.');
                 return;
             }
         } catch {
-            // Network unreachable (e.g. backend offline) → bump locally so dev flow still works
-            setAuth(prev => ({ ...prev, tokens: prev.tokens + 5 }));
-            setStatusSuccess('(offline) Dodano 5 tokenów testowych.');
+            setStatusError('Nie można połączyć się z serwerem. Sprawdź połączenie internetowe.');
             return;
         }
 
@@ -764,6 +764,9 @@ const App: React.FC = () => {
         } catch (error) {
             console.error(error);
             setStatus(error instanceof Error ? error.message : 'Nie udało się doładować tokenów.');
+        }
+        } finally {
+            setIsTopUpLoading(false);
         }
     }
 
@@ -1070,8 +1073,13 @@ const App: React.FC = () => {
                 setStatusError(fallbackMsg);
                 setGenerationError(fallbackMsg);
                 succeeded = false;
-                setPreviewUrl(placeholderPreview);
-                setVariants([]);
+                if (normalizedVariants.length > 0) {
+                    setPreviewUrl(normalizedVariants[0].url);
+                    setVariants(normalizedVariants);
+                } else {
+                    setPreviewUrl(placeholderPreview);
+                    setVariants([]);
+                }
             } else {
                 setStatusSuccess(`Gotowe: ${variantCount} wariant${variantCount === 1 ? '' : 'y'}.`);
                 succeeded = true;
@@ -1536,12 +1544,19 @@ const App: React.FC = () => {
     }
 
     function handleChangeParams() {
+        setForm(prev => ({
+            ...prev,
+            selfie: null,
+            productImage1: null,
+            productImage2: null,
+            productUrl: '',
+        }));
+        setSelfiePreview('');
+        setProductPreview1('');
+        setProductPreview2('');
+        setGenerationError('');
+        setStatus('');
         setView('form');
-        setStatus('Zmień parametry i wygeneruj ponownie.');
-        setTimeout(() => {
-            const formEl = document.querySelector('form');
-            formEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 0);
     }
 
     const canShare = Boolean(form.productUrl || previewUrl);
@@ -1590,6 +1605,18 @@ const App: React.FC = () => {
         }, 320);
         return () => window.clearInterval(timer);
     }, [view, isLoading]);
+
+    useEffect(() => {
+        if (!isLoading) {
+            setElapsedSec(0);
+            return;
+        }
+        setElapsedSec(0);
+        const interval = window.setInterval(() => {
+            setElapsedSec(prev => prev + 1);
+        }, 1000);
+        return () => window.clearInterval(interval);
+    }, [isLoading]);
 
     return (
         <div className="aigrafka-shell" style={{ display: 'flex', flexDirection: 'column', background: '#dcdcdc', color: '#1e1e1e', height: 'auto', width: '100%' }}>
@@ -1667,10 +1694,20 @@ const App: React.FC = () => {
 
                             <FieldRow label="Selfie:">
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', width: '100%' }}>
-                                    <div style={{ width: 88, height: 88, borderRadius: 12, overflow: 'hidden', border: `2px solid ${selfiePreview ? '#9b59ff' : '#bdbdbd'}`, background: '#f0f0f0', flex: '0 0 88px' }}>
-                                        {selfiePreview
-                                            ? <img src={selfiePreview} alt="Selfie" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                            : <SelfieEmpty />}
+                                    <div style={{ position: 'relative', width: 88, height: 88, flex: '0 0 88px' }}>
+                                        <div style={{ width: '100%', height: '100%', borderRadius: 12, overflow: 'hidden', border: `2px solid ${selfiePreview ? '#9b59ff' : '#bdbdbd'}`, background: '#f0f0f0' }}>
+                                            {selfiePreview
+                                                ? <img src={selfiePreview} alt="Selfie" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                : <SelfieEmpty />}
+                                        </div>
+                                        {selfiePreview && (
+                                            <button
+                                                type="button"
+                                                onClick={() => { update('selfie', null); setSelfiePreview(''); }}
+                                                style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: '50%', background: '#ff4444', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, lineHeight: 1 }}
+                                                title="Usuń selfie"
+                                            >×</button>
+                                        )}
                                     </div>
                                     <label
                                         style={{
@@ -1690,7 +1727,15 @@ const App: React.FC = () => {
                                         }}
                                     >
                                         {form.selfie ? 'Zmień selfie' : 'Dodaj selfie'}
-                                        <input type="file" accept="image/*" onChange={e => update('selfie', e.target.files?.[0] ?? null)} style={{ display: 'none' }} />
+                                        <input type="file" accept="image/*" onChange={e => {
+                                            const file = e.target.files?.[0] ?? null;
+                                            if (file && file.size > 8 * 1024 * 1024) {
+                                                setStatusError('Selfie jest za duże (maks. 8 MB).');
+                                                e.target.value = '';
+                                                return;
+                                            }
+                                            update('selfie', file);
+                                        }} style={{ display: 'none' }} />
                                     </label>
                                 </div>
                             </FieldRow>
@@ -1880,16 +1925,18 @@ const App: React.FC = () => {
                                             <button
                                                 type="button"
                                                 onClick={handleTopUpTokens}
+                                                disabled={isTopUpLoading}
                                                 style={{
                                                     ...actionButtonStyle,
-                                                    background: '#9b59ff',
+                                                    background: isTopUpLoading ? '#b7a0e8' : '#9b59ff',
                                                     boxShadow: 'none',
                                                     padding: '7px 9px',
                                                     fontSize: 10,
-                                                    flex: 1
+                                                    flex: 1,
+                                                    cursor: isTopUpLoading ? 'not-allowed' : 'pointer'
                                                 }}
                                             >
-                                                Dokup tokeny
+                                                {isTopUpLoading ? '...' : 'Dokup tokeny'}
                                             </button>
                                         </>
                                     ) : (
@@ -2117,9 +2164,10 @@ const App: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={handleTopUpTokens}
-                                        style={{ ...actionButtonStyle, background: '#9b59ff', boxShadow: 'none', padding: '6px 10px', fontSize: 10, borderRadius: 8, width: 96, flexShrink: 0, whiteSpace: 'nowrap' }}
+                                        disabled={isTopUpLoading}
+                                        style={{ ...actionButtonStyle, background: isTopUpLoading ? '#b7a0e8' : '#9b59ff', boxShadow: 'none', padding: '6px 10px', fontSize: 10, borderRadius: 8, width: 96, flexShrink: 0, whiteSpace: 'nowrap', cursor: isTopUpLoading ? 'not-allowed' : 'pointer' }}
                                     >
-                                        Dokup tokeny
+                                        {isTopUpLoading ? '...' : 'Dokup tokeny'}
                                     </button>
                                 </div>
                             ) : (
@@ -2220,9 +2268,17 @@ const App: React.FC = () => {
                         <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)', padding: '10px 12px', borderRadius: 12 }}>
                             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
                                 <div>
-                                    <div style={{ color: '#7b48eb', fontWeight: 800, fontSize: 14, letterSpacing: 0.1, lineHeight: 1.1 }}>GENERUJEMY TWOJĄ STYLIZACJĘ</div>
-                                    <div style={{ color: '#6f45cc', fontWeight: 700, fontSize: 12, marginTop: 2, lineHeight: 1.15 }}>Nie wyłączaj przeglądarki!</div>
-                                    <div style={{ color: '#7d7d7d', fontSize: 11, marginTop: 2, lineHeight: 1.15 }}>Nie powinno to zająć więcej niż 30 sek</div>
+                                    {generationError ? (
+                                        <div style={{ color: '#8f1f1f', fontWeight: 800, fontSize: 14, letterSpacing: 0.1, lineHeight: 1.1 }}>BŁĄD GENEROWANIA</div>
+                                    ) : (
+                                        <>
+                                            <div style={{ color: '#7b48eb', fontWeight: 800, fontSize: 14, letterSpacing: 0.1, lineHeight: 1.1 }}>GENERUJEMY TWOJĄ STYLIZACJĘ</div>
+                                            <div style={{ color: '#6f45cc', fontWeight: 700, fontSize: 12, marginTop: 2, lineHeight: 1.15 }}>Nie wyłączaj przeglądarki!</div>
+                                            <div style={{ color: '#7d7d7d', fontSize: 11, marginTop: 2, lineHeight: 1.15 }}>
+                                                {elapsedSec > 0 ? `Trwa generowanie... ${elapsedSec}s` : 'Zazwyczaj zajmuje 30–90 sekund'}
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                                 <div style={{ display: 'flex', gap: 6, marginTop: 2, flexShrink: 0, alignItems: 'center' }}>
                                     {[0, 1, 2].map(dot => {
@@ -2272,7 +2328,7 @@ const App: React.FC = () => {
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => { setGenerationError(''); setView('form'); }}
+                                        onClick={handleChangeParams}
                                         style={{
                                             ...actionButtonStyle,
                                             flex: 1,

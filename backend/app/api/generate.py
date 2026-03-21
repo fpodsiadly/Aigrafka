@@ -1,3 +1,5 @@
+import asyncio
+import ipaddress
 import logging
 from io import BytesIO
 from time import perf_counter
@@ -48,6 +50,15 @@ def _normalize_product_url(url: str) -> str:
     parsed = urlparse(cleaned)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid product_url")
+    hostname = (parsed.hostname or '').lower().strip('[]')
+    if hostname in ('localhost', '0.0.0.0', '::1'):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid product_url")
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid product_url")
+    except ValueError:
+        pass  # hostname is a domain name, which is fine
     return cleaned
 
 
@@ -111,6 +122,23 @@ def _validate_and_normalize_product(upload: UploadFile) -> bytes:
         raise
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid product image upload") from exc
+
+
+async def _run_variant(
+    client: GeminiClient,
+    prompt: str,
+    selfie_bytes: bytes,
+    product_image_bytes: bytes,
+) -> tuple[dict, float]:
+    """Run a single variant generation and return (result_dict, latency_ms)."""
+    started = perf_counter()
+    result = await client.generate_image(
+        prompt=prompt,
+        selfie_bytes=selfie_bytes,
+        product_image_bytes=product_image_bytes,
+    )
+    latency_ms = (perf_counter() - started) * 1000.0
+    return result, latency_ms
 
 
 @router.post("/generate", response_model=GenerateResponse)
@@ -194,7 +222,7 @@ async def generate_tryon(
     charged_tokens = 0
     if user_id and not settings.dev_mode:
         charged_tokens = variant_count * settings.token_cost_per_stylization
-        updated_tokens = deduct_tokens_if_possible(user_id, charged_tokens)
+        updated_tokens = await asyncio.to_thread(deduct_tokens_if_possible, user_id, charged_tokens)
         if updated_tokens is None:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
@@ -202,6 +230,7 @@ async def generate_tryon(
             )
 
     try:
+        tasks = []
         for index in range(variant_count):
             variant_number = index + 1
             prompt = build_openvto_prompt(
@@ -217,18 +246,20 @@ async def generate_tryon(
                 variant_index=variant_number,
                 back_reference_available=back_reference_available,
             )
-
-            current_product_image_bytes = primary_product_image_bytes
-            if variant_count == 3 and variant_number == 3 and secondary_product_image_bytes is not None:
-                current_product_image_bytes = secondary_product_image_bytes
-
-            started = perf_counter()
-            result = await client.generate_image(
-                prompt=prompt,
-                selfie_bytes=selfie_bytes,
-                product_image_bytes=current_product_image_bytes,
+            current_product_image_bytes = (
+                secondary_product_image_bytes
+                if variant_count == 3 and variant_number == 3 and secondary_product_image_bytes is not None
+                else primary_product_image_bytes
             )
-            latency_ms = (perf_counter() - started) * 1000.0
+            tasks.append(_run_variant(client, prompt, selfie_bytes, current_product_image_bytes))
+
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for raw in raw_results:
+            if isinstance(raw, BaseException):
+                fallbacks.append(ImageVariant(error=str(raw), mime_type="image/jpeg"))
+                continue
+            result, latency_ms = raw
             if first_model_ms is None:
                 first_model_ms = latency_ms
 
@@ -259,7 +290,7 @@ async def generate_tryon(
                 fallbacks.append(variant)
     except Exception:
         if user_id and charged_tokens > 0:
-            add_tokens(user_id, charged_tokens)
+            await asyncio.to_thread(add_tokens, user_id, charged_tokens)
         raise
 
     variants_payload = successful or fallbacks
