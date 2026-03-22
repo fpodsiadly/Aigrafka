@@ -278,6 +278,62 @@ const authStorage = {
     }
 };
 
+const selfieStorageKey = 'aigrafka-selfie-v1';
+const selfieStorage = {
+    async save(file: File): Promise<void> {
+        return new Promise(resolve => {
+            const img = new Image();
+            const objUrl = URL.createObjectURL(file);
+            img.onload = () => {
+                URL.revokeObjectURL(objUrl);
+                const MAX = 800;
+                const scale = Math.min(1, MAX / Math.max(img.naturalWidth, img.naturalHeight));
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.round(img.naturalWidth * scale);
+                canvas.height = Math.round(img.naturalHeight * scale);
+                const ctx = canvas.getContext('2d');
+                if (!ctx) { resolve(); return; }
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+                const payload = { dataUrl };
+                if (chrome?.storage?.local) {
+                    chrome.storage.local.set({ [selfieStorageKey]: payload }, () => resolve());
+                } else {
+                    try { localStorage.setItem(selfieStorageKey, JSON.stringify(payload)); } catch { /* quota exceeded */ }
+                    resolve();
+                }
+            };
+            img.onerror = () => { URL.revokeObjectURL(objUrl); resolve(); };
+            img.src = objUrl;
+        });
+    },
+    async load(): Promise<File | null> {
+        let payload: { dataUrl: string } | null = null;
+        if (chrome?.storage?.local) {
+            payload = await new Promise(resolve => {
+                chrome.storage.local.get([selfieStorageKey], result => resolve(result?.[selfieStorageKey] ?? null));
+            });
+        } else {
+            try {
+                const raw = localStorage.getItem(selfieStorageKey);
+                payload = raw ? JSON.parse(raw) : null;
+            } catch { payload = null; }
+        }
+        if (!payload?.dataUrl) return null;
+        try {
+            const res = await fetch(payload.dataUrl);
+            const blob = await res.blob();
+            return new File([blob], 'selfie.jpg', { type: 'image/jpeg' });
+        } catch { return null; }
+    },
+    async clear(): Promise<void> {
+        if (chrome?.storage?.local) {
+            return new Promise(resolve => chrome.storage.local.remove([selfieStorageKey], () => resolve()));
+        }
+        try { localStorage.removeItem(selfieStorageKey); } catch { /* ignore */ }
+    }
+};
+
 function toDataUrl(base64: string | null, mimeType?: string | null): string {
     if (!base64) return '';
     const mime = mimeType || 'image/jpeg';
@@ -445,9 +501,12 @@ const App: React.FC = () => {
     const isProfileHydrating = Boolean(auth.loggedIn && auth.userId && profileReadyForUser !== auth.userId);
 
     useEffect(() => {
-        storage.get().then(stored => {
+        Promise.all([storage.get(), selfieStorage.load()]).then(([stored, selfieFile]) => {
             if (stored) {
                 setForm(prev => ({ ...prev, ...stored }));
+            }
+            if (selfieFile) {
+                setForm(prev => ({ ...prev, selfie: selfieFile }));
             }
         }).finally(() => {
             setStorageHydrated(true);
@@ -1557,6 +1616,7 @@ const App: React.FC = () => {
         setGenerationError('');
         setStatus('');
         setView('form');
+        void selfieStorage.clear();
     }
 
     const canShare = Boolean(form.productUrl || previewUrl);
@@ -1703,7 +1763,7 @@ const App: React.FC = () => {
                                         {selfiePreview && (
                                             <button
                                                 type="button"
-                                                onClick={() => { update('selfie', null); setSelfiePreview(''); }}
+                                                onClick={() => { update('selfie', null); setSelfiePreview(''); void selfieStorage.clear(); }}
                                                 style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: '50%', background: '#ff4444', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, lineHeight: 1 }}
                                                 title="Usuń selfie"
                                             >×</button>
@@ -1729,12 +1789,14 @@ const App: React.FC = () => {
                                         {form.selfie ? 'Zmień selfie' : 'Dodaj selfie'}
                                         <input type="file" accept="image/*" onChange={e => {
                                             const file = e.target.files?.[0] ?? null;
-                                            if (file && file.size > 8 * 1024 * 1024) {
+                                            e.target.value = '';
+                                            if (!file) return;
+                                            if (file.size > 8 * 1024 * 1024) {
                                                 setStatusError('Selfie jest za duże (maks. 8 MB).');
-                                                e.target.value = '';
                                                 return;
                                             }
                                             update('selfie', file);
+                                            void selfieStorage.save(file);
                                         }} style={{ display: 'none' }} />
                                     </label>
                                 </div>
