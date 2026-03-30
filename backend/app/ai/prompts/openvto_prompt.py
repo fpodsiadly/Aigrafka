@@ -19,7 +19,7 @@ def build_openvto_prompt(
     source_text = (
         "Product provided via user-uploaded image(s)."
         if is_upload
-        else f"Product source domain: {domain or 'unknown'}. Product URL: {product_ref}."
+        else f"Product source domain: {domain or 'unknown'}."
     )
 
     category_text = f"Garment category: {category}." if category else "Garment category: not provided."
@@ -39,12 +39,16 @@ def build_openvto_prompt(
     ) if is_swimwear else ""
 
     fit_style_text = ""
+    user_presentation_text = ""
     if fit_style == "masculine":
         fit_style_text = "Use masculine tailoring; do not generate dresses or skirts."
+        user_presentation_text = "The user presents as male. Fit the garment to a male body shape."
     elif fit_style == "feminine":
         fit_style_text = "Use feminine tailoring."
+        user_presentation_text = "The user presents as female. Fit the garment to a female body shape."
     elif fit_style == "unisex":
         fit_style_text = "Use unisex/neutral tailoring."
+        user_presentation_text = "The user prefers a unisex/neutral presentation."
 
     measurements = []
     if height_cm:
@@ -112,9 +116,10 @@ def build_openvto_prompt(
                     "Do not invent unseen back details beyond what can be inferred from the provided reference."
                 )
     elif variants == 2:
-        shot_instruction = (
-            "Current requested shot: keep pose distinct from the other variant while preserving identity and garment fidelity."
-        )
+        if variant_index == 1:
+            shot_instruction = "Current requested shot = VARIANT 1 OF 2: front-facing or very subtle 3/4 view."
+        else:
+            shot_instruction = "Current requested shot = VARIANT 2 OF 2: slight 3/4 turn so garment side seam and part of back panel are visible."
     else:
         shot_instruction = "Current requested shot: single final variant."
 
@@ -137,36 +142,37 @@ def build_openvto_prompt(
         "The final composition should look like a premium e-commerce catalog photo with consistent AIgrafka visual identity."
     )
 
-    return (
-        "You are an AI virtual try-on system following OpenVTO principles. "
-        "Inputs: (1) user selfie image; (2) product garment image from the e-commerce page or upload. "
-        f"{variant_text} "
-        f"{variant_pose_text} "
-        f"{shot_instruction} "
+    # Build final prompt; filter out empty segments to avoid double spaces
+    segments = [
+        "You are an AI virtual try-on system following OpenVTO principles.",
+        "Inputs: (1) user selfie image; (2) product garment image from the e-commerce page or upload.",
+        source_text,
+        variant_text,
+        variant_pose_text,
+        shot_instruction,
         "Composition constraint: each output image must contain exactly one person in one continuous camera frame. "
-        "Do not create collages, split screens, diptychs/triptychs, before-vs-after layouts, or multiple mini-photos inside one image. "
-        "Pose: user standing upright, relaxed neutral stance, body and face oriented straight toward the camera. "
-        "Camera/framing: full body visible (head to feet) with slight headroom; straight-on preferred or very subtle 3/4 view; no profile. "
-        "Aspect ratio approximately 3:4 (allow up to 2:3 if needed to keep feet visible). "
-        f"{category_text} Replace only the specified garment category with the provided product; keep all other clothing minimal, neutral, and consistent. "
-        f"{fit_style_text} "
-        f"{swimwear_text} "
-        "Do not add accessories or extra garments. "
+        "Do not create collages, split screens, diptychs/triptychs, before-vs-after layouts, or multiple mini-photos inside one image.",
+        "Camera/framing: full body visible (head to feet) with slight headroom; no profile shots.",
+        "Aspect ratio approximately 3:4 (allow up to 2:3 if needed to keep feet visible).",
+        f"{category_text} Replace only the specified garment category with the provided product; keep all other clothing minimal, neutral, and consistent.",
+        user_presentation_text,
+        fit_style_text,
+        swimwear_text,
+        "Do not add accessories or extra garments.",
         "CRITICAL: Strictly preserve the user's face identity, facial features, facial structure, expression, hairstyle, and skin tone exactly as in the selfie. "
-        "Do NOT modify, beautify, or alter the face in any way. User identity preservation has absolute priority over garment transformation. "
-        "Maintain original body proportions and posture; no slimming, enlarging, or reshaping. "
+        "Do NOT modify, beautify, or alter the face in any way. User identity preservation has absolute priority over garment transformation.",
+        "Maintain original body proportions and posture; no slimming, enlarging, or reshaping.",
+        measurements_text,
         "Fit the garment naturally and realistically: correct scale, accurate seams, proper collar/neck alignment, "
-        "realistic draping, folds, and fabric physics consistent with the material. "
-        f"{back_requirement_text} "
-        f"{branding_background_text} "
-        "Show garment coverage clearly: reflect true length on the user's reported height (e.g., dress/skirt hem position, sleeve length, neckline depth/shape). "
-        "Depict sleeves and neckline faithfully to the product reference; do not invent alternative cuts. "
-        "Avoid hiding garment edges—ensure hems, cuffs, and neckline are visible and true to length. "
+        "realistic draping, folds, and fabric physics consistent with the material.",
+        back_requirement_text,
+        "Show garment coverage clearly: reflect true length on the user's reported height (e.g., dress/skirt hem position, sleeve length, neckline depth/shape).",
+        "Depict sleeves and neckline faithfully to the product reference; do not invent alternative cuts.",
+        "Avoid hiding garment edges — ensure hems, cuffs, and neckline are visible and true to length.",
         "Merge lighting and color so the garment matches the selfie lighting conditions; "
-        "avoid mismatched shadows, highlights, or color casts. "
-        f"{measurements_text} "
-        "Background: keep clean and controlled with the branded catalog look; avoid busy or cinematic scenes. "
-        "No cinematic grading, no fashion editorial stylization. "
-        "Return only the final rendered image. "
-        f"{source_text}"
-    )
+        "avoid mismatched shadows, highlights, or color casts.",
+        branding_background_text,
+        "Return only the final rendered image.",
+    ]
+
+    return " ".join(s for s in segments if s)
