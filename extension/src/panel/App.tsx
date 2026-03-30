@@ -1095,7 +1095,7 @@ const App: React.FC = () => {
                 };
             }).filter(v => Boolean(v.url));
 
-            const isFallback = data.status === 'fallback' || normalizedVariants.length === 0;
+            const isFallback = data.status === 'fallback' || data.status === 'refused' || normalizedVariants.length === 0;
 
             const fallbackBase64 = extractBase64(data.image_base64);
             if (!normalizedVariants.length && fallbackBase64) {
@@ -1126,8 +1126,13 @@ const App: React.FC = () => {
             const variantCount = normalizedVariants.length || 1;
             setView('result');
             if (isFallback) {
-                const detail = data.detail ? `: ${data.detail}` : '';
-                const fallbackMsg = `Generacja nieudana${detail}. Spróbuj ponownie.`;
+                let fallbackMsg: string;
+                if (data.status === 'refused' || data.detail === 'content_policy') {
+                    fallbackMsg = 'Ten produkt nie może zostać wygenerowany — polityka moderacji treści nie pozwala na tę kombinację zdjęcia i produktu.';
+                } else {
+                    const detail = data.detail ? `: ${data.detail}` : '';
+                    fallbackMsg = `Generacja nieudana${detail}. Spróbuj ponownie.`;
+                }
                 console.warn('[AIgrafka] generation fallback', { status: data.status, detail: data.detail, model: data.model, variants: normalizedVariants.length });
                 setStatusError(fallbackMsg);
                 setGenerationError(fallbackMsg);
@@ -1148,6 +1153,9 @@ const App: React.FC = () => {
             let message = toRequestErrorMessage(error, 'Nie udało się wygenerować stylizacji.', controller.signal);
             if (message.includes('Failed to fetch product page')) {
                 message = 'Sklep blokuje pobranie strony produktu. Wklej bezpośredni link do zdjęcia produktu (JPG/PNG) albo spróbuj innego URL produktu.';
+            }
+            if (message.includes('incompatible_category:masculine_swimwear')) {
+                message = 'Wybrana kategoria produktu (strój kąpielowy / bielizna) nie jest dostępna dla kroju męskiego. Zmień kategorię lub styl dopasowania.';
             }
             setView('generating');
             setPreviewUrl(placeholderPreview);

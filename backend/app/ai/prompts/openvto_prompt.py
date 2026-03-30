@@ -24,6 +24,20 @@ def build_openvto_prompt(
 
     category_text = f"Garment category: {category}." if category else "Garment category: not provided."
 
+    _SWIMWEAR_KEYWORDS = {
+        "bikini", "swimsuit", "swimwear", "bathing suit", "one-piece", "monokini",
+        "strój kąpielowy", "kostium kąpielowy", "góra od bikini", "dół od bikini",
+        "bikini top", "bikini bottom",
+    }
+    is_swimwear = bool(category and any(kw in category.lower() for kw in _SWIMWEAR_KEYWORDS))
+
+    swimwear_text = (
+        "Swimwear-specific rules: pose must be neutral and upright — no beach, ocean, pool, sand, or water elements. "
+        "Use only the clean studio backdrop defined in the branding requirement. "
+        "Render the swimwear faithfully to the product reference (cut, colour, pattern, coverage level). "
+        "Do not add cover-ups, sarongs, or extra garments unless they are part of the product."
+    ) if is_swimwear else ""
+
     fit_style_text = ""
     if fit_style == "masculine":
         fit_style_text = "Use masculine tailoring; do not generate dresses or skirts."
@@ -112,8 +126,14 @@ def build_openvto_prompt(
 
     branding_background_text = (
         "Background branding requirement (AIgrafka): remove any existing marketplace/store watermark, logo, or text from source visuals. "
-        "Create a clean studio-like light gray backdrop with a subtle repeating brand pattern composed of soft purple circular logo marks and the text 'aigrafka.pl'. "
-        "Keep branding elegant and low-contrast, evenly spaced, behind the model only, and never covering the face, garment edges, or key product details. "
+        "ALWAYS use a clean studio backdrop regardless of any outdoor, beach, lifestyle, or environmental setting shown in the product reference image — "
+        "the product reference is used only for garment details, never for background/scene context. "
+        "Create a clean studio-like light gray (#d2d2d2) backdrop with a subtle repeating brand pattern. "
+        "The pattern consists of two alternating elements tiled evenly across the backdrop: "
+        "(1) a filled violet/purple circle (colour ~#9955ff) containing a white lowercase letter 'a' in the centre — this is the AIgrafka logo mark; "
+        "(2) the lowercase text 'aigrafka.pl' in a matching purple/violet tone. "
+        "Both elements are small, semi-transparent, and arranged in a regular staggered grid with even spacing. "
+        "Keep branding low-contrast and secondary — never covering the face, garment edges, or key product details. "
         "The final composition should look like a premium e-commerce catalog photo with consistent AIgrafka visual identity."
     )
 
@@ -130,6 +150,7 @@ def build_openvto_prompt(
         "Aspect ratio approximately 3:4 (allow up to 2:3 if needed to keep feet visible). "
         f"{category_text} Replace only the specified garment category with the provided product; keep all other clothing minimal, neutral, and consistent. "
         f"{fit_style_text} "
+        f"{swimwear_text} "
         "Do not add accessories or extra garments. "
         "CRITICAL: Strictly preserve the user's face identity, facial features, facial structure, expression, hairstyle, and skin tone exactly as in the selfie. "
         "Do NOT modify, beautify, or alter the face in any way. User identity preservation has absolute priority over garment transformation. "

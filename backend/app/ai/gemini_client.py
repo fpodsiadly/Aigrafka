@@ -124,8 +124,35 @@ class GeminiClient:
 
         image_bytes, mime = extract_inline_data(response)
 
-        # If response does not contain a usable base64 string, mark fallback
+        # If response does not contain a usable image, determine why
         if not image_bytes:
+            # Check finish_reason / block_reason for content policy refusal
+            _SAFETY_REASONS = {"SAFETY", "IMAGE_SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII"}
+            is_refused = False
+            try:
+                candidates = getattr(response, "candidates", []) or []
+                if candidates:
+                    finish_reason = getattr(candidates[0], "finish_reason", None)
+                    if finish_reason is not None:
+                        reason_str = str(finish_reason).upper()
+                        is_refused = any(s in reason_str for s in _SAFETY_REASONS)
+                if not is_refused:
+                    feedback = getattr(response, "prompt_feedback", None)
+                    if feedback:
+                        block_reason = str(getattr(feedback, "block_reason", "") or "").upper()
+                        is_refused = bool(block_reason) and block_reason not in {"", "NONE", "BLOCK_REASON_UNSPECIFIED", "0"}
+            except Exception:
+                pass
+
+            if is_refused:
+                logger.warning("GeminiClient content policy refusal model=%s", self.model)
+                return {
+                    "image_base64": self.FALLBACK_IMAGE_BASE64,
+                    "mime_type": "image/png",
+                    "status": "refused",
+                    "model": self.model,
+                    "error": "content_policy",
+                }
             return {
                 "image_base64": self.FALLBACK_IMAGE_BASE64,
                 "mime_type": "image/png",

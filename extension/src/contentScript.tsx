@@ -24,10 +24,6 @@ function injectPanel() {
   if (document.getElementById(CONTAINER_ID)) return;
 
   const logoPatternUrl = chrome.runtime.getURL('icons/logo_white.svg');
-  const textPatternSvg = encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="220" height="110" viewBox="0 0 220 110"><text x="20" y="62" fill="rgba(255,255,255,0.55)" font-size="44" font-family="Space Grotesk, Segoe UI, sans-serif">aigrafka.pl</text></svg>'
-  );
-  const textPatternUrl = `data:image/svg+xml,${textPatternSvg}`;
 
   const host = document.createElement('div');
   host.id = CONTAINER_ID;
@@ -65,13 +61,10 @@ function injectPanel() {
       max-width: none;
       max-height: calc(100vh - 12px);
       background-color: #d2d2d2;
-      background-image:
-        linear-gradient(rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.08)),
-        url('${textPatternUrl}'),
-        url('${logoPatternUrl}');
-      background-repeat: repeat, repeat, repeat;
-      background-size: auto, 220px 110px, 88px 88px;
-      background-position: 0 0, 0 0, 20px 18px;
+      background-image: url('${logoPatternUrl}');
+      background-repeat: repeat;
+      background-size: 72px 72px;
+      background-position: 0 0;
       overflow-x: hidden;
       overflow-y: auto;
       color: #1e1e1e;

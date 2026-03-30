@@ -198,6 +198,21 @@ async def generate_tryon(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     product_ref = "uploaded product image" if used_upload else str(normalized_product_url)
+
+    # Guard: masculine fit_style + feminine-only swimwear/lingerie category is incompatible.
+    # Return a clear error before spending tokens on a Gemini call that will be refused anyway.
+    _FEMININE_SWIMWEAR_KEYWORDS = {
+        "bikini", "swimsuit", "swimwear", "bathing suit", "one-piece", "monokini",
+        "strój kąpielowy", "kostium kąpielowy", "góra od bikini", "dół od bikini",
+        "bikini top", "bikini bottom", "lingerie", "bielizna", "bra", "biustonosz",
+    }
+    if fit_style == "masculine" and category:
+        cat_lower = category.lower()
+        if any(kw in cat_lower for kw in _FEMININE_SWIMWEAR_KEYWORDS):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="incompatible_category:masculine_swimwear",
+            )
     requested_variants = variants if variants is not None else settings.variants
     variant_count = max(1, min(requested_variants, 3))
 
@@ -275,16 +290,17 @@ async def generate_tryon(
             except Exception:
                 width = height = None
 
+            result_status = result.get("status", "fallback")
             variant = ImageVariant(
                 image_base64=result.get("image_base64"),
                 mime_type=result.get("mime_type", "image/jpeg"),
                 width=width,
                 height=height,
                 latency_ms=latency_ms,
-                error=result.get("error") if result.get("status") == "fallback" else None,
+                error=result.get("error") if result_status in ("fallback", "refused") else None,
             )
 
-            if result.get("status") == "generated" and variant.image_base64:
+            if result_status == "generated" and variant.image_base64:
                 successful.append(variant)
             else:
                 fallbacks.append(variant)
@@ -295,7 +311,15 @@ async def generate_tryon(
 
     variants_payload = successful or fallbacks
     first = variants_payload[0] if variants_payload else None
-    overall_status = "generated" if successful else "fallback" if variants_payload else "failed"
+    # Determine overall status — 'refused' takes priority over generic 'fallback'
+    if successful:
+        overall_status = "generated"
+    elif any(v.error == "content_policy" for v in fallbacks):
+        overall_status = "refused"
+    elif variants_payload:
+        overall_status = "fallback"
+    else:
+        overall_status = "failed"
     # Collect first error detail from fallback variants for client-side display
     fallback_detail: Optional[str] = None
     if overall_status != "generated":
