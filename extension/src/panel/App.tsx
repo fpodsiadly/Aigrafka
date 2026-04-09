@@ -127,14 +127,9 @@ let inMemoryAuthToken: string | null = null;
 const placeholderPreview = 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=900&q=80';
 const SelfieEmpty: React.FC = () => (
     <svg viewBox="0 0 88 88" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', height: '100%' }}>
-        <rect width="88" height="88" fill="#ececec" />
-        <circle cx="44" cy="32" r="14" fill="#c4b0e8" />
-        <ellipse cx="44" cy="72" rx="22" ry="16" fill="#c4b0e8" />
-        <circle cx="44" cy="32" r="10" fill="#e9e0f8" />
-        <path d="M30 72 Q30 54 44 54 Q58 54 58 72" fill="#d6c8f0" />
-        <circle cx="40" cy="30" r="2" fill="#7f3bff" />
-        <circle cx="48" cy="30" r="2" fill="#7f3bff" />
-        <path d="M40 36 Q44 39 48 36" stroke="#7f3bff" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+        <circle cx="44" cy="44" r="44" fill="#d5d5d5" />
+        <circle cx="44" cy="34" r="12" fill="#b0b0b0" />
+        <ellipse cx="44" cy="68" rx="20" ry="14" fill="#b0b0b0" />
     </svg>
 );
 const REQUEST_TIMEOUT_MS = 70_000; // Render free tier cold start can be slow; give more headroom
