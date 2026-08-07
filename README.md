@@ -7,9 +7,6 @@ AIgrafka to rozszerzenie przeglądarki do wirtualnej przymiarki ubrań z AI (vir
 - `extension/` - WebExtension (Vite, React, TypeScript, MV3), panel osadzany przez content script w Shadow DOM.
 - `backend/` - aktywny backend FastAPI (auth, profile, generate, payments Przelewy24).
 - `shared/` - wspólne typy TypeScript.
-- `ai/` - pomocniczy worker Redis (mock/legacy pipeline).
-- `api/` - opcjonalne funkcje serverless (legacy/integracyjne).
-- `backend/src/` - stary backend NestJS (deprecated, nieuzywany w aktualnym deployu).
 
 ## Architektura w praktyce
 
@@ -121,19 +118,23 @@ Platnosci Przelewy24:
 
 - Service root: `backend/`
 - Build command: `pip install -r requirements.txt`
-- Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Start command: `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Worker service: `python run_worker.py` (separate background service; required for `/generate`)
+- Required env: `DATABASE_URL`, `JWT_SECRET`, `GEMINI_API_KEY`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
+- API i worker muszą mieć identyczne wartości `UPSTASH_REDIS_REST_URL` i `UPSTASH_REDIS_REST_TOKEN`.
+- Nie ustawiaj jednocześnie `REDIS_URL`/`REDIS_TOKEN`, jeśli używasz `UPSTASH_*`; `REDIS_URL` ma pierwszeństwo w konfiguracji.
 - Health check: `GET /health`
-- Keep-warm cron (opcjonalnie): `GET /health` co 5 min
+- Keep-warm: `.github/workflows/keep-api-warm.yml` odpytuje `GET /health` co 5 min przez darmowy GitHub Actions.
+- Workflow można uruchomić ręcznie z zakładki **Actions** (`Run workflow`).
+- GitHub może opóźniać harmonogram; workflow nie zastępuje osobnego Render workera.
 
 ## Status modulow
 
 - Produkcyjnie aktywne: `extension/` + `backend/`.
-- Legacy/deprecated: `backend/src/` (NestJS), czesc `api/` i `ai/`.
 
 ## Dokumentacja modulowa
 
 - Backend: `backend/README.md`
-- AI worker: `ai/README.md`
 - Shared typy: `shared/README.md`
 
 ## Compliance i dane

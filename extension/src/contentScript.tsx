@@ -1,10 +1,8 @@
 import React from 'react';
 import { createRoot, Root } from 'react-dom/client';
-import App from './panel/App';
 
 const CONTAINER_ID = 'aigrafka-extension-root';
 let root: Root | null = null;
-let hostEl: HTMLElement | null = null;
 
 function removePanel() {
   const existing = document.getElementById(CONTAINER_ID);
@@ -14,13 +12,12 @@ function removePanel() {
   }
   if (existing) {
     existing.remove();
-    hostEl = null;
     return true;
   }
   return false;
 }
 
-function injectPanel() {
+async function injectPanel() {
   if (document.getElementById(CONTAINER_ID)) return;
 
   const logoPatternUrl = chrome.runtime.getURL('icons/logo_white.svg');
@@ -42,7 +39,7 @@ function injectPanel() {
   host.style.boxShadow = '0 16px 40px rgba(0,0,0,0.38)';
   host.style.overflow = 'hidden';
 
-  const shadow = host.attachShadow({ mode: 'open' });
+  const shadow = host.attachShadow({ mode: 'closed' });
   const mount = document.createElement('div');
   mount.id = 'aigrafka-panel-root';
   mount.style.width = '100%';
@@ -80,12 +77,17 @@ function injectPanel() {
   shadow.appendChild(style);
   shadow.appendChild(mount);
   document.body.appendChild(host);
-  hostEl = host;
 
+  const [{ default: App }, { ErrorBoundary }] = await Promise.all([
+    import('./panel/App'),
+    import('./panel/ErrorBoundary'),
+  ]);
   root = createRoot(mount);
   root.render(
     <React.StrictMode>
-      <App />
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
     </React.StrictMode>
   );
 }

@@ -1,4 +1,3 @@
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -15,32 +14,32 @@ class ProfileResponse(BaseModel):
     chest: str
     waist: str
     hips: str
-    fitStyle: Optional[str] = None
+    fitStyle: str | None = None
     consentGiven: bool = False
-    category: Optional[str] = None
-    productUrl: Optional[str] = None
-    selfieUrl: Optional[str] = None
+    category: str | None = None
+    productUrl: str | None = None
+    selfieUrl: str | None = None
 
 
 class UpsertProfileRequest(BaseModel):
-    userId: str = Field(..., min_length=1)
-    height: str = Field(..., min_length=0)
-    chest: str = Field(..., min_length=0)
-    waist: str = Field(..., min_length=0)
-    hips: str = Field(..., min_length=0)
-    fitStyle: Optional[str] = None
+    userId: str = Field(..., min_length=1, max_length=64)
+    height: str = Field(default="", max_length=8)
+    chest: str = Field(default="", max_length=8)
+    waist: str = Field(default="", max_length=8)
+    hips: str = Field(default="", max_length=8)
+    fitStyle: str | None = Field(default=None, max_length=32)
     consentGiven: bool = False
-    category: Optional[str] = None
-    productUrl: Optional[str] = None
-    selfieUrl: Optional[str] = None
+    category: str | None = Field(default=None, max_length=200)
+    productUrl: str | None = Field(default=None, max_length=2048)
+    selfieUrl: str | None = Field(default=None, max_length=2048)
 
 
 @router.get("/{user_id}", response_model=ProfileResponse)
-def get_profile(user_id: str, current_user_id: str = Depends(get_current_user_id)) -> ProfileResponse:
+async def get_profile(user_id: str, current_user_id: str = Depends(get_current_user_id)) -> ProfileResponse:
     if current_user_id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-    profile = get_profile_by_user_id(user_id)
+    profile = await get_profile_by_user_id(user_id)
     if not profile:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
 
@@ -48,11 +47,11 @@ def get_profile(user_id: str, current_user_id: str = Depends(get_current_user_id
 
 
 @router.post("", response_model=ProfileResponse)
-def save_profile(body: UpsertProfileRequest, current_user_id: str = Depends(get_current_user_id)) -> ProfileResponse:
+async def save_profile(body: UpsertProfileRequest, current_user_id: str = Depends(get_current_user_id)) -> ProfileResponse:
     if current_user_id != body.userId:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-    saved = upsert_profile(
+    saved = await upsert_profile(
         user_id=body.userId,
         height=body.height,
         chest=body.chest,

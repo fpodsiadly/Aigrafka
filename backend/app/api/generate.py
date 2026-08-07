@@ -1,48 +1,34 @@
 import asyncio
+import base64
 import ipaddress
 import logging
 from io import BytesIO
-from time import perf_counter
-from typing import Optional, Union
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from PIL import Image
+from pydantic import BaseModel
 
-from app.ai.gemini_client import GeminiClient
-from app.ai.prompts.openvto_prompt import build_openvto_prompt
-from app.ai.product_image import fetch_product_image
 from app.core.config import get_settings
 from app.core.db import add_tokens, deduct_tokens_if_possible
+from app.core.metrics import track_generate_request
+from app.core.queue import enqueue_job
+from app.core.rate_limit import enforce_generate_rate_limit
 from app.core.security import get_optional_user_id
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-
-class ImageVariant(BaseModel):
-    image_base64: Optional[Union[str, dict]] = None
-    mime_type: Optional[str] = None
-    width: Optional[int] = None
-    height: Optional[int] = None
-    latency_ms: Optional[float] = None
-    error: Optional[str] = None  # populated when status == 'fallback'
-
-
-class GenerateResponse(BaseModel):
-    status: str
-    image_base64: Optional[Union[str, dict]] = None  # backwards compatibility
-    mime_type: Optional[str] = None  # backwards compatibility
-    variants: list[ImageVariant]
-    model: Optional[str] = None
-    detail: Optional[str] = None  # human-readable error detail when status != 'generated'
-
-
 settings = get_settings()
 MAX_UPLOAD_BYTES = settings.max_selfie_mb * 1024 * 1024
 MAX_PRODUCT_BYTES = settings.max_product_image_mb * 1024 * 1024
 MAX_SIDE_PX = settings.max_side_px
+
+
+class GenerateJobResponse(BaseModel):
+    job_id: str
+    status: str = "queued"
+    message: str = "Generation queued. Poll /jobs/{job_id} for status."
 
 
 def _normalize_product_url(url: str) -> str:
@@ -58,57 +44,24 @@ def _normalize_product_url(url: str) -> str:
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid product_url")
     except ValueError:
-        pass  # hostname is a domain name, which is fine
+        pass
     return cleaned
 
 
-def _validate_and_normalize_selfie(upload: UploadFile) -> bytes:
+def _validate_and_normalize_image(upload: UploadFile, max_bytes: int, label: str) -> bytes:
     try:
         if not upload.content_type or not upload.content_type.startswith("image/"):
-            raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Selfie must be an image")
+            raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=f"{label} must be an image")
 
-        content = upload.file.read(MAX_UPLOAD_BYTES + 1)
-        if len(content) > MAX_UPLOAD_BYTES:
+        content = upload.file.read(max_bytes + 1)
+        if len(content) > max_bytes:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"Selfie too large (max {settings.max_selfie_mb}MB)"
+                detail=f"{label} too large (max {max_bytes // (1024 * 1024)}MB)"
             )
 
         image = Image.open(BytesIO(content))
         image.verify()
-
-        # Normalize to JPEG to keep format predictable for downstream AI
-        image = Image.open(BytesIO(content)).convert("RGB")
-        # Resize if longer side exceeds MAX_SIDE_PX
-        w, h = image.size
-        longer = max(w, h)
-        if longer > MAX_SIDE_PX:
-            scale = MAX_SIDE_PX / longer
-            image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-        buffer = BytesIO()
-        image.save(buffer, format="JPEG", quality=92)
-        return buffer.getvalue()
-    except HTTPException:
-        raise
-    except Exception as exc:  # pillow throws many possible errors
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid image upload") from exc
-
-
-def _validate_and_normalize_product(upload: UploadFile) -> bytes:
-    try:
-        if not upload.content_type or not upload.content_type.startswith("image/"):
-            raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Product must be an image")
-
-        content = upload.file.read(MAX_PRODUCT_BYTES + 1)
-        if len(content) > MAX_PRODUCT_BYTES:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"Product image too large (max {settings.max_product_image_mb}MB)"
-            )
-
-        image = Image.open(BytesIO(content))
-        image.verify()
-
         image = Image.open(BytesIO(content)).convert("RGB")
         w, h = image.size
         longer = max(w, h)
@@ -121,44 +74,29 @@ def _validate_and_normalize_product(upload: UploadFile) -> bytes:
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid product image upload") from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid {label} upload") from exc
 
 
-async def _run_variant(
-    client: GeminiClient,
-    prompt: str,
-    selfie_bytes: bytes,
-    product_image_bytes: bytes,
-) -> tuple[dict, float]:
-    """Run a single variant generation and return (result_dict, latency_ms)."""
-    started = perf_counter()
-    result = await client.generate_image(
-        prompt=prompt,
-        selfie_bytes=selfie_bytes,
-        product_image_bytes=product_image_bytes,
-    )
-    latency_ms = (perf_counter() - started) * 1000.0
-    return result, latency_ms
-
-
-@router.post("/generate", response_model=GenerateResponse)
+@router.post("/generate", response_model=GenerateJobResponse)
 async def generate_tryon(
-    product_url: Optional[str] = Form(None),
+    request: Request,
+    product_url: str | None = Form(None),
     selfie: UploadFile = File(...),
-    category: Optional[str] = Form(None),
-    fit_style: Optional[str] = Form(None),
-    height_cm: Optional[str] = Form(None),
-    chest_cm: Optional[str] = Form(None),
-    waist_cm: Optional[str] = Form(None),
-    hips_cm: Optional[str] = Form(None),
-    model_choice: Optional[str] = Form(None),
-    variants: Optional[int] = Form(None),
-    product_image_1: Optional[UploadFile] = File(None),
-    product_image_2: Optional[UploadFile] = File(None),
-    user_id: Optional[str] = Depends(get_optional_user_id),
-) -> GenerateResponse:
-    t_enter = perf_counter()
-    normalized_product_url: Optional[str] = None
+    category: str | None = Form(None),
+    fit_style: str | None = Form(None),
+    height_cm: str | None = Form(None),
+    chest_cm: str | None = Form(None),
+    waist_cm: str | None = Form(None),
+    hips_cm: str | None = Form(None),
+    model_choice: str | None = Form(None),
+    variants: int | None = Form(None),
+    product_image_1: UploadFile | None = File(None),
+    product_image_2: UploadFile | None = File(None),
+    user_id: str | None = Depends(get_optional_user_id),
+) -> GenerateJobResponse:
+    await enforce_generate_rate_limit(request, user_id)
+
+    normalized_product_url: str | None = None
     if product_url:
         normalized_product_url = _normalize_product_url(product_url)
 
@@ -168,39 +106,33 @@ async def generate_tryon(
             detail="Provide product_url or upload a product image."
         )
 
-    selfie_bytes = _validate_and_normalize_selfie(selfie)
+    selfie_bytes = await asyncio.to_thread(_validate_and_normalize_image, selfie, MAX_UPLOAD_BYTES, "Selfie")
 
     used_upload = False
-    primary_product_image_bytes: Optional[bytes] = None
-    secondary_product_image_bytes: Optional[bytes] = None
+    primary_product_image_bytes: bytes | None = None
+    secondary_product_image_bytes: bytes | None = None
 
     if product_image_1 and product_image_1.filename:
-        primary_product_image_bytes = _validate_and_normalize_product(product_image_1)
+        primary_product_image_bytes = await asyncio.to_thread(
+            _validate_and_normalize_image, product_image_1, MAX_PRODUCT_BYTES, "Product image"
+        )
         used_upload = True
 
     if product_image_2 and product_image_2.filename:
-        secondary_product_image_bytes = _validate_and_normalize_product(product_image_2)
+        secondary_product_image_bytes = await asyncio.to_thread(
+            _validate_and_normalize_image, product_image_2, MAX_PRODUCT_BYTES, "Product image 2"
+        )
         used_upload = True
 
     if primary_product_image_bytes is None and secondary_product_image_bytes is not None:
         primary_product_image_bytes = secondary_product_image_bytes
         secondary_product_image_bytes = None
 
-    if primary_product_image_bytes is None:
-        if not normalized_product_url:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Product image not provided"
-            )
-        try:
-            primary_product_image_bytes = await fetch_product_image(normalized_product_url)
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if primary_product_image_bytes is None and not normalized_product_url:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Product image not provided")
 
     product_ref = "uploaded product image" if used_upload else str(normalized_product_url)
 
-    # Guard: masculine fit_style + feminine-only swimwear/lingerie category is incompatible.
-    # Return a clear error before spending tokens on a Gemini call that will be refused anyway.
     _FEMININE_SWIMWEAR_KEYWORDS = {
         "bikini", "swimsuit", "swimwear", "bathing suit", "one-piece", "monokini",
         "strój kąpielowy", "kostium kąpielowy", "góra od bikini", "dół od bikini",
@@ -213,136 +145,57 @@ async def generate_tryon(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="incompatible_category:masculine_swimwear",
             )
+
     requested_variants = variants if variants is not None else settings.variants
     variant_count = max(1, min(requested_variants, 3))
-
     back_reference_available = secondary_product_image_bytes is not None
-
-    chosen_model = "gemini-3.1-flash-image-preview"
-
-    client = GeminiClient(model=chosen_model)
-    successful: list[ImageVariant] = []
-    fallbacks: list[ImageVariant] = []
-    first_model_ms: Optional[float] = None
-
-    logger.info(
-        "generate_tryon start product_url=%s used_upload=%s variants=%d back_reference=%s model=%s",
-        normalized_product_url,
-        used_upload,
-        variant_count,
-        back_reference_available,
-        client.model,
-    )
 
     charged_tokens = 0
     if user_id and not settings.dev_mode:
         charged_tokens = variant_count * settings.token_cost_per_stylization
-        updated_tokens = await asyncio.to_thread(deduct_tokens_if_possible, user_id, charged_tokens)
+        updated_tokens = await deduct_tokens_if_possible(user_id, charged_tokens)
         if updated_tokens is None:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail=f"Insufficient tokens. Required: {charged_tokens}",
             )
 
+    payload = {
+        "product_url": normalized_product_url,
+        "selfie_b64": base64.b64encode(selfie_bytes).decode("ascii"),
+        "product_image_1_b64": base64.b64encode(primary_product_image_bytes).decode("ascii") if primary_product_image_bytes else None,
+        "product_image_2_b64": base64.b64encode(secondary_product_image_bytes).decode("ascii") if secondary_product_image_bytes else None,
+        "category": category,
+        "fit_style": fit_style,
+        "height_cm": height_cm,
+        "chest_cm": chest_cm,
+        "waist_cm": waist_cm,
+        "hips_cm": hips_cm,
+        "variant_count": variant_count,
+        "model_choice": model_choice,
+        "user_id": user_id,
+        "charged_tokens": charged_tokens,
+        "used_upload": used_upload,
+        "product_ref": product_ref,
+        "back_reference_available": back_reference_available,
+    }
+
     try:
-        tasks = []
-        for index in range(variant_count):
-            variant_number = index + 1
-            prompt = build_openvto_prompt(
-                product_ref,
-                is_upload=used_upload,
-                category=category,
-                fit_style=fit_style,
-                height_cm=height_cm,
-                chest_cm=chest_cm,
-                waist_cm=waist_cm,
-                hips_cm=hips_cm,
-                variants=variant_count,
-                variant_index=variant_number,
-                back_reference_available=back_reference_available,
-            )
-            current_product_image_bytes = (
-                secondary_product_image_bytes
-                if variant_count == 3 and variant_number == 3 and secondary_product_image_bytes is not None
-                else primary_product_image_bytes
-            )
-            tasks.append(_run_variant(client, prompt, selfie_bytes, current_product_image_bytes))
-
-        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        for raw in raw_results:
-            if isinstance(raw, BaseException):
-                fallbacks.append(ImageVariant(error=str(raw), mime_type="image/jpeg"))
-                continue
-            result, latency_ms = raw
-            if first_model_ms is None:
-                first_model_ms = latency_ms
-
-            width = height = None
+        job_id = await enqueue_job(payload)
+    except Exception as exc:
+        # Enqueue failed after charging: refund to avoid losing user tokens.
+        if charged_tokens > 0 and user_id:
             try:
-                b = result.get("image_base64")
-                if isinstance(b, str):
-                    from base64 import b64decode
-
-                    img_bytes = b64decode(b)
-                    img = Image.open(BytesIO(img_bytes))
-                    width, height = img.size
+                await add_tokens(user_id, charged_tokens)
             except Exception:
-                width = height = None
+                logger.exception("Failed to refund tokens after enqueue failure user=%s", user_id)
+        track_generate_request("enqueue_failed")
+        logger.exception("generate_tryon enqueue failed user=%s", user_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Generation queue unavailable. Please try again.",
+        ) from exc
 
-            result_status = result.get("status", "fallback")
-            variant = ImageVariant(
-                image_base64=result.get("image_base64"),
-                mime_type=result.get("mime_type", "image/jpeg"),
-                width=width,
-                height=height,
-                latency_ms=latency_ms,
-                error=result.get("error") if result_status in ("fallback", "refused") else None,
-            )
-
-            if result_status == "generated" and variant.image_base64:
-                successful.append(variant)
-            else:
-                fallbacks.append(variant)
-    except Exception:
-        if user_id and charged_tokens > 0:
-            await asyncio.to_thread(add_tokens, user_id, charged_tokens)
-        raise
-
-    variants_payload = successful or fallbacks
-    first = variants_payload[0] if variants_payload else None
-    # Determine overall status — 'refused' takes priority over generic 'fallback'
-    if successful:
-        overall_status = "generated"
-    elif any(v.error == "content_policy" for v in fallbacks):
-        overall_status = "refused"
-    elif variants_payload:
-        overall_status = "fallback"
-    else:
-        overall_status = "failed"
-    # Collect first error detail from fallback variants for client-side display
-    fallback_detail: Optional[str] = None
-    if overall_status != "generated":
-        for v in fallbacks:
-            if v.error:
-                fallback_detail = v.error
-                break
-
-    total_ms = (perf_counter() - t_enter) * 1000.0
-    logger.info(
-        "generate_tryon done status=%s variants=%d model=%s total_ms=%.1f first_model_ms=%.1f",
-        overall_status,
-        len(variants_payload),
-        client.model,
-        total_ms,
-        first_model_ms or -1.0,
-    )
-
-    return GenerateResponse(
-        status=overall_status,
-        image_base64=first.image_base64 if first else None,
-        mime_type=first.mime_type if first else None,
-        variants=variants_payload,
-        model=client.model,
-        detail=fallback_detail,
-    )
+    track_generate_request("queued")
+    logger.info("generate_tryon queued job_id=%s user=%s variants=%d", job_id, user_id, variant_count)
+    return GenerateJobResponse(job_id=job_id)

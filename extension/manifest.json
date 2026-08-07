@@ -14,8 +14,7 @@
   },
   "permissions": [
     "storage",
-    "activeTab",
-    "tabs"
+    "activeTab"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -35,12 +34,14 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' https://accounts.google.com; object-src 'self'; img-src 'self' data: blob: https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' https://api.aigrafka.pl https://accounts.google.com; frame-src https://accounts.google.com;"
+  },
   "web_accessible_resources": [
     {
       "resources": [
-        "*.js",
-        "*.css",
-        "icons/*"
+        "icons/*",
+        "assets/logo_white.svg"
       ],
       "matches": [
         "<all_urls>"

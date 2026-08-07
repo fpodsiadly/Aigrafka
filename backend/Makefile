@@ -2,7 +2,7 @@ PY=python3
 VENVDIR=.venv
 ACT=source $(VENVDIR)/bin/activate
 
-.PHONY: venv install dev fmt lint test
+.PHONY: venv install dev worker migrate start fmt lint test
 
 venv:
 	$(PY) -m venv $(VENVDIR)
@@ -13,12 +13,20 @@ install: venv
 dev:
 	$(ACT) && uvicorn app.main:app --reload --port 8000
 
+worker:
+	$(ACT) && python run_worker.py
+
+migrate:
+	$(ACT) && alembic upgrade head
+
+start:
+	$(ACT) && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $${PORT:-8000}
+
 fmt:
-	$(ACT) && python -m pip install black isort && black app && isort app
+	$(ACT) && black app tests run_worker.py && isort app tests run_worker.py
 
 lint:
-	$(ACT) && python -m pip install ruff && ruff app
+	$(ACT) && ruff check app tests run_worker.py
 
-# Placeholder tests; add when tests exist
 test:
-	$(ACT) && pytest
+	$(ACT) && pytest tests/ -v

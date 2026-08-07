@@ -1,18 +1,17 @@
 from urllib.parse import urlparse
-from typing import Optional
 
 
 def build_openvto_prompt(
     product_ref: str,
     is_upload: bool = False,
-    category: Optional[str] = None,
-    fit_style: Optional[str] = None,
-    height_cm: Optional[str] = None,
-    chest_cm: Optional[str] = None,
-    waist_cm: Optional[str] = None,
-    hips_cm: Optional[str] = None,
+    category: str | None = None,
+    fit_style: str | None = None,
+    height_cm: str | None = None,
+    chest_cm: str | None = None,
+    waist_cm: str | None = None,
+    hips_cm: str | None = None,
     variants: int = 1,
-    variant_index: Optional[int] = None,
+    variant_index: int | None = None,
     back_reference_available: bool = False,
 ) -> str:
     domain = urlparse(product_ref).netloc if not is_upload else ""

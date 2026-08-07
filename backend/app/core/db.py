@@ -1,90 +1,54 @@
-from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.core.config import get_settings
 
-_engine = None
+_engine: AsyncEngine | None = None
 
 
-def get_engine():
+def _to_async_url(url: str) -> str:
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
+    return url
+
+
+def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         settings = get_settings()
-        db_url = settings.database_url
+        db_url = _to_async_url(settings.database_url)
         is_local = any(h in db_url for h in ("localhost", "127.0.0.1", "::1"))
         if not is_local and "sslmode=" not in db_url:
             separator = "&" if "?" in db_url else "?"
             db_url = f"{db_url}{separator}sslmode=require"
-        _engine = create_engine(db_url, pool_pre_ping=True, future=True)
+        _engine = create_async_engine(
+            db_url,
+            pool_pre_ping=True,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_recycle=settings.db_pool_recycle,
+            pool_timeout=settings.db_pool_timeout,
+            future=True,
+        )
     return _engine
 
 
-def init_auth_tables() -> None:
+async def close_engine() -> None:
+    global _engine
+    if _engine is not None:
+        await _engine.dispose()
+        _engine = None
+
+
+async def get_profile_by_user_id(user_id: str) -> dict | None:
     engine = get_engine()
-    with engine.begin() as conn:
-        conn.execute(text(
-            """
-            CREATE TABLE IF NOT EXISTS auth_user_credentials (
-                user_id TEXT PRIMARY KEY REFERENCES "User"(id) ON DELETE CASCADE,
-                email TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """
-        ))
-
-
-def init_profile_tables() -> None:
-    engine = get_engine()
-    with engine.begin() as conn:
-        conn.execute(text(
-            """
-            CREATE TABLE IF NOT EXISTS "Profile" (
-                id TEXT PRIMARY KEY,
-                "userId" TEXT UNIQUE NOT NULL REFERENCES "User"(id) ON DELETE CASCADE,
-                height TEXT NOT NULL,
-                chest TEXT NOT NULL,
-                waist TEXT NOT NULL,
-                hips TEXT NOT NULL,
-                "fitStyle" TEXT,
-                category TEXT,
-                "productUrl" TEXT,
-                "selfieUrl" TEXT,
-                "consentGiven" BOOLEAN NOT NULL DEFAULT FALSE,
-                "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """
-        ))
-        conn.execute(text('ALTER TABLE "Profile" ADD COLUMN IF NOT EXISTS "fitStyle" TEXT'))
-        conn.execute(text('ALTER TABLE "Profile" ADD COLUMN IF NOT EXISTS category TEXT'))
-        conn.execute(text('ALTER TABLE "Profile" ADD COLUMN IF NOT EXISTS "productUrl" TEXT'))
-        conn.execute(text('ALTER TABLE "Profile" ADD COLUMN IF NOT EXISTS "selfieUrl" TEXT'))
-        conn.execute(text('ALTER TABLE "Profile" ADD COLUMN IF NOT EXISTS "consentGiven" BOOLEAN NOT NULL DEFAULT FALSE'))
-
-
-def init_payment_tables() -> None:
-    engine = get_engine()
-    with engine.begin() as conn:
-        conn.execute(text(
-            """
-            CREATE TABLE IF NOT EXISTS fastapi_payment_events (
-                event_id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                amount_tokens INTEGER NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """
-        ))
-
-
-def get_profile_by_user_id(user_id: str) -> Optional[dict]:
-    engine = get_engine()
-    with engine.connect() as conn:
-        row = conn.execute(
+    async with engine.connect() as conn:
+        row = (await conn.execute(
             text(
                 """
                 SELECT
@@ -104,25 +68,25 @@ def get_profile_by_user_id(user_id: str) -> Optional[dict]:
                 """
             ),
             {"user_id": user_id},
-        ).mappings().first()
+        )).mappings().first()
     return dict(row) if row else None
 
 
-def upsert_profile(
+async def upsert_profile(
     user_id: str,
     height: str,
     chest: str,
     waist: str,
     hips: str,
-    fit_style: Optional[str],
+    fit_style: str | None,
     consent_given: bool,
-    category: Optional[str] = None,
-    product_url: Optional[str] = None,
-    selfie_url: Optional[str] = None,
+    category: str | None = None,
+    product_url: str | None = None,
+    selfie_url: str | None = None,
 ) -> dict:
     engine = get_engine()
-    with engine.begin() as conn:
-        conn.execute(
+    async with engine.begin() as conn:
+        saved = (await conn.execute(
             text(
                 """
                 INSERT INTO "Profile" (
@@ -167,6 +131,17 @@ def upsert_profile(
                     "selfieUrl" = EXCLUDED."selfieUrl",
                     "consentGiven" = EXCLUDED."consentGiven",
                     "updatedAt" = NOW()
+                RETURNING
+                    "userId" AS "userId",
+                    height,
+                    chest,
+                    waist,
+                    hips,
+                    "fitStyle" AS "fitStyle",
+                    "consentGiven" AS "consentGiven",
+                    category,
+                    "productUrl" AS "productUrl",
+                    "selfieUrl" AS "selfieUrl"
                 """
             ),
             {
@@ -182,18 +157,17 @@ def upsert_profile(
                 "selfie_url": selfie_url,
                 "consent_given": consent_given,
             },
-        )
+        )).mappings().first()
 
-    saved = get_profile_by_user_id(user_id)
     if not saved:
         raise RuntimeError("Failed to upsert profile")
-    return saved
+    return dict(saved)
 
 
-def get_user_with_credentials_by_email(email: str) -> Optional[dict]:
+async def get_user_with_credentials_by_email(email: str) -> dict | None:
     engine = get_engine()
-    with engine.connect() as conn:
-        row = conn.execute(
+    async with engine.connect() as conn:
+        row = (await conn.execute(
             text(
                 """
                 SELECT u.id, u.email, u.tokens, c.password_hash
@@ -204,14 +178,14 @@ def get_user_with_credentials_by_email(email: str) -> Optional[dict]:
                 """
             ),
             {"email": email},
-        ).mappings().first()
+        )).mappings().first()
     return dict(row) if row else None
 
 
-def get_user_by_id(user_id: str) -> Optional[dict]:
+async def get_user_by_id(user_id: str) -> dict | None:
     engine = get_engine()
-    with engine.connect() as conn:
-        row = conn.execute(
+    async with engine.connect() as conn:
+        row = (await conn.execute(
             text(
                 """
                 SELECT id, email, tokens
@@ -221,14 +195,14 @@ def get_user_by_id(user_id: str) -> Optional[dict]:
                 """
             ),
             {"user_id": user_id},
-        ).mappings().first()
+        )).mappings().first()
     return dict(row) if row else None
 
 
-def get_user_by_email(email: str) -> Optional[dict]:
+async def get_user_by_email(email: str) -> dict | None:
     engine = get_engine()
-    with engine.connect() as conn:
-        row = conn.execute(
+    async with engine.connect() as conn:
+        row = (await conn.execute(
             text(
                 """
                 SELECT id, email, tokens
@@ -238,105 +212,60 @@ def get_user_by_email(email: str) -> Optional[dict]:
                 """
             ),
             {"email": email},
-        ).mappings().first()
+        )).mappings().first()
     return dict(row) if row else None
 
 
-def get_or_create_user_by_email(email: str, initial_tokens: int) -> dict:
-    existing = get_user_by_email(email)
-    if existing:
-        return existing
-
+async def get_or_create_user_by_email(email: str, initial_tokens: int) -> dict:
+    # Single atomic statement: DO UPDATE guarantees RETURNING yields the row on
+    # both insert and conflict, eliminating the read-before-write race.
     engine = get_engine()
-    user_id = uuid4().hex
+    async with engine.begin() as conn:
+        user = (await conn.execute(
+            text(
+                """
+                INSERT INTO "User" (id, email, tokens, "createdAt", "updatedAt")
+                VALUES (:id, :email, :tokens, NOW(), NOW())
+                ON CONFLICT (email) DO UPDATE SET "updatedAt" = NOW()
+                RETURNING id, email, tokens
+                """
+            ),
+            {"id": uuid4().hex, "email": email, "tokens": initial_tokens},
+        )).mappings().first()
+
+    if not user:
+        raise RuntimeError("Failed to create user")
+    return dict(user)
+
+
+async def create_user_with_credentials(email: str, password_hash: str, initial_tokens: int) -> dict:
+    engine = get_engine()
 
     try:
-        with engine.begin() as conn:
-            conn.execute(
+        async with engine.begin() as conn:
+            user = (await conn.execute(
                 text(
                     """
                     INSERT INTO "User" (id, email, tokens, "createdAt", "updatedAt")
                     VALUES (:id, :email, :tokens, NOW(), NOW())
+                    ON CONFLICT (email) DO UPDATE SET "updatedAt" = NOW()
+                    RETURNING id, email, tokens
                     """
                 ),
-                {"id": user_id, "email": email, "tokens": initial_tokens},
-            )
+                {"id": uuid4().hex, "email": email, "tokens": initial_tokens},
+            )).mappings().first()
 
-            user = conn.execute(
-                text(
-                    """
-                    SELECT id, email, tokens
-                    FROM "User"
-                    WHERE id = :user_id
-                    LIMIT 1
-                    """
-                ),
-                {"user_id": user_id},
-            ).mappings().first()
-
-        if not user:
-            raise RuntimeError("Failed to create user")
-
-        return dict(user)
-    except IntegrityError:
-        race_user = get_user_by_email(email)
-        if race_user:
-            return race_user
-        raise
-
-
-def create_user_with_credentials(email: str, password_hash: str, initial_tokens: int) -> dict:
-    engine = get_engine()
-    user_id = uuid4().hex
-
-    try:
-        with engine.begin() as conn:
-            existing_user = conn.execute(
-                text(
-                    """
-                    SELECT id, email, tokens
-                    FROM "User"
-                    WHERE LOWER(email) = LOWER(:email)
-                    LIMIT 1
-                    """
-                ),
-                {"email": email},
-            ).mappings().first()
-
-            if existing_user:
-                user_id = existing_user["id"]
-            else:
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO "User" (id, email, tokens, "createdAt", "updatedAt")
-                        VALUES (:id, :email, :tokens, NOW(), NOW())
-                        """
-                    ),
-                    {"id": user_id, "email": email, "tokens": initial_tokens},
-                )
-
-            conn.execute(
+            # Fails with IntegrityError if credentials already exist for this
+            # user/email (i.e. the account is already registered).
+            await conn.execute(
                 text(
                     """
                     INSERT INTO auth_user_credentials (user_id, email, password_hash)
                     VALUES (:user_id, :email, :password_hash)
                     """
                 ),
-                {"user_id": user_id, "email": email, "password_hash": password_hash},
+                {"user_id": user["id"], "email": email, "password_hash": password_hash},
             )
-
-            user = conn.execute(
-                text(
-                    """
-                    SELECT id, email, tokens
-                    FROM "User"
-                    WHERE id = :user_id
-                    LIMIT 1
-                    """
-                ),
-                {"user_id": user_id},
-            ).mappings().first()
 
         if not user:
             raise RuntimeError("Failed to create user")
@@ -346,10 +275,10 @@ def create_user_with_credentials(email: str, password_hash: str, initial_tokens:
         raise ValueError("User already exists") from exc
 
 
-def add_tokens(user_id: str, amount: int) -> int:
+async def add_tokens(user_id: str, amount: int) -> int:
     engine = get_engine()
-    with engine.begin() as conn:
-        row = conn.execute(
+    async with engine.begin() as conn:
+        row = (await conn.execute(
             text(
                 """
                 UPDATE "User"
@@ -360,16 +289,16 @@ def add_tokens(user_id: str, amount: int) -> int:
                 """
             ),
             {"user_id": user_id, "amount": amount},
-        ).mappings().first()
+        )).mappings().first()
     if not row:
         raise ValueError("User not found")
     return int(row["tokens"])
 
 
-def deduct_tokens_if_possible(user_id: str, amount: int) -> Optional[int]:
+async def deduct_tokens_if_possible(user_id: str, amount: int) -> int | None:
     engine = get_engine()
-    with engine.begin() as conn:
-        row = conn.execute(
+    async with engine.begin() as conn:
+        row = (await conn.execute(
             text(
                 """
                 UPDATE "User"
@@ -381,17 +310,17 @@ def deduct_tokens_if_possible(user_id: str, amount: int) -> Optional[int]:
                 """
             ),
             {"user_id": user_id, "amount": amount},
-        ).mappings().first()
+        )).mappings().first()
 
     if not row:
         return None
     return int(row["tokens"])
 
 
-def credit_tokens_for_payment(event_id: str, user_id: str, amount_tokens: int) -> bool:
+async def credit_tokens_for_payment(event_id: str, user_id: str, amount_tokens: int) -> bool:
     engine = get_engine()
-    with engine.begin() as conn:
-        inserted = conn.execute(
+    async with engine.begin() as conn:
+        inserted = (await conn.execute(
             text(
                 """
                 INSERT INTO fastapi_payment_events (event_id, user_id, amount_tokens)
@@ -405,12 +334,12 @@ def credit_tokens_for_payment(event_id: str, user_id: str, amount_tokens: int) -
                 "user_id": user_id,
                 "amount_tokens": amount_tokens,
             },
-        ).mappings().first()
+        )).mappings().first()
 
         if not inserted:
             return False
 
-        row = conn.execute(
+        row = (await conn.execute(
             text(
                 """
                 UPDATE "User"
@@ -421,7 +350,7 @@ def credit_tokens_for_payment(event_id: str, user_id: str, amount_tokens: int) -
                 """
             ),
             {"amount": amount_tokens, "user_id": user_id},
-        ).mappings().first()
+        )).mappings().first()
 
         if not row:
             raise ValueError("User not found")

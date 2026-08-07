@@ -1,0 +1,107 @@
+import asyncio
+import logging
+import threading
+import time
+
+from fastapi import HTTPException, Request, status
+
+from app.core.config import get_settings
+from app.core.network import client_ip
+from app.core.redis_client import get_redis_client, invalidate_redis_client
+
+logger = logging.getLogger(__name__)
+
+# Process-local fallback used when Redis is unavailable, so limits are still
+# enforced (fail-closed against unlimited traffic) instead of silently skipped.
+_local_hits: dict[str, list[int]] = {}
+_local_lock = threading.Lock()
+_last_purge_ms = 0
+
+BURST_WINDOW_MS = 10 * 1000
+MAX_WINDOW_MS = 60 * 60 * 1000
+PURGE_INTERVAL_MS = 5 * 60 * 1000
+
+
+def _maybe_purge_local(now_ms: int) -> None:
+    """Drop stale keys from the fallback store so it does not grow unbounded."""
+    global _last_purge_ms
+    with _local_lock:
+        if now_ms - _last_purge_ms < PURGE_INTERVAL_MS:
+            return
+        _last_purge_ms = now_ms
+        cutoff = now_ms - MAX_WINDOW_MS
+        stale = [k for k, hits in _local_hits.items() if not hits or max(hits) <= cutoff]
+        for k in stale:
+            del _local_hits[k]
+
+
+def _too_many(retry_after: int) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many generation requests. Please wait a moment.",
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+def _check_local_window(key: str, window_ms: int, max_count: int, now_ms: int) -> bool:
+    """Sliding-window check against process-local store. Returns True if allowed."""
+    with _local_lock:
+        hits = [t for t in _local_hits.get(key, []) if t > now_ms - window_ms]
+        if len(hits) >= max_count:
+            _local_hits[key] = hits
+            return False
+        hits.append(now_ms)
+        _local_hits[key] = hits
+        return True
+
+
+def _check_redis_window(client, key: str, window_ms: int, max_count: int, now_ms: int) -> bool:
+    """Sliding-window check against Redis sorted set. Returns True if allowed."""
+    client.zremrangebyscore(key, 0, now_ms - window_ms)
+    count = client.zcard(key)
+    if count >= max_count:
+        return False
+    client.zadd(key, {f"{now_ms}:{count}": now_ms})
+    client.expire(key, int(window_ms / 1000) + 1)
+    return True
+
+
+async def enforce_generate_rate_limit(request: Request, user_id: str | None) -> None:
+    settings = get_settings()
+    client = get_redis_client()
+    ip = client_ip(request)
+
+    now_ms = int(time.time() * 1000)
+    minute_ms = 60 * 1000
+    hour_ms = 60 * 60 * 1000
+
+    _maybe_purge_local(now_ms)
+
+    scopes = [("ip", ip)]
+    if user_id:
+        scopes.append(("user", user_id))
+
+    # (suffix, window_ms, max_count, retry_after_seconds)
+    windows = [
+        ("burst", BURST_WINDOW_MS, settings.generate_rate_limit_burst, 10),
+        ("minute", minute_ms, settings.generate_rate_limit_per_minute, 60 - int(time.time() % 60)),
+        ("hour", hour_ms, settings.generate_rate_limit_per_hour, 3600),
+    ]
+
+    for scope, ident in scopes:
+        for suffix, window_ms, max_count, retry_after in windows:
+            key = f"rate_limit:generate:{scope}:{ident}:{suffix}"
+            allowed = True
+            if client:
+                try:
+                    allowed = await asyncio.to_thread(_check_redis_window, client, key, window_ms, max_count, now_ms)
+                except Exception as exc:
+                    logger.error("Rate limit Redis error for %s; using local fallback: %s", key, exc)
+                    invalidate_redis_client()
+                    allowed = _check_local_window(key, window_ms, max_count, now_ms)
+            else:
+                allowed = _check_local_window(key, window_ms, max_count, now_ms)
+
+            if not allowed:
+                logger.warning("Rate limit hit: %s", key)
+                raise _too_many(retry_after)

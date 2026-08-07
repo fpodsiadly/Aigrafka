@@ -4,6 +4,13 @@ import { resolve } from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      react: 'preact/compat',
+      'react-dom': 'preact/compat',
+      'react/jsx-runtime': 'preact/jsx-runtime',
+    }
+  },
   server: {
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
@@ -13,7 +20,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: false,
-    sourcemap: true,
+    sourcemap: false,
     rollupOptions: {
       input: {
         background: resolve(__dirname, 'src/background/serviceWorker.ts'),

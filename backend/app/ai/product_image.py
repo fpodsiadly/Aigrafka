@@ -2,15 +2,13 @@ import asyncio
 import ipaddress
 import re
 import socket
-import time
-from collections import OrderedDict
 from io import BytesIO
-from typing import Optional
 from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
 from PIL import Image
 
+from app.core.cache import get_cached_product_image, set_cached_product_image
 from app.core.config import get_settings
 
 # Decompression bomb protection — PIL raises DecompressionBombError above this
@@ -28,12 +26,14 @@ DEFAULT_HEADERS = {
 }
 MAX_IMAGE_BYTES = settings.max_product_image_mb * 1024 * 1024
 MAX_SIDE_PX = settings.max_side_px
-CACHE_TTL = 300  # seconds
-MAX_CACHE_ENTRIES = 500
-_CACHE: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
+MAX_HTML_BYTES = 5 * 1024 * 1024
 
 
-def _extract_image_candidate(html: str) -> Optional[str]:
+def _verify_and_normalize(content: bytes) -> bytes:
+    return _normalize_image(_verify_image(content))
+
+
+def _extract_image_candidate(html: str) -> str | None:
     patterns = [
         r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
         r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
@@ -53,16 +53,30 @@ def _extract_image_candidate(html: str) -> Optional[str]:
     return None
 
 
+async def _get_safe(client: httpx.AsyncClient, url: str) -> httpx.Response:
+    """GET following redirects manually, validating every hop against SSRF."""
+    current = url
+    for _ in range(settings.product_image_max_redirects + 1):
+        response = await client.get(current)
+        if response.is_redirect and response.next_request is not None:
+            location = str(response.next_request.url)
+            await _ensure_public_url(location)
+            current = location
+            continue
+        return response
+    raise ValueError("Too many redirects")
+
+
 async def _get_with_retry(client: httpx.AsyncClient, url: str) -> httpx.Response:
-    last_exc: Optional[Exception] = None
-    for _ in range(2):
+    last_exc: Exception | None = None
+    for attempt in range(3):
         try:
-            response = await client.get(url)
+            response = await _get_safe(client, url)
             response.raise_for_status()
             return response
         except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
             last_exc = exc
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.2 * (2 ** attempt))
 
     if isinstance(last_exc, httpx.HTTPStatusError):
         code = last_exc.response.status_code if last_exc.response is not None else "unknown"
@@ -72,14 +86,14 @@ async def _get_with_retry(client: httpx.AsyncClient, url: str) -> httpx.Response
     raise ValueError("Failed to fetch product page") from last_exc
 
 def _verify_image(content: bytes) -> bytes:
-    import io
-
-    image = Image.open(io.BytesIO(content))
+    image = Image.open(BytesIO(content))
     image.verify()
     return content
 
 
-def _normalize_image(content: bytes) -> bytes:
+def _normalize_image(content: bytes, fmt: str | None = None, quality: int | None = None) -> bytes:
+    format_str = (fmt or settings.image_output_format).lower()
+    q = quality or settings.image_output_quality
     image = Image.open(BytesIO(content)).convert("RGB")
     w, h = image.size
     longer = max(w, h)
@@ -87,8 +101,44 @@ def _normalize_image(content: bytes) -> bytes:
         scale = MAX_SIDE_PX / longer
         image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
     buffer = BytesIO()
-    image.save(buffer, format="JPEG", quality=85)
+    if format_str == "webp":
+        image.save(buffer, format="WEBP", quality=q, method=6)
+    elif format_str == "avif":
+        try:
+            image.save(buffer, format="AVIF", quality=q)
+        except Exception:
+            image.save(buffer, format="WEBP", quality=q, method=6)
+    else:
+        image.save(buffer, format="JPEG", quality=q, optimize=True)
     return buffer.getvalue()
+
+
+async def _upload_to_cdn(key: str, data: bytes, content_type: str) -> str | None:
+    """Upload processed image to S3-compatible CDN if configured."""
+    if not settings.product_image_cdn_enabled:
+        return None
+    if not all([settings.s3_endpoint_url, settings.s3_bucket, settings.s3_access_key, settings.s3_secret_key]):
+        return None
+    try:
+        import aiobotocore
+    except ImportError:
+        return None
+    session = aiobotocore.get_session()
+    async with session.create_client(
+        "s3",
+        endpoint_url=settings.s3_endpoint_url,
+        aws_access_key_id=settings.s3_access_key,
+        aws_secret_access_key=settings.s3_secret_key,
+    ) as client:
+        await client.put_object(
+            Bucket=settings.s3_bucket,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+            ACL="public-read",
+        )
+    base = settings.product_image_cdn_base_url or settings.s3_endpoint_url
+    return f"{base.rstrip('/')}/{key}"
 
 
 def _sanitize_image_url(image_url: str, source_page_url: str) -> str:
@@ -99,23 +149,6 @@ def _sanitize_image_url(image_url: str, source_page_url: str) -> str:
     if parsed.scheme == "http":  # force https
         parsed = parsed._replace(scheme="https")
     return urlunparse(parsed)
-
-
-def _get_cached(url: str) -> Optional[bytes]:
-    entry = _CACHE.get(url)
-    if not entry:
-        return None
-    ts, data = entry
-    if time.time() - ts > CACHE_TTL:
-        _CACHE.pop(url, None)
-        return None
-    return data
-
-
-def _set_cache(url: str, data: bytes) -> None:
-    _CACHE[url] = (time.time(), data)
-    while len(_CACHE) > MAX_CACHE_ENTRIES:
-        _CACHE.popitem(last=False)
 
 
 async def _ensure_public_url(url: str) -> None:
@@ -142,8 +175,8 @@ async def _ensure_public_url(url: str) -> None:
             None,
             lambda: socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM),
         )
-    except OSError:
-        raise ValueError("Unable to resolve URL hostname")
+    except OSError as exc:
+        raise ValueError("Unable to resolve URL hostname") from exc
     for _, _, _, _, sockaddr in addr_infos:
         addr = sockaddr[0]
         try:
@@ -154,7 +187,7 @@ async def _ensure_public_url(url: str) -> None:
             raise
 
 
-async def fetch_product_image(url: str, timeout: Optional[float] = None) -> bytes:
+async def fetch_product_image(url: str, timeout: float | None = None) -> bytes:
     parsed_url = urlparse(url)
     if parsed_url.scheme not in {"https", "http"} or not parsed_url.netloc:
         raise ValueError("Invalid product URL")
@@ -163,23 +196,24 @@ async def fetch_product_image(url: str, timeout: Optional[float] = None) -> byte
 
     timeout = timeout or settings.product_image_timeout
 
-    cached = _get_cached(url)
+    cached = await get_cached_product_image(url)
     if cached:
         return cached
 
-    async with httpx.AsyncClient(timeout=timeout, headers=DEFAULT_HEADERS, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=timeout, headers=DEFAULT_HEADERS, follow_redirects=False) as client:
         resp = await _get_with_retry(client, url)
         content_type = resp.headers.get("Content-Type", "")
 
         if content_type.startswith("image/"):
             if len(resp.content) > MAX_IMAGE_BYTES:
                 raise ValueError("Product image too large")
-            data = _verify_image(resp.content)
-            data = _normalize_image(data)
-            _set_cache(url, data)
+            data = await asyncio.to_thread(_verify_and_normalize, resp.content)
+            await set_cached_product_image(url, data)
             return data
 
-        # If it's HTML page, try to extract a likely product image
+        # If it's an HTML page, try to extract a likely product image
+        if len(resp.content) > MAX_HTML_BYTES:
+            raise ValueError("Product page too large")
         html = resp.text
         image_candidate = _extract_image_candidate(html)
         if not image_candidate:
@@ -189,7 +223,7 @@ async def fetch_product_image(url: str, timeout: Optional[float] = None) -> byte
         await _ensure_public_url(image_url)
 
         try:
-            img_resp = await client.get(image_url)
+            img_resp = await _get_safe(client, image_url)
             img_resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise ValueError(f"Failed to fetch product image (HTTP {exc.response.status_code})") from exc
@@ -202,7 +236,6 @@ async def fetch_product_image(url: str, timeout: Optional[float] = None) -> byte
         if len(img_resp.content) > MAX_IMAGE_BYTES:
             raise ValueError("Product image too large")
 
-        data = _verify_image(img_resp.content)
-        data = _normalize_image(data)
-        _set_cache(url, data)
+        data = await asyncio.to_thread(_verify_and_normalize, img_resp.content)
+        await set_cached_product_image(url, data)
         return data

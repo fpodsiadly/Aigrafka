@@ -1,0 +1,14 @@
+name: Keep Render API warm
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping production API
+        run: curl --fail --silent --show-error --max-time 30 https://api.aigrafka.pl/health

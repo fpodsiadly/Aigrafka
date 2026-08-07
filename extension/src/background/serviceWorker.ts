@@ -5,7 +5,7 @@ async function setBadge(text: string, color: string) {
   try {
     await chrome.action.setBadgeText({ text });
     await chrome.action.setBadgeBackgroundColor({ color });
-  } catch (e) {
+  } catch {
     /* ignore */
   }
   // auto-clear after 3s
@@ -14,7 +14,13 @@ async function setBadge(text: string, color: string) {
   }, 3000);
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Only handle messages originating from this extension's own content
+  // scripts/pages; reject anything else (defense against spoofed senders).
+  if (sender.id !== chrome.runtime.id) {
+    return false;
+  }
+
   if (message?.type === 'AIGRAFKA_CAPTURE_VISIBLE_TAB') {
     chrome.tabs.captureVisibleTab(chrome.windows.WINDOW_ID_CURRENT, { format: 'png' })
       .then(dataUrl => sendResponse({ ok: true, dataUrl }))
@@ -73,7 +79,7 @@ chrome.action.onClicked.addListener(async tab => {
   try {
     const u = new URL(url);
     allow = u.protocol === 'http:' || u.protocol === 'https:' || u.protocol === 'file:';
-  } catch (e) {
+  } catch {
     /* ignore parse error */
   }
   if (!allow) {

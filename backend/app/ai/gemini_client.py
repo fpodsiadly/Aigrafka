@@ -2,7 +2,7 @@ import asyncio
 import base64
 import io
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from google import genai
 from google.genai import types
@@ -17,7 +17,7 @@ class GeminiClient:
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Yg3FdQAAAAASUVORK5CYII="
     )
 
-    def __init__(self, api_key: Optional[str] = None, timeout: Optional[float] = None, model: Optional[str] = None) -> None:
+    def __init__(self, api_key: str | None = None, timeout: float | None = None, model: str | None = None) -> None:
         settings = get_settings()
         self.api_key = api_key or settings.gemini_api_key or ""
         # Primary model: Gemini 3 image generation (generateContent)
@@ -100,15 +100,15 @@ class GeminiClient:
         # Extract final inline_data bytes from candidates.
         # With thinking enabled, draft/thought images precede the final image —
         # take the LAST non-thought inline_data part (which is the final render).
-        def extract_inline_data(resp: Any) -> tuple[Optional[bytes], Optional[str]]:
+        def extract_inline_data(resp: Any) -> tuple[bytes | None, str | None]:
             try:
                 candidates = getattr(resp, "candidates", []) or []
                 if not candidates:
                     return None, None
                 parts_resp = getattr(candidates[0], "content", None)
                 parts_list = getattr(parts_resp, "parts", []) if parts_resp else []
-                result_bytes: Optional[bytes] = None
-                result_mime: Optional[str] = None
+                result_bytes: bytes | None = None
+                result_mime: str | None = None
                 for part in parts_list:
                     # Skip thought/draft parts (present when include_thoughts=True)
                     if getattr(part, "thought", False):
@@ -187,43 +187,3 @@ class GeminiClient:
             "status": "generated",
             "model": self.model,
         }
-
-    async def generate_fit_note(self, prompt: str) -> Optional[str]:
-        """Generate a short Polish fit note based on the styling prompt."""
-
-        if self._client is None:
-            return None
-
-        instruction = (
-            "Na podstawie opisu stylizacji oceń, czy produkt pasuje do sylwetki i rozmiaru. "
-            "Napisz jedno zwięzłe zdanie po polsku, maks 200 znaków, bez emoji, bez wtrętów technicznych. "
-            f"Opis: {prompt}"
-        )
-
-        config = types.GenerateContentConfig(
-            temperature=0.4,
-            top_p=0.9,
-            response_modalities=["TEXT"],
-        )
-
-        def _do_generate() -> Any:
-            return self._client.models.generate_content(
-                model=self.model,
-                contents=[types.Content(role="user", parts=[types.Part(text=instruction)])],
-                config=config,
-            )
-
-        try:
-            response = await asyncio.wait_for(asyncio.to_thread(_do_generate), timeout=self.timeout)
-            candidates = getattr(response, "candidates", []) or []
-            if not candidates:
-                return None
-            content = getattr(candidates[0], "content", None)
-            parts_list = getattr(content, "parts", []) if content else []
-            for part in parts_list:
-                if getattr(part, "text", None):
-                    return part.text.strip()
-        except Exception:
-            return None
-
-        return None

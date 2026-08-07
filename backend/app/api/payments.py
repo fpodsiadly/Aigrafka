@@ -1,12 +1,12 @@
 import json
 import logging
 from hashlib import sha384
-from typing import Literal, Optional
+from typing import Literal
 from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.core.db import credit_tokens_for_payment, get_user_by_id
@@ -39,6 +39,20 @@ class P24WebhookPayload(BaseModel):
     sign: str
 
 
+class DevAddTokensResponse(BaseModel):
+    ok: bool
+    tokens: int | None = None
+
+
+class WebhookResponse(BaseModel):
+    received: bool
+    credited: bool | None = None
+    provider: str | None = None
+    tokens: int | None = None
+    reason: str | None = None
+    demo: bool | None = None
+
+
 class P24Config(BaseModel):
     merchant_id: int
     pos_id: int
@@ -63,7 +77,7 @@ def _build_session_id(user_id: str, pack: str) -> str:
     return raw[:100]
 
 
-def _extract_user_id_from_session(session_id: str) -> Optional[str]:
+def _extract_user_id_from_session(session_id: str) -> str | None:
     parts = session_id.split(":")
     if len(parts) < 3:
         return None
@@ -155,23 +169,23 @@ def _is_notification_sign_valid(payload: P24WebhookPayload, config: P24Config) -
     return expected == payload.sign
 
 
-@router.post("/dev-add-tokens")
-async def dev_add_tokens(user_id: str = Depends(get_current_user_id)) -> dict:
+@router.post("/dev-add-tokens", response_model=DevAddTokensResponse)
+async def dev_add_tokens(user_id: str = Depends(get_current_user_id)) -> DevAddTokensResponse:
     """Dev-only endpoint: credit 5 tokens directly. Only works when DEV_MODE=true."""
     settings = get_settings()
     if not settings.dev_mode:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only available in dev mode")
 
     event_id = f"dev:{user_id}:{uuid4().hex}"
-    credit_tokens_for_payment(event_id, user_id, 5)
-    user = get_user_by_id(user_id)
-    return {"ok": True, "tokens": user["tokens"] if user else None}
+    await credit_tokens_for_payment(event_id, user_id, 5)
+    user = await get_user_by_id(user_id)
+    return DevAddTokensResponse(ok=True, tokens=user["tokens"] if user else None)
 
 
 @router.post("/checkout", response_model=CheckoutResponse)
 async def create_checkout(body: CheckoutRequest, user_id: str = Depends(get_current_user_id)) -> CheckoutResponse:
     settings = get_settings()
-    user = get_user_by_id(user_id)
+    user = await get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
@@ -231,11 +245,11 @@ async def create_checkout(body: CheckoutRequest, user_id: str = Depends(get_curr
     )
 
 
-@router.post("/webhook")
-async def p24_webhook(request: Request) -> dict:
+@router.post("/webhook", response_model=WebhookResponse)
+async def p24_webhook(request: Request) -> WebhookResponse:
     settings = get_settings()
     if settings.p24_demo_mode:
-        return {"received": True, "demo": True, "provider": "przelewy24"}
+        return WebhookResponse(received=True, demo=True, provider="przelewy24")
 
     config = _get_p24_config()
 
@@ -282,22 +296,16 @@ async def p24_webhook(request: Request) -> dict:
     user_id = _extract_user_id_from_session(payload.sessionId)
     if not user_id:
         logger.warning("No user mapping in sessionId=%s", payload.sessionId)
-        return {"received": True, "credited": False, "reason": "no-user"}
+        return WebhookResponse(received=True, credited=False, reason="no-user")
 
     tokens = _map_amount_to_tokens(payload.amount)
     if tokens <= 0:
-        return {"received": True, "credited": False, "reason": "zero-tokens"}
+        return WebhookResponse(received=True, credited=False, reason="zero-tokens")
 
     event_id = f"p24:{payload.orderId}"
     try:
-        inserted = credit_tokens_for_payment(event_id, user_id, tokens)
+        inserted = await credit_tokens_for_payment(event_id, user_id, tokens)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found for payment") from exc
 
-    return {
-        "received": True,
-        "credited": inserted,
-        "provider": "przelewy24",
-        "tokens": tokens,
-        "user_id": user_id,
-    }
+    return WebhookResponse(received=True, credited=inserted, provider="przelewy24", tokens=tokens)

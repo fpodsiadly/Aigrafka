@@ -1,0 +1,239 @@
+import asyncio
+import base64
+import contextlib
+import logging
+import signal
+from time import perf_counter
+
+from app.ai.gemini_client import GeminiClient
+from app.ai.product_image import fetch_product_image
+from app.ai.prompts.openvto_prompt import build_openvto_prompt
+from app.core.cache import get_cached_generation, set_cached_generation
+from app.core.config import get_settings
+from app.core.db import add_tokens, close_engine
+from app.core.metrics import track_gemini_call, track_generation_latency, track_job_status, track_token_refund
+from app.core.queue import dequeue_job, get_job, update_job_status
+
+logger = logging.getLogger(__name__)
+
+
+def _fallback_models() -> list[str]:
+    raw = get_settings().gemini_fallback_models
+    models = [m.strip() for m in raw.split(",") if m.strip()]
+    return models or ["gemini-3.1-flash-image-preview"]
+
+
+async def _run_variant_with_retry(
+    prompt: str,
+    selfie_bytes: bytes,
+    product_image_bytes: bytes,
+    category: str | None,
+    fit_style: str | None,
+    height_cm: str | None,
+    chest_cm: str | None,
+    waist_cm: str | None,
+    hips_cm: str | None,
+    variant_index: int,
+) -> dict:
+    settings = get_settings()
+    last_error: str | None = None
+    fallback_models = _fallback_models()
+
+    for attempt, model in enumerate(fallback_models):
+        # Cache is keyed per model so fallback results are reused correctly.
+        cached = await get_cached_generation(
+            selfie_bytes, product_image_bytes, category, fit_style, height_cm, chest_cm, waist_cm, hips_cm, variant_index, model
+        )
+        if cached:
+            return cached
+
+        try:
+            client = GeminiClient(model=model)
+            started = perf_counter()
+            result = await asyncio.wait_for(
+                client.generate_image(prompt, selfie_bytes, product_image_bytes),
+                timeout=settings.http_timeout,
+            )
+            latency_s = perf_counter() - started
+            result["latency_ms"] = latency_s * 1000.0
+            result["model"] = model
+            track_gemini_call(model, result.get("status", "unknown"))
+            track_generation_latency(model, latency_s)
+            if result.get("status") == "generated" and result.get("image_base64"):
+                await set_cached_generation(
+                    selfie_bytes, product_image_bytes, category, fit_style, height_cm, chest_cm, waist_cm, hips_cm, variant_index, model, result
+                )
+                return result
+            last_error = result.get("error") or "fallback"
+        except Exception as exc:
+            last_error = str(exc)
+            logger.warning("Variant generation attempt %d failed with model %s: %s", attempt + 1, model, last_error)
+            await asyncio.sleep(min(2 ** attempt, 10))
+
+    return {
+        "image_base64": GeminiClient.FALLBACK_IMAGE_BASE64,
+        "mime_type": "image/png",
+        "status": "fallback",
+        "model": fallback_models[-1],
+        "error": last_error or "All generation attempts failed",
+    }
+
+
+async def process_job(job_id: str) -> None:
+    job = await get_job(job_id)
+    if not job:
+        logger.error("Job %s not found", job_id)
+        return
+
+    payload = job.get("payload") or {}
+    await update_job_status(job_id, "running")
+
+    try:
+        product_url = payload.get("product_url")
+        selfie_b64 = payload.get("selfie_b64")
+        product_image_1_b64 = payload.get("product_image_1_b64")
+        product_image_2_b64 = payload.get("product_image_2_b64")
+        category = payload.get("category")
+        fit_style = payload.get("fit_style")
+        height_cm = payload.get("height_cm")
+        chest_cm = payload.get("chest_cm")
+        waist_cm = payload.get("waist_cm")
+        hips_cm = payload.get("hips_cm")
+        variant_count = payload.get("variant_count", 1)
+        user_id = payload.get("user_id")
+        charged_tokens = payload.get("charged_tokens", 0)
+        used_upload = payload.get("used_upload", False)
+        product_ref = payload.get("product_ref", "product")
+        back_reference_available = payload.get("back_reference_available", False)
+
+        selfie_bytes = base64.b64decode(selfie_b64)
+        primary_product_image_bytes = base64.b64decode(product_image_1_b64) if product_image_1_b64 else None
+        secondary_product_image_bytes = base64.b64decode(product_image_2_b64) if product_image_2_b64 else None
+
+        if primary_product_image_bytes is None and product_url:
+            primary_product_image_bytes = await fetch_product_image(product_url)
+
+        if primary_product_image_bytes is None:
+            raise ValueError("Product image not available")
+
+        settings = get_settings()
+        chosen_model = settings.gemini_model
+
+        # Build per-variant tasks for concurrent generation (batch)
+        async def _generate_one_variant(index: int) -> dict:
+            variant_number = index + 1
+            prompt = build_openvto_prompt(
+                product_ref,
+                is_upload=used_upload,
+                category=category,
+                fit_style=fit_style,
+                height_cm=height_cm,
+                chest_cm=chest_cm,
+                waist_cm=waist_cm,
+                hips_cm=hips_cm,
+                variants=variant_count,
+                variant_index=variant_number,
+                back_reference_available=back_reference_available,
+            )
+            current_product_image_bytes = (
+                secondary_product_image_bytes
+                if variant_count == 3 and variant_number == 3 and secondary_product_image_bytes is not None
+                else primary_product_image_bytes
+            )
+            return await _run_variant_with_retry(
+                prompt,
+                selfie_bytes,
+                current_product_image_bytes,
+                category,
+                fit_style,
+                height_cm,
+                chest_cm,
+                waist_cm,
+                hips_cm,
+                variant_number,
+            )
+
+        variant_tasks = [_generate_one_variant(i) for i in range(variant_count)]
+        # return_exceptions=True: one failing variant must not abort the whole
+        # batch; normalize any raised exception into a failed-variant dict.
+        raw_variants = await asyncio.gather(*variant_tasks, return_exceptions=True)
+        variants: list[dict] = []
+        for i, v in enumerate(raw_variants):
+            if isinstance(v, BaseException):
+                logger.warning("Variant %d raised: %s", i + 1, v)
+                variants.append({"status": "failed", "error": str(v) or "variant_error"})
+            else:
+                variants.append(v)
+
+        successful = [v for v in variants if v.get("status") == "generated" and v.get("image_base64")]
+        if successful:
+            overall_status = "generated"
+        elif any(v.get("error") == "content_policy" for v in variants):
+            overall_status = "refused"
+        elif variants:
+            overall_status = "fallback"
+        else:
+            overall_status = "failed"
+
+        fallback_detail = None
+        if overall_status != "generated":
+            for v in variants:
+                if v.get("error"):
+                    fallback_detail = v["error"]
+                    break
+
+        await update_job_status(
+            job_id,
+            "completed",
+            result={
+                "status": overall_status,
+                "variants": variants,
+                "model": chosen_model,
+                "detail": fallback_detail,
+            },
+        )
+        track_job_status(overall_status)
+        logger.info("Job %s completed: %s", job_id, overall_status)
+    except Exception as exc:
+        logger.exception("Job %s failed", job_id)
+        if user_id and charged_tokens > 0:
+            try:
+                await add_tokens(user_id, charged_tokens)
+                track_token_refund()
+            except Exception:
+                logger.exception("Failed to refund tokens for job %s", job_id)
+        await update_job_status(job_id, "failed", error=str(exc))
+
+
+async def run_worker() -> None:
+    logger.info("Worker started")
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def _request_stop() -> None:
+        logger.info("Shutdown signal received; finishing in-flight job then exiting")
+        stop_event.set()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        with contextlib.suppress(NotImplementedError):
+            loop.add_signal_handler(sig, _request_stop)
+
+    while not stop_event.is_set():
+        # dequeue_job blocks up to `timeout`s; run it off-loop so signals
+        # (and the stop event) are handled promptly.
+        job_id = await asyncio.to_thread(dequeue_job, 5)
+        if stop_event.is_set():
+            break
+        if job_id:
+            try:
+                await process_job(job_id)
+            except Exception:
+                logger.exception("Unhandled error processing job %s", job_id)
+
+    await close_engine()
+    logger.info("Worker stopped cleanly")
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(run_worker())

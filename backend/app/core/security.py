@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 import bcrypt
 import jwt
@@ -54,8 +53,8 @@ def get_current_user_id(
 
 
 def get_optional_user_id(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_optional),
-) -> Optional[str]:
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_optional),
+) -> str | None:
     if credentials is None:
         return None
     payload = decode_access_token(credentials.credentials)
