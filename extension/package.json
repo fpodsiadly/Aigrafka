@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build --config vite.content.config.ts && vite build",
-    "postbuild": "node -e \"const fs=require('fs'); fs.cpSync('manifest.json','dist/manifest.json'); fs.cpSync('icons','dist/icons',{recursive:true});\"",
+    "postbuild": "node -e \"const fs=require('fs'); fs.cpSync('manifest.json','dist/manifest.json'); fs.cpSync('icons','dist/icons',{recursive:true});\" && python3 scripts/package_extension.py",
+    "package": "npm run build",
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
     "format": "prettier --write 'src/**/*.{ts,tsx}'",

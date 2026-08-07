@@ -61,6 +61,18 @@ cd extension
 npm run build
 ```
 
+Build updates `extension/dist/` for Chrome **Load unpacked** testing and creates:
+
+```text
+releases/aigrafka-extension-latest.zip
+```
+
+For temporary direct Render testing:
+
+```bash
+VITE_API_BASE=https://aigrafka.onrender.com npm run build
+```
+
 ## Najwazniejsze endpointy (FastAPI)
 
 - `POST /generate` - generowanie stylizacji (multipart: selfie + produkt + opcje).

@@ -16,6 +16,7 @@ pnpm-debug.log*
 /.cache
 
 # Release packages
+releases/
 *.zip
 *.crx
 aigrafka-extension-*.zip
