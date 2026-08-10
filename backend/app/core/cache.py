@@ -20,6 +20,7 @@ def _build_generation_cache_key(
     waist_cm: str | None,
     hips_cm: str | None,
     variant_index: int,
+    variant_count: int,
     model: str,
 ) -> str:
     """Stable cache key based on image content + parameters."""
@@ -33,6 +34,7 @@ def _build_generation_cache_key(
         "waist_cm": waist_cm or "",
         "hips_cm": hips_cm or "",
         "variant_index": variant_index,
+        "variant_count": variant_count,
         "model": model,
     }
     raw = json.dumps(data, sort_keys=True, separators=(",", ":"))
@@ -49,6 +51,7 @@ async def get_cached_generation(
     waist_cm: str | None,
     hips_cm: str | None,
     variant_index: int,
+    variant_count: int,
     model: str,
 ) -> dict | None:
     client = get_redis_client()
@@ -56,7 +59,17 @@ async def get_cached_generation(
         return None
 
     key = _build_generation_cache_key(
-        selfie_bytes, product_bytes, category, fit_style, height_cm, chest_cm, waist_cm, hips_cm, variant_index, model
+        selfie_bytes,
+        product_bytes,
+        category,
+        fit_style,
+        height_cm,
+        chest_cm,
+        waist_cm,
+        hips_cm,
+        variant_index,
+        variant_count,
+        model,
     )
     try:
         cached = await asyncio.to_thread(client.get, key)
@@ -79,6 +92,7 @@ async def set_cached_generation(
     waist_cm: str | None,
     hips_cm: str | None,
     variant_index: int,
+    variant_count: int,
     model: str,
     result: dict,
 ) -> None:
@@ -88,7 +102,17 @@ async def set_cached_generation(
 
     settings = get_settings()
     key = _build_generation_cache_key(
-        selfie_bytes, product_bytes, category, fit_style, height_cm, chest_cm, waist_cm, hips_cm, variant_index, model
+        selfie_bytes,
+        product_bytes,
+        category,
+        fit_style,
+        height_cm,
+        chest_cm,
+        waist_cm,
+        hips_cm,
+        variant_index,
+        variant_count,
+        model,
     )
     try:
         await asyncio.to_thread(client.setex, key, settings.generation_cache_ttl_seconds, json.dumps(result))

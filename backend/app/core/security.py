@@ -9,6 +9,8 @@ from app.core.config import get_settings
 
 bearer_required = HTTPBearer(auto_error=True)
 bearer_optional = HTTPBearer(auto_error=False)
+DEMO_USER_ID = "demo"
+DEMO_EMAIL = "demo@aigrafka.local"
 
 
 def hash_password(password: str) -> str:
@@ -32,6 +34,14 @@ def create_access_token(user_id: str, email: str) -> str:
         "exp": int((now + timedelta(minutes=settings.jwt_exp_minutes)).timestamp()),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+
+
+def create_demo_access_token() -> str:
+    return create_access_token(DEMO_USER_ID, DEMO_EMAIL)
+
+
+def is_demo_user_id(user_id: str | None) -> bool:
+    return user_id == DEMO_USER_ID
 
 
 def decode_access_token(token: str) -> dict:

@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.core.db import get_profile_by_user_id, upsert_profile
-from app.core.security import get_current_user_id
+from app.core.security import get_current_user_id, is_demo_user_id
 
 router = APIRouter(prefix="/profile", tags=["profile"])
 
@@ -50,6 +50,8 @@ async def get_profile(user_id: str, current_user_id: str = Depends(get_current_u
 async def save_profile(body: UpsertProfileRequest, current_user_id: str = Depends(get_current_user_id)) -> ProfileResponse:
     if current_user_id != body.userId:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    if is_demo_user_id(current_user_id):
+        return ProfileResponse(**body.model_dump())
 
     saved = await upsert_profile(
         user_id=body.userId,

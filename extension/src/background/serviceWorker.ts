@@ -1,6 +1,56 @@
 // Simple message handler for checkout/open backend actions.
 const apiBase = import.meta.env.VITE_API_BASE ?? 'https://api.aigrafka.pl';
 
+type ApiBody =
+  | { kind: 'json'; value: unknown }
+  | {
+      kind: 'form';
+      entries: Array<
+        | { name: string; kind: 'text'; value: string }
+        | { name: string; kind: 'file'; filename: string; contentType: string; base64: string }
+      >;
+    };
+
+function decodeBase64(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+async function proxyApiRequest(message: {
+  path?: unknown;
+  method?: unknown;
+  headers?: unknown;
+  body?: ApiBody;
+}): Promise<{ ok: boolean; status: number; text: string }> {
+  if (typeof message.path !== 'string' || !message.path.startsWith('/') || message.path.startsWith('//')) {
+    return { ok: false, status: 400, text: 'Nieprawidłowa ścieżka API.' };
+  }
+  const method = typeof message.method === 'string' ? message.method : 'GET';
+  const headers = typeof message.headers === 'object' && message.headers !== null
+    ? message.headers as Record<string, string>
+    : {};
+  let body: FormData | string | undefined;
+  if (message.body?.kind === 'json') {
+    body = JSON.stringify(message.body.value);
+    headers['Content-Type'] = 'application/json';
+  } else if (message.body?.kind === 'form') {
+    const form = new FormData();
+    for (const entry of message.body.entries) {
+      if (entry.kind === 'text') form.append(entry.name, entry.value);
+      else form.append(
+        entry.name,
+        new Blob([decodeBase64(entry.base64)], { type: entry.contentType }),
+        entry.filename,
+      );
+    }
+    body = form;
+  }
+  const response = await fetch(`${apiBase}${message.path}`, { method, headers, body });
+  return { ok: response.ok, status: response.status, text: await response.text() };
+}
+
 async function setBadge(text: string, color: string) {
   try {
     await chrome.action.setBadgeText({ text });
@@ -22,9 +72,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === 'AIGRAFKA_CAPTURE_VISIBLE_TAB') {
-    chrome.tabs.captureVisibleTab(chrome.windows.WINDOW_ID_CURRENT, { format: 'png' })
+    chrome.tabs.captureVisibleTab(sender.tab?.windowId, { format: 'png' })
       .then(dataUrl => sendResponse({ ok: true, dataUrl }))
       .catch(e => sendResponse({ ok: false, error: e?.message || 'Capture failed' }));
+    return true;
+  }
+
+  if (message?.type === 'AIGRAFKA_API_REQUEST') {
+    proxyApiRequest(message)
+      .then(sendResponse)
+      .catch((error: Error) => sendResponse({ ok: false, status: 503, text: error.message || 'Backend unavailable' }));
+    return true;
+  }
+
+  if (message?.type === 'AIGRAFKA_GET_ACTIVE_TAB_URL') {
+    chrome.tabs.query({ active: true, currentWindow: true })
+      .then(tabs => {
+        const url = tabs[0]?.url;
+        if (url && /^https?:\/\//i.test(url)) {
+          sendResponse({ ok: true, url });
+          return;
+        }
+        sendResponse({ ok: false, error: 'Aktywna karta nie zawiera adresu HTTP.' });
+      })
+      .catch(error => sendResponse({ ok: false, error: error?.message || 'Nie udało się odczytać aktywnej karty.' }));
     return true;
   }
 

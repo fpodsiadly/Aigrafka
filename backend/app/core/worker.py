@@ -12,15 +12,15 @@ from app.core.cache import get_cached_generation, set_cached_generation
 from app.core.config import get_settings
 from app.core.db import add_tokens, close_engine
 from app.core.metrics import track_gemini_call, track_generation_latency, track_job_status, track_token_refund
-from app.core.queue import dequeue_job, get_job, update_job_status
+from app.core.queue import acknowledge_job, dequeue_job, get_job, recover_stale_jobs, update_job_status
 
 logger = logging.getLogger(__name__)
 
 
-def _fallback_models() -> list[str]:
-    raw = get_settings().gemini_fallback_models
-    models = [m.strip() for m in raw.split(",") if m.strip()]
-    return models or ["gemini-3.1-flash-image-preview"]
+def _generation_models() -> list[str]:
+    settings = get_settings()
+    fallback_models = [model.strip() for model in settings.gemini_fallback_models.split(",") if model.strip()]
+    return list(dict.fromkeys([settings.gemini_model, *fallback_models]))
 
 
 async def _run_variant_with_retry(
@@ -34,15 +34,26 @@ async def _run_variant_with_retry(
     waist_cm: str | None,
     hips_cm: str | None,
     variant_index: int,
+    variant_count: int,
 ) -> dict:
     settings = get_settings()
     last_error: str | None = None
-    fallback_models = _fallback_models()
+    generation_models = _generation_models()
 
-    for attempt, model in enumerate(fallback_models):
+    for attempt, model in enumerate(generation_models):
         # Cache is keyed per model so fallback results are reused correctly.
         cached = await get_cached_generation(
-            selfie_bytes, product_image_bytes, category, fit_style, height_cm, chest_cm, waist_cm, hips_cm, variant_index, model
+            selfie_bytes,
+            product_image_bytes,
+            category,
+            fit_style,
+            height_cm,
+            chest_cm,
+            waist_cm,
+            hips_cm,
+            variant_index,
+            variant_count,
+            model,
         )
         if cached:
             return cached
@@ -61,7 +72,18 @@ async def _run_variant_with_retry(
             track_generation_latency(model, latency_s)
             if result.get("status") == "generated" and result.get("image_base64"):
                 await set_cached_generation(
-                    selfie_bytes, product_image_bytes, category, fit_style, height_cm, chest_cm, waist_cm, hips_cm, variant_index, model, result
+                    selfie_bytes,
+                    product_image_bytes,
+                    category,
+                    fit_style,
+                    height_cm,
+                    chest_cm,
+                    waist_cm,
+                    hips_cm,
+                    variant_index,
+                    variant_count,
+                    model,
+                    result,
                 )
                 return result
             last_error = result.get("error") or "fallback"
@@ -74,13 +96,13 @@ async def _run_variant_with_retry(
         "image_base64": GeminiClient.FALLBACK_IMAGE_BASE64,
         "mime_type": "image/png",
         "status": "fallback",
-        "model": fallback_models[-1],
+        "model": generation_models[-1],
         "error": last_error or "All generation attempts failed",
     }
 
 
 async def process_job(job_id: str) -> None:
-    job = await get_job(job_id)
+    job = await get_job(job_id, include_payload=True)
     if not job:
         logger.error("Job %s not found", job_id)
         return
@@ -116,9 +138,6 @@ async def process_job(job_id: str) -> None:
         if primary_product_image_bytes is None:
             raise ValueError("Product image not available")
 
-        settings = get_settings()
-        chosen_model = settings.gemini_model
-
         # Build per-variant tasks for concurrent generation (batch)
         async def _generate_one_variant(index: int) -> dict:
             variant_number = index + 1
@@ -151,6 +170,7 @@ async def process_job(job_id: str) -> None:
                 waist_cm,
                 hips_cm,
                 variant_number,
+                variant_count,
             )
 
         variant_tasks = [_generate_one_variant(i) for i in range(variant_count)]
@@ -188,7 +208,7 @@ async def process_job(job_id: str) -> None:
             result={
                 "status": overall_status,
                 "variants": variants,
-                "model": chosen_model,
+                "model": successful[0].get("model") if successful else variants[0].get("model") if variants else None,
                 "detail": fallback_detail,
             },
         )
@@ -207,6 +227,9 @@ async def process_job(job_id: str) -> None:
 
 async def run_worker() -> None:
     logger.info("Worker started")
+    recovered = await asyncio.to_thread(recover_stale_jobs)
+    if recovered:
+        logger.warning("Recovered %d stale jobs on startup", recovered)
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
 
@@ -229,6 +252,8 @@ async def run_worker() -> None:
                 await process_job(job_id)
             except Exception:
                 logger.exception("Unhandled error processing job %s", job_id)
+            finally:
+                await asyncio.to_thread(acknowledge_job, job_id)
 
     await close_engine()
     logger.info("Worker stopped cleanly")

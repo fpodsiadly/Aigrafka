@@ -10,6 +10,7 @@ from app.core.redis_client import get_redis_client, invalidate_redis_client
 logger = logging.getLogger(__name__)
 
 QUEUE_KEY = "jobs:queue"
+PROCESSING_QUEUE_KEY = "jobs:processing"
 
 
 def _job_key(job_id: str) -> str:
@@ -30,6 +31,7 @@ def _enqueue_job_sync(payload: dict) -> str:
         "result": "",
         "error": "",
         "owner_id": payload.get("user_id") or "",
+        "enqueued_at": str(int(time.time())),
     }
     try:
         try:
@@ -50,7 +52,7 @@ async def enqueue_job(payload: dict) -> str:
     return await asyncio.to_thread(_enqueue_job_sync, payload)
 
 
-def _get_job_sync(job_id: str) -> dict | None:
+def _get_job_sync(job_id: str, include_payload: bool) -> dict | None:
     client = get_redis_client()
     if not client:
         return None
@@ -69,6 +71,8 @@ def _get_job_sync(job_id: str) -> dict | None:
         val = v.decode() if isinstance(v, bytes) else v
         if val == "":
             val = None
+        if key == "payload" and not include_payload:
+            continue
         if key in ("payload", "result") and val:
             try:
                 result[key] = json.loads(val)
@@ -79,8 +83,8 @@ def _get_job_sync(job_id: str) -> dict | None:
     return result
 
 
-async def get_job(job_id: str) -> dict | None:
-    return await asyncio.to_thread(_get_job_sync, job_id)
+async def get_job(job_id: str, include_payload: bool = False) -> dict | None:
+    return await asyncio.to_thread(_get_job_sync, job_id, include_payload)
 
 
 def _update_job_status_sync(job_id: str, status: str, result: dict | None = None, error: str | None = None) -> None:
@@ -90,6 +94,8 @@ def _update_job_status_sync(job_id: str, status: str, result: dict | None = None
 
     settings = get_settings()
     mapping = {"status": status}
+    if status == "running":
+        mapping["started_at"] = str(int(time.time()))
     if result is not None:
         mapping["result"] = json.dumps(result)
     if error is not None:
@@ -117,24 +123,79 @@ def dequeue_job(timeout: int = 5) -> str | None:
     if not client:
         return None
 
-    # Native redis supports blocking pop (no busy-wait); Upstash REST does not.
+    # Move jobs to a processing list before returning them. A restart can then
+    # requeue abandoned jobs instead of silently losing a destructive pop.
     is_upstash = client.__class__.__module__.startswith("upstash_redis")
     if not is_upstash:
         try:
-            popped = client.blpop(QUEUE_KEY, timeout=timeout)
-            if not popped:
+            item = client.blmove(QUEUE_KEY, PROCESSING_QUEUE_KEY, timeout, "LEFT", "RIGHT")
+            if item is None:
                 return None
-            item = popped[1]
             return item.decode() if isinstance(item, bytes) else item
         except Exception as exc:
-            logger.error("blpop failed, falling back to polling: %s", exc)
+            logger.error("blmove failed, falling back to polling: %s", exc)
 
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        item = client.lpop(QUEUE_KEY)
+        try:
+            item = client.lmove(QUEUE_KEY, PROCESSING_QUEUE_KEY, "LEFT", "RIGHT")
+        except Exception:
+            item = None
         if item:
             if isinstance(item, bytes):
                 return item.decode()
             return item
         time.sleep(0.5)
     return None
+
+
+def acknowledge_job(job_id: str) -> None:
+    """Remove a completed or failed job from the processing list."""
+    client = get_redis_client()
+    if not client:
+        return
+    try:
+        client.lrem(PROCESSING_QUEUE_KEY, 1, job_id)
+    except Exception:
+        logger.exception("Failed to acknowledge job %s", job_id)
+        invalidate_redis_client()
+
+
+def recover_stale_jobs() -> int:
+    """Return jobs abandoned by a crashed worker to the pending queue."""
+    client = get_redis_client()
+    if not client:
+        return 0
+
+    settings = get_settings()
+    now = int(time.time())
+    recovered = 0
+    try:
+        job_ids = client.lrange(PROCESSING_QUEUE_KEY, 0, -1)
+        for raw_id in job_ids:
+            job_id = raw_id.decode() if isinstance(raw_id, bytes) else raw_id
+            data = client.hgetall(_job_key(job_id))
+            started_at = data.get("started_at") if data else None
+            if isinstance(started_at, bytes):
+                started_at = started_at.decode()
+            try:
+                is_stale = not started_at or now - int(started_at) >= settings.job_visibility_timeout_seconds
+            except (TypeError, ValueError):
+                is_stale = True
+            if not is_stale:
+                continue
+            if client.lrem(PROCESSING_QUEUE_KEY, 1, job_id):
+                client.lpush(QUEUE_KEY, job_id)
+                try:
+                    client.hset(_job_key(job_id), mapping={"status": "pending", "started_at": ""})
+                except TypeError:
+                    client.hset(_job_key(job_id), values={"status": "pending", "started_at": ""})
+                recovered += 1
+    except Exception:
+        logger.exception("Failed to recover stale jobs")
+        invalidate_redis_client()
+        return recovered
+
+    if recovered:
+        logger.warning("Requeued %d stale jobs", recovered)
+    return recovered

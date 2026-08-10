@@ -8,6 +8,7 @@ interface AuthPanelProps {
     authEmail: string;
     authPassword: string;
     authSubmitting: boolean;
+    demoAccessEnabled: boolean;
     googleClientId: string | null;
     googleReady: boolean;
     googleInitialized: boolean;
@@ -17,6 +18,7 @@ interface AuthPanelProps {
     onEmailChange: (value: string) => void;
     onPasswordChange: (value: string) => void;
     onSubmit: (event: React.FormEvent) => void;
+    onDemoAccess: () => void;
 }
 
 const AuthPanel: React.FC<AuthPanelProps> = ({
@@ -25,6 +27,7 @@ const AuthPanel: React.FC<AuthPanelProps> = ({
     authEmail,
     authPassword,
     authSubmitting,
+    demoAccessEnabled,
     googleClientId,
     googleReady,
     googleInitialized,
@@ -34,6 +37,7 @@ const AuthPanel: React.FC<AuthPanelProps> = ({
     onEmailChange,
     onPasswordChange,
     onSubmit,
+    onDemoAccess,
 }) => {
     if (!showAuthDialog) return null;
 
@@ -150,6 +154,28 @@ const AuthPanel: React.FC<AuthPanelProps> = ({
                     >
                         {authSubmitting ? 'Trwa...' : authMode === 'register' ? 'Utwórz konto' : 'Zaloguj się'}
                     </button>
+
+                    {demoAccessEnabled && (
+                        <button
+                            type="button"
+                            onClick={onDemoAccess}
+                            style={{
+                                ...actionButtonStyle,
+                                background: '#4f7f68',
+                                boxShadow: 'none',
+                                padding: '9px 12px',
+                            }}
+                            disabled={authSubmitting}
+                        >
+                            Wypróbuj w trybie demo
+                        </button>
+                    )}
+
+                    {demoAccessEnabled && (
+                        <div style={{ color: '#5b5b5b', fontSize: 10, lineHeight: 1.35, textAlign: 'center' }}>
+                            Bez rejestracji i płatności. Dane demo nie są zapisywane na koncie.
+                        </div>
+                    )}
 
                     {googleClientId && (
                         <div

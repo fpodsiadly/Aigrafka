@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.core.db import credit_tokens_for_payment, get_user_by_id
-from app.core.security import get_current_user_id
+from app.core.security import get_current_user_id, is_demo_user_id
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 logger = logging.getLogger(__name__)
@@ -184,6 +184,8 @@ async def dev_add_tokens(user_id: str = Depends(get_current_user_id)) -> DevAddT
 
 @router.post("/checkout", response_model=CheckoutResponse)
 async def create_checkout(body: CheckoutRequest, user_id: str = Depends(get_current_user_id)) -> CheckoutResponse:
+    if is_demo_user_id(user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Demo access does not use payments")
     settings = get_settings()
     user = await get_user_by_id(user_id)
     if not user:

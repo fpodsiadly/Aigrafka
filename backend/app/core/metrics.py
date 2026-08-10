@@ -5,6 +5,8 @@ falling back to process-local dicts. Exposed via GET /metrics
 in Prometheus text exposition format.
 """
 
+import base64
+import json
 import logging
 from typing import Any
 
@@ -48,8 +50,10 @@ def observe_histogram(name: str, value: float, labels: dict[str, str] | None = N
 def _label_key(name: str, labels: dict[str, str] | None) -> str:
     if not labels:
         return name
-    parts = [f"{k}={v}" for k, v in sorted(labels.items())]
-    return f"{name}__{'_'.join(parts)}"
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(labels, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii")
+    return f"{name}__{encoded}"
 
 
 def _get_counter(name: str, labels: dict[str, str] | None) -> float:
@@ -95,7 +99,7 @@ def render_prometheus() -> str:
             if label_names:
                 for label_combo in _iter_label_combos(name, label_names):
                     val = _get_counter(name, label_combo)
-                    label_str = ",".join(f'{k}="{v}"' for k, v in sorted(label_combo.items()))
+                    label_str = ",".join(f'{k}="{_escape_label_value(v)}"' for k, v in sorted(label_combo.items()))
                     lines.append(f'{name}{{{label_str}}} {val}')
             else:
                 val = _get_counter(name, None)
@@ -164,15 +168,19 @@ def _scan_keys(client, match: str) -> list:
 
 
 def _parse_labels(key: str, name: str) -> dict[str, str]:
-    if "__" not in key:
+    prefix = f"{name}__"
+    if not key.startswith(prefix):
         return {}
-    label_part = key.split("__", 1)[1]
-    labels: dict[str, str] = {}
-    for pair in label_part.split("_"):
-        if "=" in pair:
-            k, v = pair.split("=", 1)
-            labels[k] = v
-    return labels
+    try:
+        decoded = base64.urlsafe_b64decode(key.removeprefix(prefix)).decode("utf-8")
+        labels = json.loads(decoded)
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    return {str(k): str(v) for k, v in labels.items()} if isinstance(labels, dict) else {}
+
+
+def _escape_label_value(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
 
 
 def _render_histogram_lines(
@@ -180,7 +188,7 @@ def _render_histogram_lines(
 ) -> None:
     label_str = ""
     if labels:
-        label_str = ",".join(f'{k}="{v}"' for k, v in sorted(labels.items()))
+        label_str = ",".join(f'{k}="{_escape_label_value(v)}"' for k, v in sorted(labels.items()))
 
     count = len(values)
     total = sum(values)

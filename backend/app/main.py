@@ -1,8 +1,9 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -55,6 +56,41 @@ else:
     cors_kwargs["allow_origins"] = origins
 
 app.add_middleware(CORSMiddleware, **cors_kwargs)
+
+
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or uuid4().hex
+    request.state.request_id = request_id
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception("Unhandled request error request_id=%s path=%s", request_id, request.url.path)
+        raise
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", uuid4().hex)
+    detail = exc.detail if isinstance(exc.detail, str) else "Request rejected"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"code": f"http_{exc.status_code}", "detail": detail, "request_id": request_id},
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, _exc: Exception) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", uuid4().hex)
+    logger.exception("Unhandled API error request_id=%s path=%s", request_id, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"code": "internal_error", "detail": "Internal server error", "request_id": request_id},
+    )
+
 
 app.include_router(generate_router, prefix="")
 app.include_router(auth_router, prefix="")

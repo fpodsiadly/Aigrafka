@@ -60,7 +60,7 @@ const PanelHeader = React.memo(({
                         textOverflow: 'ellipsis'
                     }}
                 >
-                    Zalogowano: {userEmail}
+                    {userEmail === 'demo@aigrafka.local' ? 'Tryb demo' : `Zalogowano: ${userEmail}`}
                 </div>
             )}
         </div>

@@ -46,6 +46,10 @@ const ProductForm: React.FC<ProductFormProps> = ({
         if (!uploadMenuFor) return;
 
         const onPointerDown = (event: MouseEvent) => {
+            const panelHost = document.getElementById('aigrafka-extension-root');
+            if (panelHost && (event.target === panelHost || panelHost.contains(event.target as Node))) {
+                return;
+            }
             const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
             const insideFirst = path.some(
                 (node) => node instanceof Node && (productImage1MenuRef.current?.contains(node) ?? false)

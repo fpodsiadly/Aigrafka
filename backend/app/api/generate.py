@@ -14,7 +14,7 @@ from app.core.db import add_tokens, deduct_tokens_if_possible
 from app.core.metrics import track_generate_request
 from app.core.queue import enqueue_job
 from app.core.rate_limit import enforce_generate_rate_limit
-from app.core.security import get_optional_user_id
+from app.core.security import get_optional_user_id, is_demo_user_id
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -23,6 +23,7 @@ settings = get_settings()
 MAX_UPLOAD_BYTES = settings.max_selfie_mb * 1024 * 1024
 MAX_PRODUCT_BYTES = settings.max_product_image_mb * 1024 * 1024
 MAX_SIDE_PX = settings.max_side_px
+MAX_IMAGE_PIXELS = 50_000_000
 
 
 class GenerateJobResponse(BaseModel):
@@ -64,6 +65,11 @@ def _validate_and_normalize_image(upload: UploadFile, max_bytes: int, label: str
         image.verify()
         image = Image.open(BytesIO(content)).convert("RGB")
         w, h = image.size
+        if w * h > MAX_IMAGE_PIXELS:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=f"{label} has too many pixels",
+            )
         longer = max(w, h)
         if longer > MAX_SIDE_PX:
             scale = MAX_SIDE_PX / longer
@@ -151,7 +157,7 @@ async def generate_tryon(
     back_reference_available = secondary_product_image_bytes is not None
 
     charged_tokens = 0
-    if user_id and not settings.dev_mode:
+    if user_id and not settings.dev_mode and not is_demo_user_id(user_id):
         charged_tokens = variant_count * settings.token_cost_per_stylization
         updated_tokens = await deduct_tokens_if_possible(user_id, charged_tokens)
         if updated_tokens is None:

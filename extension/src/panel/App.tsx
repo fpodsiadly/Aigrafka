@@ -28,11 +28,12 @@ import {
     authRegister,
     authMe,
     devAddTokens,
-    getGoogleClientId,
+    getDemoAccessStatus,
     googleLogin,
     loadProfile,
     pollJobStatus,
     saveProfile,
+    startDemoAccess,
     startCheckout,
     submitGenerate,
 } from './api';
@@ -84,6 +85,7 @@ const App: React.FC = () => {
     const [authEmail, setAuthEmail] = useState<string>('');
     const [authPassword, setAuthPassword] = useState<string>('');
     const [authSubmitting, setAuthSubmitting] = useState<boolean>(false);
+    const [demoAccessEnabled, setDemoAccessEnabled] = useState<boolean>(false);
     const [googleClientId, setGoogleClientId] = useState<string | null>(null);
     const [googleReady, setGoogleReady] = useState<boolean>(false);
     const [googleInitialized, setGoogleInitialized] = useState<boolean>(false);
@@ -297,6 +299,21 @@ const App: React.FC = () => {
         setShowAuthDialog(true);
     }, [auth.email]);
 
+    const handleDemoAccess = useCallback(async () => {
+        setAuthSubmitting(true);
+        try {
+            const data = await startDemoAccess();
+            await authStorage.setToken(data.access_token);
+            setAuth({ loggedIn: true, tokens: data.tokens, accessToken: data.access_token, email: data.email, userId: data.user_id });
+            setShowAuthDialog(false);
+            setStatusSuccess('Włączono Tryb demo. Generacje nie wymagają płatności.');
+        } catch (error) {
+            setStatusError(error instanceof Error ? error.message : 'Tryb demo jest niedostępny.');
+        } finally {
+            setAuthSubmitting(false);
+        }
+    }, [setAuth, setStatusError, setStatusSuccess]);
+
     const closeAuthDialog = useCallback(() => {
         if (authSubmitting) return;
         setShowAuthDialog(false);
@@ -426,6 +443,10 @@ const App: React.FC = () => {
     }, [storageHydrated, form.height, form.chest, form.waist, form.hips, form.fitStyle, form.category, form.productUrl]);
 
     useEffect(() => {
+        getDemoAccessStatus().then(setDemoAccessEnabled).catch(() => setDemoAccessEnabled(false));
+    }, []);
+
+    useEffect(() => {
         authStorage.getToken().then((token) => {
             if (!token) return;
             refreshAuthFromServer(token);
@@ -465,38 +486,12 @@ const App: React.FC = () => {
     useEffect(() => {
         if (!showAuthDialog) return;
 
-        getGoogleClientId()
-            .then((data) => {
-                if (!data?.enabled || !data.client_id) {
-                    setGoogleClientId(null);
-                    setGoogleReady(false);
-                    return;
-                }
-                setGoogleClientId(data.client_id);
-                if (window.google?.accounts?.id) {
-                    setGoogleReady(true);
-                    return;
-                }
-                const existing = document.querySelector('script[data-google-gsi="true"]') as HTMLScriptElement | null;
-                if (existing) {
-                    existing.addEventListener('load', () => setGoogleReady(true), { once: true });
-                    return;
-                }
-                const script = document.createElement('script');
-                script.src = 'https://accounts.google.com/gsi/client';
-                script.async = true;
-                script.defer = true;
-                script.dataset.googleGsi = 'true';
-                script.onload = () => setGoogleReady(true);
-                script.onerror = () => setStatusError('Nie udało się załadować Google Sign-In.');
-                document.head.appendChild(script);
-            })
-            .catch((error) => {
-                console.error(error);
-                setGoogleClientId(null);
-                setGoogleReady(false);
-            });
-    }, [showAuthDialog, setStatusError]);
+        // Google GIS injects a remote script, which MV3 extension CSP blocks.
+        // Keep the email/password flow available until chrome.identity OAuth is wired.
+        setGoogleClientId(null);
+        setGoogleReady(false);
+        setGoogleInitialized(false);
+    }, [showAuthDialog]);
 
     useEffect(() => {
         if (!googleReady || !googleClientId || googleInitialized) return;
@@ -1023,12 +1018,20 @@ const App: React.FC = () => {
                                 onDropProduct={handleDropProduct}
                                 onPickAreaProduct={handlePickAreaProduct}
                                 onActiveTabUrl={() => {
-                                    chrome?.tabs?.query?.({ active: true, currentWindow: true }, (tabs) => {
-                                        const url = tabs[0]?.url;
-                                        if (url && /^https?:\/\//i.test(url)) {
-                                            updateForm('productUrl', url);
+                                    chrome.runtime.sendMessage(
+                                        { type: 'AIGRAFKA_GET_ACTIVE_TAB_URL' },
+                                        (response?: { ok?: boolean; url?: string; error?: string }) => {
+                                            if (chrome.runtime.lastError) {
+                                                setStatusError(chrome.runtime.lastError.message);
+                                                return;
+                                            }
+                                            if (response?.ok && response.url) {
+                                                updateForm('productUrl', response.url);
+                                                return;
+                                            }
+                                            setStatusError(response?.error || 'Nie udało się odczytać aktywnej karty.');
                                         }
-                                    });
+                                    );
                                 }}
                             />
                         </div>
@@ -1051,34 +1054,51 @@ const App: React.FC = () => {
                                                     background: '#dcecd6',
                                                     borderColor: '#c5d9bf',
                                                 }}
-                                                value={auth.tokens}
+                                                value={auth.userId === 'demo' ? 'demo' : auth.tokens}
                                                 readOnly
                                             />
-                                            <button
-                                                type="button"
-                                                onClick={handleTopUpTokens}
-                                                disabled={isLoading}
-                                                style={{
-                                                    ...actionButtonStyle,
-                                                    background: isLoading ? '#b7a0e8' : '#9b59ff',
-                                                    boxShadow: 'none',
-                                                    padding: '7px 9px',
-                                                    fontSize: 10,
-                                                    flex: 1,
-                                                    cursor: isLoading ? 'not-allowed' : 'pointer',
-                                                }}
-                                            >
-                                                {isLoading ? '...' : 'Dokup tokeny'}
-                                            </button>
+                                            {auth.userId === 'demo' ? (
+                                                <div style={{ flex: 1, fontSize: 10, fontWeight: 700, color: '#4f7f68', textAlign: 'center' }}>
+                                                    Tryb demo
+                                                </div>
+                                            ) : (
+                                                <button
+                                                    type="button"
+                                                    onClick={handleTopUpTokens}
+                                                    disabled={isLoading}
+                                                    style={{
+                                                        ...actionButtonStyle,
+                                                        background: isLoading ? '#b7a0e8' : '#9b59ff',
+                                                        boxShadow: 'none',
+                                                        padding: '7px 9px',
+                                                        fontSize: 10,
+                                                        flex: 1,
+                                                        cursor: isLoading ? 'not-allowed' : 'pointer',
+                                                    }}
+                                                >
+                                                    {isLoading ? '...' : 'Dokup tokeny'}
+                                                </button>
+                                            )}
                                         </>
                                     ) : (
-                                        <button
-                                            type="button"
-                                            onClick={handleLogin}
-                                            style={{ ...actionButtonStyle, flex: 1, padding: '7px 9px', fontSize: 10, background: '#9b59ff', boxShadow: 'none' }}
-                                        >
-                                            Zaloguj się
-                                        </button>
+                                        <>
+                                            <button
+                                                type="button"
+                                                onClick={handleLogin}
+                                                style={{ ...actionButtonStyle, flex: 1, padding: '7px 9px', fontSize: 10, background: '#9b59ff', boxShadow: 'none' }}
+                                            >
+                                                Zaloguj się
+                                            </button>
+                                            {demoAccessEnabled && (
+                                                <button
+                                                    type="button"
+                                                    onClick={handleDemoAccess}
+                                                    style={{ ...actionButtonStyle, flex: 1, padding: '7px 9px', fontSize: 10, background: '#4f7f68', boxShadow: 'none' }}
+                                                >
+                                                    Tryb demo
+                                                </button>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             </div>
@@ -1208,6 +1228,7 @@ const App: React.FC = () => {
                 authEmail={authEmail}
                 authPassword={authPassword}
                 authSubmitting={authSubmitting}
+                demoAccessEnabled={demoAccessEnabled}
                 googleClientId={googleClientId}
                 googleReady={googleReady}
                 googleInitialized={googleInitialized}
@@ -1217,6 +1238,7 @@ const App: React.FC = () => {
                 onEmailChange={setAuthEmail}
                 onPasswordChange={setAuthPassword}
                 onSubmit={handleAuthSubmit}
+                onDemoAccess={handleDemoAccess}
             />
         </div>
     );

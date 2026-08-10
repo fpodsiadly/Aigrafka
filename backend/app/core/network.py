@@ -14,9 +14,11 @@ def client_ip(request: Request) -> str:
     if settings.trust_proxy_headers:
         forwarded_for = request.headers.get("x-forwarded-for", "")
         if forwarded_for:
-            first = forwarded_for.split(",")[0].strip()
-            if first:
-                return first
+            # A trusted proxy appends the peer address. Never trust a
+            # client-controlled leftmost value from a forwarded chain.
+            last = forwarded_for.split(",")[-1].strip()
+            if last:
+                return last
     if request.client and request.client.host:
         return request.client.host
     return "unknown"

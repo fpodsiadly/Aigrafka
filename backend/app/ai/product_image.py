@@ -2,6 +2,7 @@ import asyncio
 import ipaddress
 import re
 import socket
+from dataclasses import dataclass
 from io import BytesIO
 from urllib.parse import urljoin, urlparse, urlunparse
 
@@ -53,27 +54,44 @@ def _extract_image_candidate(html: str) -> str | None:
     return None
 
 
-async def _get_safe(client: httpx.AsyncClient, url: str) -> httpx.Response:
+async def _get_safe(client: httpx.AsyncClient, url: str) -> "FetchedResponse":
     """GET following redirects manually, validating every hop against SSRF."""
     current = url
     for _ in range(settings.product_image_max_redirects + 1):
-        response = await client.get(current)
-        if response.is_redirect and response.next_request is not None:
-            location = str(response.next_request.url)
-            await _ensure_public_url(location)
-            current = location
-            continue
-        return response
+        async with client.stream("GET", current) as response:
+            if response.is_redirect:
+                location = response.headers.get("location")
+                if not location:
+                    raise ValueError("Redirect without a location")
+                current = urljoin(current, location)
+                await _ensure_public_url(current)
+                continue
+            response.raise_for_status()
+            max_bytes = MAX_IMAGE_BYTES if response.headers.get("content-type", "").startswith("image/") else MAX_HTML_BYTES
+            content_length = response.headers.get("content-length")
+            if content_length and int(content_length) > max_bytes:
+                raise ValueError("Product response too large")
+            content = bytearray()
+            async for chunk in response.aiter_bytes():
+                content.extend(chunk)
+                if len(content) > max_bytes:
+                    raise ValueError("Product response too large")
+            return FetchedResponse(dict(response.headers), bytes(content), str(response.url))
     raise ValueError("Too many redirects")
 
 
-async def _get_with_retry(client: httpx.AsyncClient, url: str) -> httpx.Response:
+@dataclass(frozen=True)
+class FetchedResponse:
+    headers: dict[str, str]
+    content: bytes
+    url: str
+
+
+async def _get_with_retry(client: httpx.AsyncClient, url: str) -> FetchedResponse:
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            response = await _get_safe(client, url)
-            response.raise_for_status()
-            return response
+            return await _get_safe(client, url)
         except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
             last_exc = exc
             await asyncio.sleep(0.2 * (2 ** attempt))
@@ -169,7 +187,7 @@ async def _ensure_public_url(url: str) -> None:
         if "private address" in str(exc) or "not allowed" in str(exc) or "no hostname" in str(exc):
             raise
     # DNS resolution check (run off the event loop to avoid blocking)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         addr_infos = await loop.run_in_executor(
             None,
@@ -202,19 +220,15 @@ async def fetch_product_image(url: str, timeout: float | None = None) -> bytes:
 
     async with httpx.AsyncClient(timeout=timeout, headers=DEFAULT_HEADERS, follow_redirects=False) as client:
         resp = await _get_with_retry(client, url)
-        content_type = resp.headers.get("Content-Type", "")
+        content_type = resp.headers.get("content-type", "")
 
         if content_type.startswith("image/"):
-            if len(resp.content) > MAX_IMAGE_BYTES:
-                raise ValueError("Product image too large")
             data = await asyncio.to_thread(_verify_and_normalize, resp.content)
             await set_cached_product_image(url, data)
             return data
 
         # If it's an HTML page, try to extract a likely product image
-        if len(resp.content) > MAX_HTML_BYTES:
-            raise ValueError("Product page too large")
-        html = resp.text
+        html = resp.content.decode("utf-8", errors="replace")
         image_candidate = _extract_image_candidate(html)
         if not image_candidate:
             raise ValueError("Product page does not expose an image")
@@ -224,17 +238,14 @@ async def fetch_product_image(url: str, timeout: float | None = None) -> bytes:
 
         try:
             img_resp = await _get_safe(client, image_url)
-            img_resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise ValueError(f"Failed to fetch product image (HTTP {exc.response.status_code})") from exc
         except httpx.TimeoutException as exc:
             raise ValueError("Failed to fetch product image (timeout)") from exc
         except httpx.HTTPError as exc:
             raise ValueError("Failed to fetch product image") from exc
-        if not img_resp.headers.get("Content-Type", "").startswith("image/"):
+        if not img_resp.headers.get("content-type", "").startswith("image/"):
             raise ValueError("Resolved product image is not an image")
-        if len(img_resp.content) > MAX_IMAGE_BYTES:
-            raise ValueError("Product image too large")
 
         data = await asyncio.to_thread(_verify_and_normalize, img_resp.content)
         await set_cached_product_image(url, data)
