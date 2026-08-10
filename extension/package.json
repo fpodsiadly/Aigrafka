@@ -1,6 +1,6 @@
 {
   "name": "aigrafka-extension",
-  "version": "0.2.33",
+  "version": "0.2.35",
   "private": true,
   "type": "module",
   "scripts": {

@@ -1,5 +1,47 @@
-// Simple message handler for checkout/open backend actions.
-const apiBase = import.meta.env.VITE_API_BASE ?? 'https://api.aigrafka.pl';
+// Prefer the public API domain. Fall back to Render when DNS, proxy, or the
+// custom domain is unavailable. Resolve before requests instead of retrying a
+// failed POST, which could duplicate generation or payment operations.
+const primaryApiBase = import.meta.env.VITE_API_BASE ?? 'https://api.aigrafka.pl';
+const fallbackApiBase = 'https://aigrafka.onrender.com';
+const API_BASE_CACHE_MS = 60_000;
+let resolvedApiBase: string | null = null;
+let resolvedApiBaseExpiresAt = 0;
+let apiBaseResolution: Promise<string> | null = null;
+
+async function isHealthy(baseUrl: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4_000);
+  try {
+    const response = await fetch(`${baseUrl}/health`, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function resolveApiBase(): Promise<string> {
+  if (resolvedApiBase && Date.now() < resolvedApiBaseExpiresAt) return resolvedApiBase;
+  if (apiBaseResolution) return apiBaseResolution;
+
+  apiBaseResolution = (async () => {
+    const selected = await isHealthy(primaryApiBase) ? primaryApiBase : fallbackApiBase;
+    resolvedApiBase = selected;
+    resolvedApiBaseExpiresAt = Date.now() + API_BASE_CACHE_MS;
+    return selected;
+  })();
+
+  try {
+    return await apiBaseResolution;
+  } finally {
+    apiBaseResolution = null;
+  }
+}
 
 type ApiBody =
   | { kind: 'json'; value: unknown }
@@ -47,6 +89,7 @@ async function proxyApiRequest(message: {
     }
     body = form;
   }
+  const apiBase = await resolveApiBase();
   const response = await fetch(`${apiBase}${message.path}`, { method, headers, body });
   return { ok: response.ok, status: response.status, text: await response.text() };
 }
@@ -101,18 +144,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === 'OPEN_CHECKOUT') {
     // Ask backend for checkout URL (Przelewy24/other provider).
-    fetch(`${apiBase}/payments/checkout`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(message?.authToken ? { Authorization: `Bearer ${message.authToken}` } : {})
-      },
-      body: JSON.stringify({
-        pack: message?.pack || 'starter',
-        userId: message?.userId,
-        email: message?.email
+    resolveApiBase()
+      .then(apiBase => fetch(`${apiBase}/payments/checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(message?.authToken ? { Authorization: `Bearer ${message.authToken}` } : {})
+        },
+        body: JSON.stringify({
+          pack: message?.pack || 'starter',
+          userId: message?.userId,
+          email: message?.email
+        })
       })
-    })
       .then(async resp => {
         if (!resp.ok) {
           const text = await resp.text();
@@ -126,7 +170,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           throw new Error(message);
         }
         return resp.json();
-      })
+      }))
       .then(data => {
         if (data?.checkoutUrl) {
           chrome.tabs.create({ url: data.checkoutUrl });
