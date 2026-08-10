@@ -4,10 +4,11 @@ set -e
 echo "🚀 Building AIgrafka Extension Release Package"
 echo "=============================================="
 
-# Check if jq is installed (for JSON manipulation)
+# jq is optional: when absent we fall back to sed below. We intentionally do
+# NOT auto-install any global npm package here (supply-chain risk from an
+# unpinned/hijackable dependency running with the developer's privileges).
 if ! command -v jq &> /dev/null; then
-    echo "⚠️  jq not found. Installing via npm..."
-    npm install -g json
+    echo "ℹ️  jq not found; using sed fallback for version bump."
 fi
 
 # Get current version from manifest.json

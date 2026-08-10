@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 import logging
 from contextlib import asynccontextmanager
 from uuid import uuid4
@@ -100,8 +101,19 @@ app.include_router(jobs_router, prefix="")
 
 
 @app.get("/metrics")
-async def metrics() -> Response:
-    """Prometheus-compatible metrics endpoint."""
+async def metrics(request: Request) -> Response:
+    """Prometheus-compatible metrics endpoint.
+
+    Requires a bearer token in production (METRICS_TOKEN). Open only in DEV_MODE
+    so operational internals are not exposed to anonymous callers. Returns 404
+    (not 403) when unauthorized to avoid confirming the endpoint exists.
+    """
+    if not settings.dev_mode:
+        token = settings.metrics_token
+        provided = request.headers.get("authorization", "")
+        expected = f"Bearer {token}" if token else None
+        if not expected or not hmac.compare_digest(provided, expected):
+            raise HTTPException(status_code=404, detail="Not Found")
     content = await asyncio.to_thread(render_prometheus)
     return Response(content=content, media_type="text/plain; version=0.0.4; charset=utf-8")
 

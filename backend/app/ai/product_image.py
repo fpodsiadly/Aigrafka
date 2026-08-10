@@ -55,16 +55,33 @@ def _extract_image_candidate(html: str) -> str | None:
 
 
 async def _get_safe(client: httpx.AsyncClient, url: str) -> "FetchedResponse":
-    """GET following redirects manually, validating every hop against SSRF."""
+    """GET following redirects manually, validating and pinning every hop.
+
+    The hostname is resolved and validated once, then the connection is made to
+    that exact IP (with the original Host header and TLS SNI preserved). This
+    closes the DNS-rebinding TOCTOU: the address httpx connects to is the same
+    one that passed the SSRF check, not a second independent resolution.
+    """
     current = url
     for _ in range(settings.product_image_max_redirects + 1):
-        async with client.stream("GET", current) as response:
+        parsed = urlparse(current)
+        host = (parsed.hostname or "").strip("[]")
+        pinned_ip = await _ensure_public_url(current)
+        port = parsed.port
+        netloc_ip = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
+        connect_netloc = f"{netloc_ip}:{port}" if port else netloc_ip
+        connect_url = urlunparse(parsed._replace(netloc=connect_netloc))
+        host_header = host if port is None or port in (80, 443) else f"{host}:{port}"
+        extensions = {"sni_hostname": host} if parsed.scheme == "https" else {}
+
+        request = client.build_request("GET", connect_url, headers={"Host": host_header}, extensions=extensions)
+        response = await client.send(request, stream=True)
+        try:
             if response.is_redirect:
                 location = response.headers.get("location")
                 if not location:
                     raise ValueError("Redirect without a location")
                 current = urljoin(current, location)
-                await _ensure_public_url(current)
                 continue
             response.raise_for_status()
             max_bytes = MAX_IMAGE_BYTES if response.headers.get("content-type", "").startswith("image/") else MAX_HTML_BYTES
@@ -76,7 +93,9 @@ async def _get_safe(client: httpx.AsyncClient, url: str) -> "FetchedResponse":
                 content.extend(chunk)
                 if len(content) > max_bytes:
                     raise ValueError("Product response too large")
-            return FetchedResponse(dict(response.headers), bytes(content), str(response.url))
+            return FetchedResponse(dict(response.headers), bytes(content), current)
+        finally:
+            await response.aclose()
     raise ValueError("Too many redirects")
 
 
@@ -169,20 +188,30 @@ def _sanitize_image_url(image_url: str, source_page_url: str) -> str:
     return urlunparse(parsed)
 
 
-async def _ensure_public_url(url: str) -> None:
-    """Raise ValueError if URL resolves to a private/loopback address (SSRF guard)."""
+def _reject_if_private(addr: str) -> None:
+    ip = ipaddress.ip_address(addr)
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
+        raise ValueError("URL resolves to a private address")
+
+
+async def _ensure_public_url(url: str) -> str:
+    """Validate the URL against SSRF and return the pinned public IP to connect to.
+
+    Raises ValueError if the host resolves to a private/loopback address. The
+    returned IP is the exact address the caller must connect to, so the
+    security check and the connection use the same resolution (no rebinding).
+    """
     parsed = urlparse(url)
     hostname = (parsed.hostname or '').lower().strip('[]')
     if not hostname:
         raise ValueError("URL has no hostname")
     if hostname in ('localhost', '0.0.0.0', '::1', '[::]'):
         raise ValueError("URL hostname not allowed")
-    # IP literal check
+    # IP literal: validate and pin directly.
     try:
-        ip = ipaddress.ip_address(hostname)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
-            raise ValueError("URL resolves to a private address")
-        return
+        ipaddress.ip_address(hostname)
+        _reject_if_private(hostname)
+        return hostname
     except ValueError as exc:
         if "private address" in str(exc) or "not allowed" in str(exc) or "no hostname" in str(exc):
             raise
@@ -195,14 +224,15 @@ async def _ensure_public_url(url: str) -> None:
         )
     except OSError as exc:
         raise ValueError("Unable to resolve URL hostname") from exc
+    pinned: str | None = None
     for _, _, _, _, sockaddr in addr_infos:
         addr = sockaddr[0]
-        try:
-            ip = ipaddress.ip_address(addr)
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified:
-                raise ValueError("URL resolves to a private address")
-        except ValueError:
-            raise
+        _reject_if_private(addr)
+        if pinned is None:
+            pinned = addr
+    if pinned is None:
+        raise ValueError("Unable to resolve URL hostname")
+    return pinned
 
 
 async def fetch_product_image(url: str, timeout: float | None = None) -> bytes:

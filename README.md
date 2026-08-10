@@ -92,7 +92,7 @@ VITE_API_BASE=https://aigrafka.onrender.com npm run build
 - Ograniczony CORS: jawna lista originow, wildcard `*` zablokowany.
 - Rate limiting na `POST /auth/login` i `POST /auth/register` (per IP i per IP+email).
 - Odpowiedz `429` zawiera naglowek `Retry-After`.
-- `/auth/topup` dziala tylko dla dev/local (`DEV_MODE=true` lub localhost).
+- `/auth/topup` dziala tylko w `DEV_MODE=true`.
 
 ## Zmienne srodowiskowe (backend)
 
@@ -101,6 +101,8 @@ Wymagane:
 - `DATABASE_URL`
 - `JWT_SECRET`
 - `GEMINI_API_KEY`
+- `UPSTASH_REDIS_REST_URL`
+- `UPSTASH_REDIS_REST_TOKEN`
 
 Wazne opcjonalne:
 
@@ -114,6 +116,8 @@ Wazne opcjonalne:
 - `MAX_SIDE_PX`
 - `HTTP_TIMEOUT`
 - `PRODUCT_IMAGE_TIMEOUT`
+- `PAYLOAD_ENCRYPTION_KEY` — opcjonalny klucz Fernet do szyfrowania payloadow jobow w Redis.
+- `METRICS_TOKEN` — token wymagany do `/metrics` poza `DEV_MODE`.
 
 Platnosci Przelewy24:
 
@@ -131,14 +135,14 @@ Platnosci Przelewy24:
 - Service root: `backend/`
 - Build command: `pip install -r requirements.txt`
 - Start command: `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- Worker service: `python run_worker.py` (separate background service; required for `/generate`)
+- Generation: `/generate` runs synchronously in the API service; no separate worker service required
 - Required env: `DATABASE_URL`, `JWT_SECRET`, `GEMINI_API_KEY`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
-- API i worker muszą mieć identyczne wartości `UPSTASH_REDIS_REST_URL` i `UPSTASH_REDIS_REST_TOKEN`.
+- API uses Redis for persisted job results and caching. Keep `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` configured.
 - Nie ustawiaj jednocześnie `REDIS_URL`/`REDIS_TOKEN`, jeśli używasz `UPSTASH_*`; `REDIS_URL` ma pierwszeństwo w konfiguracji.
 - Health check: `GET /health`
 - Keep-warm: `.github/workflows/keep-api-warm.yml` odpytuje `GET /health` co 5 min przez darmowy GitHub Actions.
 - Workflow można uruchomić ręcznie z zakładki **Actions** (`Run workflow`).
-- GitHub może opóźniać harmonogram; workflow nie zastępuje osobnego Render workera.
+- GitHub może opóźniać harmonogram; workflow służy tylko do podtrzymywania API, nie do generowania.
 
 ## Status modulow
 

@@ -5,7 +5,6 @@ import { useAppStore } from '../store/appStore';
 
 import {
     FormState,
-    GenerateResponse,
     ProductImageKey,
     VariantPreview,
 } from './types';
@@ -15,6 +14,7 @@ import {
     extractBase64,
     hasAnyBodyMetrics,
     initialState,
+    isSafeExternalUrl,
     normalizeProductUrl,
     placeholderPreview,
     revokeObjectUrl,
@@ -31,7 +31,6 @@ import {
     getDemoAccessStatus,
     googleLogin,
     loadProfile,
-    pollJobStatus,
     saveProfile,
     startDemoAccess,
     startCheckout,
@@ -100,8 +99,8 @@ const App: React.FC = () => {
     const [inputCategory, setInputCategory] = useState<string>(form.category);
     const googleButtonRef = useRef<HTMLDivElement>(null);
     const storageSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const pollAbortRef = useRef<AbortController | null>(null);
     const objectUrlsRef = useRef<string[]>([]);
+    const isGeneratingRef = useRef(false);
 
     const revokeVariantUrls = useCallback(() => {
         objectUrlsRef.current.forEach(revokeObjectUrl);
@@ -543,21 +542,14 @@ const App: React.FC = () => {
         return () => document.removeEventListener('visibilitychange', onVisibility);
     }, [auth.loggedIn, refreshAuthFromServer]);
 
-    async function pollJob(jobId: string): Promise<GenerateResponse> {
-        pollAbortRef.current?.abort();
-        const controller = new AbortController();
-        pollAbortRef.current = controller;
-        return pollJobStatus(jobId, auth.accessToken, controller.signal);
-    }
-
     useEffect(() => {
         return () => {
-            pollAbortRef.current?.abort();
             revokeVariantUrls();
         };
     }, [revokeVariantUrls]);
 
     async function runGeneration() {
+        if (isGeneratingRef.current) return;
         if (!canSubmit || !form.selfie) return;
 
         const normalizedProductUrl = form.productUrl ? normalizeProductUrl(form.productUrl) : '';
@@ -596,9 +588,9 @@ const App: React.FC = () => {
 
         let succeeded = false;
 
+        isGeneratingRef.current = true;
         try {
-            const response = await submitGenerate(formData, auth.accessToken);
-            const data = await pollJob(response.job_id);
+            const data = await submitGenerate(formData, auth.accessToken);
 
             // Release blob URLs from a previous generation before creating new ones.
             revokeVariantUrls();
@@ -694,6 +686,7 @@ const App: React.FC = () => {
             setGenerationError(message);
             setStatusError(message);
         } finally {
+            isGeneratingRef.current = false;
             setIsLoading(false);
             if (succeeded && auth.loggedIn) await refreshAuthFromServer();
         }
@@ -859,9 +852,23 @@ const App: React.FC = () => {
 
         const url = dt.getData('text/uri-list') || dt.getData('text/plain');
         if (url && /^https?:\/\//i.test(url)) {
+            if (!isSafeExternalUrl(url)) {
+                setStatusError('Ten adres nie jest dozwolony (adresy lokalne/prywatne są blokowane).');
+                return;
+            }
             try {
                 const resp = await fetch(url, { mode: 'cors' });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const contentType = resp.headers.get('content-type') || '';
+                if (!contentType.startsWith('image/')) {
+                    setStatusError('Link nie wskazuje na obraz.');
+                    return;
+                }
                 const blob = await resp.blob();
+                if (blob.size > 8 * 1024 * 1024) {
+                    setStatusError('Obraz z linku jest za duży (maks. 8 MB).');
+                    return;
+                }
                 const name = url.split('/').pop()?.split('?')[0] || 'obraz.jpg';
                 const fetched = new File([blob], name, { type: blob.type || 'image/jpeg' });
                 handleFileSelect(key, fetched);

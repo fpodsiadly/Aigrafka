@@ -5,6 +5,7 @@ import time
 import uuid
 
 from app.core.config import get_settings
+from app.core.crypto import decrypt_payload, encrypt_payload
 from app.core.redis_client import get_redis_client, invalidate_redis_client
 
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ def _job_key(job_id: str) -> str:
     return f"job:{job_id}"
 
 
-def _enqueue_job_sync(payload: dict) -> str:
+def _create_job_sync(payload: dict, enqueue: bool) -> str:
     client = get_redis_client()
     if not client:
         raise RuntimeError("Redis is not configured; cannot enqueue job")
@@ -27,7 +28,7 @@ def _enqueue_job_sync(payload: dict) -> str:
     job_data = {
         "id": job_id,
         "status": "pending",
-        "payload": json.dumps(payload),
+        "payload": encrypt_payload(json.dumps(payload)),
         "result": "",
         "error": "",
         "owner_id": payload.get("user_id") or "",
@@ -40,16 +41,22 @@ def _enqueue_job_sync(payload: dict) -> str:
             # Upstash Redis SDK uses values= instead of mapping=
             client.hset(_job_key(job_id), values=job_data)
         client.expire(_job_key(job_id), settings.job_result_ttl_seconds)
-        client.rpush(QUEUE_KEY, job_id)
+        if enqueue:
+            client.rpush(QUEUE_KEY, job_id)
     except Exception:
         invalidate_redis_client()
         raise
-    logger.info("Enqueued job %s", job_id)
+    logger.info("%s job %s", "Enqueued" if enqueue else "Created", job_id)
     return job_id
 
 
 async def enqueue_job(payload: dict) -> str:
-    return await asyncio.to_thread(_enqueue_job_sync, payload)
+    return await asyncio.to_thread(_create_job_sync, payload, True)
+
+
+async def create_job(payload: dict) -> str:
+    """Create a persisted job without putting it on the worker queue."""
+    return await asyncio.to_thread(_create_job_sync, payload, False)
 
 
 def _get_job_sync(job_id: str, include_payload: bool) -> dict | None:
@@ -74,6 +81,8 @@ def _get_job_sync(job_id: str, include_payload: bool) -> dict | None:
         if key == "payload" and not include_payload:
             continue
         if key in ("payload", "result") and val:
+            if key == "payload":
+                val = decrypt_payload(val)
             try:
                 result[key] = json.loads(val)
             except json.JSONDecodeError:
@@ -116,6 +125,23 @@ async def update_job_status(
     job_id: str, status: str, result: dict | None = None, error: str | None = None
 ) -> None:
     await asyncio.to_thread(_update_job_status_sync, job_id, status, result, error)
+
+
+def renew_job_lease(job_id: str) -> None:
+    """Refresh started_at so a still-running long job is not treated as stale
+    and requeued (which would duplicate model cost and writes)."""
+    client = get_redis_client()
+    if not client:
+        return
+    try:
+        mapping = {"started_at": str(int(time.time()))}
+        try:
+            client.hset(_job_key(job_id), mapping=mapping)
+        except TypeError:
+            client.hset(_job_key(job_id), values=mapping)
+    except Exception:
+        logger.exception("Failed to renew lease for job %s", job_id)
+        invalidate_redis_client()
 
 
 def dequeue_job(timeout: int = 5) -> str | None:

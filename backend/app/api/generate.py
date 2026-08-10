@@ -7,14 +7,14 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from PIL import Image
-from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.core.db import add_tokens, deduct_tokens_if_possible
 from app.core.metrics import track_generate_request
-from app.core.queue import enqueue_job
+from app.core.queue import create_job, get_job
 from app.core.rate_limit import enforce_generate_rate_limit
 from app.core.security import get_optional_user_id, is_demo_user_id
+from app.core.worker import process_job
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -24,12 +24,33 @@ MAX_UPLOAD_BYTES = settings.max_selfie_mb * 1024 * 1024
 MAX_PRODUCT_BYTES = settings.max_product_image_mb * 1024 * 1024
 MAX_SIDE_PX = settings.max_side_px
 MAX_IMAGE_PIXELS = 50_000_000
+# Let Pillow abort decompression bombs before allocating a full RGB buffer.
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
+# Upper bounds for free-text fields interpolated into model prompts, to prevent
+# prompt bloat / token-cost amplification.
+_TEXT_FIELD_LIMITS = {
+    "category": 200,
+    "fit_style": 32,
+    "model_choice": 64,
+    "height_cm": 16,
+    "chest_cm": 16,
+    "waist_cm": 16,
+    "hips_cm": 16,
+}
 
 
-class GenerateJobResponse(BaseModel):
-    job_id: str
-    status: str = "queued"
-    message: str = "Generation queued. Poll /jobs/{job_id} for status."
+def _bound_text(value: str | None, field: str) -> str | None:
+    if value is None:
+        return None
+    trimmed = value.strip()
+    limit = _TEXT_FIELD_LIMITS.get(field, 200)
+    if len(trimmed) > limit:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{field} exceeds maximum length of {limit} characters",
+        )
+    return trimmed
 
 
 def _normalize_product_url(url: str) -> str:
@@ -63,13 +84,18 @@ def _validate_and_normalize_image(upload: UploadFile, max_bytes: int, label: str
 
         image = Image.open(BytesIO(content))
         image.verify()
-        image = Image.open(BytesIO(content)).convert("RGB")
-        w, h = image.size
+        # Re-open and check declared dimensions from the header BEFORE decoding
+        # into a full RGB buffer, so a small highly-compressed bomb cannot force
+        # a large allocation first.
+        probe = Image.open(BytesIO(content))
+        w, h = probe.size
         if w * h > MAX_IMAGE_PIXELS:
             raise HTTPException(
                 status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                 detail=f"{label} has too many pixels",
             )
+        image = probe.convert("RGB")
+        w, h = image.size
         longer = max(w, h)
         if longer > MAX_SIDE_PX:
             scale = MAX_SIDE_PX / longer
@@ -83,7 +109,7 @@ def _validate_and_normalize_image(upload: UploadFile, max_bytes: int, label: str
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid {label} upload") from exc
 
 
-@router.post("/generate", response_model=GenerateJobResponse)
+@router.post("/generate")
 async def generate_tryon(
     request: Request,
     product_url: str | None = Form(None),
@@ -99,8 +125,16 @@ async def generate_tryon(
     product_image_1: UploadFile | None = File(None),
     product_image_2: UploadFile | None = File(None),
     user_id: str | None = Depends(get_optional_user_id),
-) -> GenerateJobResponse:
+) -> dict:
     await enforce_generate_rate_limit(request, user_id)
+
+    category = _bound_text(category, "category")
+    fit_style = _bound_text(fit_style, "fit_style")
+    model_choice = _bound_text(model_choice, "model_choice")
+    height_cm = _bound_text(height_cm, "height_cm")
+    chest_cm = _bound_text(chest_cm, "chest_cm")
+    waist_cm = _bound_text(waist_cm, "waist_cm")
+    hips_cm = _bound_text(hips_cm, "hips_cm")
 
     normalized_product_url: str | None = None
     if product_url:
@@ -187,7 +221,7 @@ async def generate_tryon(
     }
 
     try:
-        job_id = await enqueue_job(payload)
+        job_id = await create_job(payload)
     except Exception as exc:
         # Enqueue failed after charging: refund to avoid losing user tokens.
         if charged_tokens > 0 and user_id:
@@ -195,13 +229,30 @@ async def generate_tryon(
                 await add_tokens(user_id, charged_tokens)
             except Exception:
                 logger.exception("Failed to refund tokens after enqueue failure user=%s", user_id)
-        track_generate_request("enqueue_failed")
-        logger.exception("generate_tryon enqueue failed user=%s", user_id)
+        track_generate_request("create_failed")
+        logger.exception("generate_tryon job creation failed user=%s", user_id)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Generation queue unavailable. Please try again.",
+            detail="Generation service unavailable. Please try again.",
         ) from exc
 
-    track_generate_request("queued")
-    logger.info("generate_tryon queued job_id=%s user=%s variants=%d", job_id, user_id, variant_count)
-    return GenerateJobResponse(job_id=job_id)
+    await process_job(job_id)
+    job = await get_job(job_id)
+    if not job:
+        track_generate_request("failed")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Generation result unavailable.")
+    if job.get("status") == "failed":
+        track_generate_request("failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=job.get("error") or "Generation failed.",
+        )
+
+    result = job.get("result")
+    if not isinstance(result, dict):
+        track_generate_request("failed")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Generation result unavailable.")
+
+    track_generate_request(result.get("status", "completed"))
+    logger.info("generate_tryon completed job_id=%s user=%s variants=%d", job_id, user_id, variant_count)
+    return result

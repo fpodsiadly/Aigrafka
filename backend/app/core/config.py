@@ -52,7 +52,13 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(..., alias="JWT_SECRET", min_length=32)
     jwt_exp_minutes: int = Field(default=60, alias="JWT_EXP_MINUTES", ge=5, le=60 * 24 * 30)
     dev_mode: bool = Field(default=False, alias="DEV_MODE")
-    demo_access_enabled: bool = Field(default=True, alias="DEMO_ACCESS_ENABLED")
+    demo_access_enabled: bool = Field(default=False, alias="DEMO_ACCESS_ENABLED")
+    # Optional Fernet key. When set, job payloads (which carry base64 selfie /
+    # product images) are encrypted before being written to Redis at rest.
+    payload_encryption_key: str | None = Field(default=None, alias="PAYLOAD_ENCRYPTION_KEY")
+    # Bearer token required to scrape /metrics in production. When unset, the
+    # endpoint is only reachable in DEV_MODE.
+    metrics_token: str | None = Field(default=None, alias="METRICS_TOKEN")
     initial_user_tokens: int = Field(default=5, alias="INITIAL_USER_TOKENS", ge=0, le=100000)
     token_cost_per_stylization: int = Field(default=1, alias="TOKEN_COST_PER_STYLIZATION", ge=1, le=1000)
     google_client_id: str | None = Field(default=None, alias="GOOGLE_CLIENT_ID")

@@ -1,9 +1,7 @@
 import asyncio
-from collections import defaultdict, deque
-from threading import Lock
-from time import monotonic
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import id_token as google_id_token
 from pydantic import BaseModel, Field
@@ -12,27 +10,28 @@ from app.core.config import get_settings
 from app.core.db import (
     add_tokens,
     create_user_with_credentials,
+    delete_credentials_for_email,
     get_or_create_user_by_email,
     get_user_by_id,
     get_user_with_credentials_by_email,
 )
 from app.core.network import client_ip as _client_ip
+from app.core.rate_limit import enforce_auth_rate_limit
 from app.core.security import (
     DEMO_EMAIL,
     DEMO_USER_ID,
+    bearer_required,
     create_access_token,
     create_demo_access_token,
+    decode_access_token,
     get_current_user_id,
     hash_password,
     is_demo_user_id,
+    revoke_token,
     verify_password,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-_RATE_LIMIT_BUCKETS: dict[str, deque[float]] = defaultdict(deque)
-_RATE_LIMIT_LOCK = Lock()
-_NEXT_BUCKET_CLEANUP_AT = 0.0
 
 LOGIN_WINDOW_SEC = 5 * 60
 LOGIN_MAX_PER_IP = 30
@@ -40,8 +39,6 @@ LOGIN_MAX_PER_IP_EMAIL = 10
 REGISTER_WINDOW_SEC = 15 * 60
 REGISTER_MAX_PER_IP = 15
 REGISTER_MAX_PER_IP_EMAIL = 5
-RATE_LIMIT_CLEANUP_INTERVAL_SEC = 60
-MAX_RATE_LIMIT_WINDOW_SEC = max(LOGIN_WINDOW_SEC, REGISTER_WINDOW_SEC)
 
 
 def _normalize_email(email: str) -> str:
@@ -49,33 +46,7 @@ def _normalize_email(email: str) -> str:
 
 
 def _enforce_rate_limit(bucket_key: str, max_requests: int, window_seconds: int) -> None:
-    global _NEXT_BUCKET_CLEANUP_AT
-
-    now = monotonic()
-    with _RATE_LIMIT_LOCK:
-        if now >= _NEXT_BUCKET_CLEANUP_AT:
-            stale_cutoff = now - MAX_RATE_LIMIT_WINDOW_SEC
-            for key, existing_bucket in list(_RATE_LIMIT_BUCKETS.items()):
-                while existing_bucket and existing_bucket[0] <= stale_cutoff:
-                    existing_bucket.popleft()
-                if not existing_bucket:
-                    _RATE_LIMIT_BUCKETS.pop(key, None)
-            _NEXT_BUCKET_CLEANUP_AT = now + RATE_LIMIT_CLEANUP_INTERVAL_SEC
-
-        bucket = _RATE_LIMIT_BUCKETS[bucket_key]
-        cutoff = now - window_seconds
-        while bucket and bucket[0] <= cutoff:
-            bucket.popleft()
-
-        if len(bucket) >= max_requests:
-            retry_after = max(1, int(window_seconds - (now - bucket[0])))
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Too many attempts. Retry in {retry_after}s",
-                headers={"Retry-After": str(retry_after)},
-            )
-
-        bucket.append(now)
+    enforce_auth_rate_limit(bucket_key, max_requests, window_seconds)
 
 
 class RegisterRequest(BaseModel):
@@ -135,7 +106,11 @@ async def register(body: RegisterRequest, request: Request) -> AuthResponse:
     try:
         user = await create_user_with_credentials(email, password_hash, settings.initial_user_tokens)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User already exists") from exc
+        # Generic message avoids confirming which emails are already registered.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Nie udało się utworzyć konta dla podanych danych.",
+        ) from exc
 
     token = create_access_token(str(user["id"]), str(user["email"]))
     return AuthResponse(
@@ -172,6 +147,14 @@ async def login(body: LoginRequest, request: Request) -> AuthResponse:
     )
 
 
+@router.post("/logout")
+def logout(credentials: HTTPAuthorizationCredentials = Depends(bearer_required)) -> dict[str, bool]:
+    """Revoke the presented token so it cannot be reused (e.g. after compromise)."""
+    payload = decode_access_token(credentials.credentials)
+    revoke_token(payload)
+    return {"ok": True}
+
+
 @router.get("/me", response_model=MeResponse)
 async def me(user_id: str = Depends(get_current_user_id)) -> MeResponse:
     if is_demo_user_id(user_id):
@@ -200,11 +183,12 @@ async def start_demo_access() -> AuthResponse:
 
 
 @router.post("/topup", response_model=MeResponse)
-async def topup(body: TopupRequest, request: Request, user_id: str = Depends(get_current_user_id)) -> MeResponse:
+async def topup(body: TopupRequest, user_id: str = Depends(get_current_user_id)) -> MeResponse:
     settings = get_settings()
-    client_host = (request.client.host if request.client else "").strip().lower()
-    localhost_hosts = {"localhost", "127.0.0.1", "::1"}
-    if not settings.dev_mode and client_host not in localhost_hosts:
+    # Peer-address ("localhost") checks are unreliable behind a reverse proxy
+    # that terminates on loopback (e.g. Render), where every external client
+    # appears local. Gate strictly on DEV_MODE instead.
+    if not settings.dev_mode:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Manual top-up is disabled outside dev mode")
 
     try:
@@ -252,6 +236,10 @@ async def login_with_google(body: GoogleAuthRequest, request: Request) -> AuthRe
 
     try:
         user = await get_or_create_user_by_email(email, settings.initial_user_tokens)
+        # Google verified ownership of this email. Invalidate any pre-existing
+        # password credential (which this app never email-verifies) so an
+        # attacker who pre-registered the address cannot retain access.
+        await delete_credentials_for_email(email)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -69,10 +69,20 @@ async function proxyApiRequest(message: {
   if (typeof message.path !== 'string' || !message.path.startsWith('/') || message.path.startsWith('//')) {
     return { ok: false, status: 400, text: 'Nieprawidłowa ścieżka API.' };
   }
-  const method = typeof message.method === 'string' ? message.method : 'GET';
-  const headers = typeof message.headers === 'object' && message.headers !== null
+  const ALLOWED_METHODS = new Set(['GET', 'POST']);
+  const method = (typeof message.method === 'string' ? message.method : 'GET').toUpperCase();
+  if (!ALLOWED_METHODS.has(method)) {
+    return { ok: false, status: 405, text: 'Niedozwolona metoda API.' };
+  }
+  // Only forward a safe allowlist of request headers. Content-Type is set by
+  // the body handling below; never forward arbitrary caller-supplied headers.
+  const incoming = typeof message.headers === 'object' && message.headers !== null
     ? message.headers as Record<string, string>
     : {};
+  const headers: Record<string, string> = {};
+  for (const [name, value] of Object.entries(incoming)) {
+    if (name.toLowerCase() === 'authorization' && typeof value === 'string') headers.Authorization = value;
+  }
   let body: FormData | string | undefined;
   if (message.body?.kind === 'json') {
     body = JSON.stringify(message.body.value);
@@ -92,6 +102,24 @@ async function proxyApiRequest(message: {
   const apiBase = await resolveApiBase();
   const response = await fetch(`${apiBase}${message.path}`, { method, headers, body });
   return { ok: response.ok, status: response.status, text: await response.text() };
+}
+
+// Only open checkout URLs on trusted payment hosts, so a tampered/buggy backend
+// response cannot redirect the user to a phishing domain.
+const ALLOWED_CHECKOUT_HOSTS = new Set([
+  'secure.przelewy24.pl',
+  'sandbox.przelewy24.pl',
+  'example.com', // demo mode placeholder
+]);
+
+function isAllowedCheckoutUrl(rawUrl: unknown): boolean {
+  if (typeof rawUrl !== 'string') return false;
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.protocol === 'https:' && ALLOWED_CHECKOUT_HOSTS.has(parsed.hostname);
+  } catch {
+    return false;
+  }
 }
 
 async function setBadge(text: string, color: string) {
@@ -172,9 +200,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return resp.json();
       }))
       .then(data => {
-        if (data?.checkoutUrl) {
+        if (data?.checkoutUrl && isAllowedCheckoutUrl(data.checkoutUrl)) {
           chrome.tabs.create({ url: data.checkoutUrl });
           sendResponse({ ok: true });
+          return;
+        }
+        if (data?.checkoutUrl) {
+          sendResponse({ ok: false, error: 'Niezaufany adres płatności — przerwano.' });
           return;
         }
         sendResponse({ ok: false, error: 'Backend nie zwrócił checkoutUrl.' });

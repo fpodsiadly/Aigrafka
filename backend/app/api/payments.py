@@ -1,3 +1,4 @@
+import hmac
 import json
 import logging
 from hashlib import sha384
@@ -166,7 +167,7 @@ def _is_notification_sign_valid(payload: P24WebhookPayload, config: P24Config) -
         "crc": config.crc,
     }
     expected = _sha384(_json_for_sign(expected_payload))
-    return expected == payload.sign
+    return hmac.compare_digest(expected, payload.sign)
 
 
 @router.post("/dev-add-tokens", response_model=DevAddTokensResponse)

@@ -66,6 +66,34 @@ def _check_redis_window(client, key: str, window_ms: int, max_count: int, now_ms
     return True
 
 
+def enforce_auth_rate_limit(bucket_key: str, max_requests: int, window_seconds: int, retry_after: int | None = None) -> None:
+    """Shared sliding-window limiter for auth endpoints.
+
+    Uses Redis so limits hold across worker processes; falls back to the
+    process-local store (fail-closed) when Redis is unavailable.
+    """
+    now_ms = int(time.time() * 1000)
+    window_ms = window_seconds * 1000
+    key = f"rate_limit:auth:{bucket_key}"
+    client = get_redis_client()
+    if client:
+        try:
+            allowed = _check_redis_window(client, key, window_ms, max_requests, now_ms)
+        except Exception as exc:
+            logger.error("Auth rate limit Redis error for %s; using local fallback: %s", key, exc)
+            invalidate_redis_client()
+            allowed = _check_local_window(key, window_ms, max_requests, now_ms)
+    else:
+        allowed = _check_local_window(key, window_ms, max_requests, now_ms)
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many attempts. Retry in {retry_after or window_seconds}s",
+            headers={"Retry-After": str(retry_after or window_seconds)},
+        )
+
+
 async def enforce_generate_rate_limit(request: Request, user_id: str | None) -> None:
     settings = get_settings()
     client = get_redis_client()

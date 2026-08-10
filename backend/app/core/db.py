@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
@@ -21,13 +22,23 @@ def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         settings = get_settings()
-        db_url = _to_async_url(settings.database_url)
-        is_local = any(h in db_url for h in ("localhost", "127.0.0.1", "::1"))
-        if not is_local and "sslmode=" not in db_url:
-            separator = "&" if "?" in db_url else "?"
-            db_url = f"{db_url}{separator}sslmode=require"
+        parsed_url = make_url(_to_async_url(settings.database_url))
+        is_local = parsed_url.host in {"localhost", "127.0.0.1", "::1"}
+        connect_args: dict[str, object] = {}
+
+        # sslmode is a libpq parameter. asyncpg expects the equivalent `ssl`
+        # connect argument and rejects sslmode as an unknown keyword.
+        sslmode = parsed_url.query.get("sslmode")
+        if sslmode:
+            parsed_url = parsed_url.difference_update_query(["sslmode"])
+            if sslmode != "disable":
+                connect_args["ssl"] = sslmode
+        elif not is_local:
+            connect_args["ssl"] = "require"
+
         _engine = create_async_engine(
-            db_url,
+            parsed_url,
+            connect_args=connect_args,
             pool_pre_ping=True,
             pool_size=settings.db_pool_size,
             max_overflow=settings.db_max_overflow,
@@ -236,6 +247,21 @@ async def get_or_create_user_by_email(email: str, initial_tokens: int) -> dict:
     if not user:
         raise RuntimeError("Failed to create user")
     return dict(user)
+
+
+async def delete_credentials_for_email(email: str) -> None:
+    """Remove any password credentials for an email.
+
+    Called after a verified Google sign-in so a password credential that was
+    pre-registered by an attacker (before the real owner proved ownership via
+    Google) cannot be used to hijack the account.
+    """
+    engine = get_engine()
+    async with engine.begin() as conn:
+        await conn.execute(
+            text('DELETE FROM auth_user_credentials WHERE LOWER(email) = LOWER(:email)'),
+            {"email": email},
+        )
 
 
 async def create_user_with_credentials(email: str, password_hash: str, initial_tokens: int) -> dict:

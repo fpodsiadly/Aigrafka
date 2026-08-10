@@ -5,10 +5,15 @@ on:
     - cron: "*/5 * * * *"
   workflow_dispatch:
 
+# Least privilege: this job only pings a public endpoint.
+permissions: {}
+
 jobs:
   health-check:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Ping production API
+      - name: Ping primary API
         run: curl --fail --silent --show-error --max-time 30 https://api.aigrafka.pl/health
+      - name: Ping backup API
+        run: curl --fail --silent --show-error --max-time 30 https://aigrafka.onrender.com/health

@@ -48,8 +48,9 @@ async function injectPanel() {
   const style = document.createElement('style');
   style.textContent = `
     :host { all: initial; }
-    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&display=swap');
-    * { box-sizing: border-box; font-family: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif; }
+    /* No remote @import: avoid leaking the user's IP / browsing activity to a
+       third-party font CDN every time the panel opens. Use system fonts. */
+    * { box-sizing: border-box; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
     #aigrafka-panel-root { width: 100%; height: fit-content; }
     .aigrafka-shell {
       width: 100%;

@@ -43,19 +43,6 @@ export interface GenerateResponse {
     detail?: string | null;  // error detail when status != 'generated'
 }
 
-export interface GenerateJobResponse {
-    job_id: string;
-    status: string;
-    message: string;
-}
-
-export interface JobStatusResponse {
-    id: string;
-    status: string;
-    result?: GenerateResponse | null;
-    error?: string | null;
-}
-
 export interface ShareData {
     title?: string;
     text?: string;

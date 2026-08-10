@@ -2,10 +2,8 @@ import { apiBase } from './utils';
 import {
     AuthApiResponse,
     AuthMeResponse,
-    GenerateJobResponse,
     GenerateResponse,
     GoogleClientIdResponse,
-    JobStatusResponse,
     ProfileResponse,
 } from './types';
 
@@ -31,9 +29,14 @@ function toBase64(file: File): Promise<string> {
     });
 }
 
+const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
+
 async function serializeFormData(formData: FormData): Promise<ApiBody> {
     const entries = await Promise.all(Array.from(formData.entries()).map(async ([name, value]) => {
         if (typeof value === 'string') return { name, kind: 'text' as const, value };
+        if (value.size > MAX_UPLOAD_BYTES) {
+            throw new Error(`Plik „${value.name}” jest za duży (maks. ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB).`);
+        }
         return {
             name,
             kind: 'file' as const,
@@ -131,7 +134,7 @@ export async function authMe(token: string): Promise<AuthMeResponse> {
     return parseJson<AuthMeResponse>(response);
 }
 
-export async function submitGenerate(formData: FormData, token?: string | null): Promise<GenerateJobResponse> {
+export async function submitGenerate(formData: FormData, token?: string | null): Promise<GenerateResponse> {
     const headers: Record<string, string> = {};
     if (token) {
         headers.Authorization = `Bearer ${token}`;
@@ -144,81 +147,7 @@ export async function submitGenerate(formData: FormData, token?: string | null):
     if (!response.ok) {
         throw new Error(`Błąd generowania (HTTP ${response.status}).`);
     }
-    return parseJson<GenerateJobResponse>(response);
-}
-
-export async function pollJobStatus(
-    jobId: string,
-    token?: string | null,
-    signal?: AbortSignal,
-): Promise<GenerateResponse> {
-    const maxAttempts = 180; // 6 minutes at 2s interval
-    let attempts = 0;
-
-    return new Promise((resolve, reject) => {
-        let timer: ReturnType<typeof setTimeout> | null = null;
-        let settled = false;
-
-        const finish = (fn: () => void) => {
-            if (settled) return;
-            settled = true;
-            if (timer) clearTimeout(timer);
-            signal?.removeEventListener('abort', onAbort);
-            fn();
-        };
-
-        const onAbort = () => finish(() => reject(new DOMException('Aborted', 'AbortError')));
-
-        if (signal) {
-            if (signal.aborted) {
-                reject(new DOMException('Aborted', 'AbortError'));
-                return;
-            }
-            signal.addEventListener('abort', onAbort, { once: true });
-        }
-
-        const check = async () => {
-            attempts++;
-            try {
-                const headers: Record<string, string> = {};
-                if (token) {
-                    headers.Authorization = `Bearer ${token}`;
-                }
-                if (signal?.aborted) {
-                    throw new DOMException('Aborted', 'AbortError');
-                }
-                const res = await apiRequest(`/jobs/${encodeURIComponent(jobId)}`, { headers });
-                if (!res.ok) {
-                    if (res.status === 404) {
-                        finish(() => reject(new Error('Job nie został znaleziony.')));
-                        return;
-                    }
-                    throw new Error(`Błąd sprawdzania statusu (HTTP ${res.status}).`);
-                }
-                const job = parseJson<JobStatusResponse>(res);
-                if (job.status === 'completed') {
-                    if (job.result) {
-                        finish(() => resolve(job.result as GenerateResponse));
-                    } else {
-                        finish(() => reject(new Error('Job zakończony, ale brak wyniku.')));
-                    }
-                    return;
-                }
-                if (job.status === 'failed') {
-                    finish(() => reject(new Error(job.error || 'Generacja nieudana.')));
-                    return;
-                }
-                if (attempts >= maxAttempts) {
-                    finish(() => reject(new Error('Przekroczono limit czasu oczekiwania na stylizację.')));
-                    return;
-                }
-                timer = setTimeout(check, 2000);
-            } catch (err) {
-                finish(() => reject(err));
-            }
-        };
-        check();
-    });
+    return parseJson<GenerateResponse>(response);
 }
 
 export async function loadProfile(userId: string, token: string): Promise<ProfileResponse | null> {

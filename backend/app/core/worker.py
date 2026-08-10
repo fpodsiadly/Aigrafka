@@ -12,7 +12,14 @@ from app.core.cache import get_cached_generation, set_cached_generation
 from app.core.config import get_settings
 from app.core.db import add_tokens, close_engine
 from app.core.metrics import track_gemini_call, track_generation_latency, track_job_status, track_token_refund
-from app.core.queue import acknowledge_job, dequeue_job, get_job, recover_stale_jobs, update_job_status
+from app.core.queue import (
+    acknowledge_job,
+    dequeue_job,
+    get_job,
+    recover_stale_jobs,
+    renew_job_lease,
+    update_job_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +117,18 @@ async def process_job(job_id: str) -> None:
     payload = job.get("payload") or {}
     await update_job_status(job_id, "running")
 
+    settings = get_settings()
+
+    async def _heartbeat() -> None:
+        # Refresh the lease well within the visibility timeout so a slow job is
+        # not requeued and processed twice.
+        interval = max(30, settings.job_visibility_timeout_seconds // 3)
+        while True:
+            await asyncio.sleep(interval)
+            await asyncio.to_thread(renew_job_lease, job_id)
+
+    heartbeat_task = asyncio.create_task(_heartbeat())
+
     try:
         product_url = payload.get("product_url")
         selfie_b64 = payload.get("selfie_b64")
@@ -202,6 +221,15 @@ async def process_job(job_id: str) -> None:
                     fallback_detail = v["error"]
                     break
 
+        # No usable image produced (fallback/refused/failed): refund the charge
+        # so users are not billed for results they cannot use.
+        if overall_status != "generated" and user_id and charged_tokens > 0:
+            try:
+                await add_tokens(user_id, charged_tokens)
+                track_token_refund()
+            except Exception:
+                logger.exception("Failed to refund tokens for non-generated job %s", job_id)
+
         await update_job_status(
             job_id,
             "completed",
@@ -223,6 +251,10 @@ async def process_job(job_id: str) -> None:
             except Exception:
                 logger.exception("Failed to refund tokens for job %s", job_id)
         await update_job_status(job_id, "failed", error=str(exc))
+    finally:
+        heartbeat_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat_task
 
 
 async def run_worker() -> None:
