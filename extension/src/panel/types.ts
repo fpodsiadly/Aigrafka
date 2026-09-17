@@ -28,6 +28,7 @@ export type ApiBase64 = string | { image_base64?: string } | null | undefined;
 
 export interface ApiVariant {
     image_base64?: ApiBase64;
+    image_url?: string | null;
     mime_type?: string | null;
     width?: number | null;
     height?: number | null;
@@ -41,6 +42,17 @@ export interface GenerateResponse {
     model?: string | null;
     variants?: ApiVariant[];
     detail?: string | null;  // error detail when status != 'generated'
+    telemetry?: {
+        upload_ms: number;
+        rate_limit_ms: number;
+        normalize_ms: number;
+        redis_ms: number;
+        product_fetch_ms: number;
+        gemini_ms: number;
+        response_encode_ms: number;
+        total_ms: number;
+        cache_hit: boolean;
+    };
 }
 
 export interface ShareData {
@@ -72,30 +84,6 @@ export interface ProfileResponse {
     hips: string;
     fitStyle?: FormState['fitStyle'] | null;
     consentGiven?: boolean | null;
-}
-
-export interface GoogleClientIdResponse {
-    enabled: boolean;
-    client_id?: string | null;
-}
-
-declare global {
-    interface Window {
-        google?: {
-            accounts?: {
-                id?: {
-                    initialize: (options: { client_id: string; callback: (resp: { credential?: string }) => void }) => void;
-                    renderButton: (container: HTMLElement, options: {
-                        theme?: 'outline' | 'filled_blue' | 'filled_black';
-                        size?: 'large' | 'medium' | 'small';
-                        text?: 'signin_with' | 'continue_with' | 'signup_with';
-                        shape?: 'rectangular' | 'pill' | 'circle' | 'square';
-                        width?: number;
-                    }) => void;
-                };
-            };
-        };
-    }
 }
 
 export interface VariantPreview {

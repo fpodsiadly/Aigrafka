@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 import { actionButtonStyle, inputStyle } from '../styles';
-import { ProductImageKey } from '../types';
+import { GARMENT_CATEGORIES, getCategoryError } from '../garmentPolicy';
+import { FormState, ProductImageKey } from '../types';
 import FieldRow from './FieldRow';
 
 interface ProductFormProps {
@@ -9,6 +10,8 @@ interface ProductFormProps {
     category: string;
     inputProductUrl: string;
     inputCategory: string;
+    categoryError: string | null;
+    fitStyle: FormState['fitStyle'];
     productImage1: File | null;
     productImage2: File | null;
     productPreview1: string;
@@ -24,6 +27,8 @@ interface ProductFormProps {
 const ProductForm: React.FC<ProductFormProps> = ({
     inputProductUrl,
     inputCategory,
+    categoryError,
+    fitStyle,
     productImage1,
     productImage2,
     productPreview1,
@@ -254,12 +259,31 @@ const ProductForm: React.FC<ProductFormProps> = ({
             </FieldRow>
 
             <FieldRow label="Kategoria produktu:">
-                <input
-                    style={inputStyle}
+                <select
+                    style={{
+                        ...inputStyle,
+                        borderColor: categoryError ? '#c62828' : inputStyle.borderColor,
+                    }}
                     value={inputCategory}
                     onChange={(e) => onCategoryChange(e.target.value)}
-                    placeholder="Podaj kategorię swojego produktu"
-                />
+                    aria-label="Kategoria produktu"
+                >
+                    <option value="">Wybierz kategorię</option>
+                    {GARMENT_CATEGORIES.map((category) => (
+                        <option
+                            key={category.value}
+                            value={category.value}
+                            disabled={Boolean(getCategoryError(category.value, fitStyle))}
+                        >
+                            {category.label}
+                        </option>
+                    ))}
+                </select>
+                {categoryError && (
+                    <div role="alert" style={{ marginTop: 4, color: '#a61b1b', fontSize: 10, fontWeight: 700 }}>
+                        {categoryError}
+                    </div>
+                )}
             </FieldRow>
 
             <FieldRow label="Zdjęcia produktu:">

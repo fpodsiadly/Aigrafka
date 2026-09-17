@@ -1,42 +1,22 @@
 import React from 'react';
 
-import { actionButtonStyle, inputStyle, sectionTitleStyle } from '../styles';
+import { actionButtonStyle, sectionTitleStyle } from '../styles';
 
 interface AuthPanelProps {
     showAuthDialog: boolean;
-    authMode: 'login' | 'register';
-    authEmail: string;
-    authPassword: string;
     authSubmitting: boolean;
     demoAccessEnabled: boolean;
-    googleClientId: string | null;
-    googleReady: boolean;
-    googleInitialized: boolean;
-    googleButtonRef: React.RefObject<HTMLDivElement>;
     onCloseDialog: () => void;
-    onToggleMode: (mode: 'login' | 'register') => void;
-    onEmailChange: (value: string) => void;
-    onPasswordChange: (value: string) => void;
-    onSubmit: (event: React.FormEvent) => void;
+    onGoogleLogin: () => void;
     onDemoAccess: () => void;
 }
 
 const AuthPanel: React.FC<AuthPanelProps> = ({
     showAuthDialog,
-    authMode,
-    authEmail,
-    authPassword,
     authSubmitting,
     demoAccessEnabled,
-    googleClientId,
-    googleReady,
-    googleInitialized,
-    googleButtonRef,
     onCloseDialog,
-    onToggleMode,
-    onEmailChange,
-    onPasswordChange,
-    onSubmit,
+    onGoogleLogin,
     onDemoAccess,
 }) => {
     if (!showAuthDialog) return null;
@@ -91,68 +71,25 @@ const AuthPanel: React.FC<AuthPanelProps> = ({
                     </button>
                 </div>
 
-                <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                    <button
-                        type="button"
-                        onClick={() => onToggleMode('login')}
-                        style={{
-                            ...actionButtonStyle,
-                            background: authMode === 'login' ? '#9b59ff' : '#b7b7b7',
-                            boxShadow: 'none',
-                            padding: '8px 12px',
-                            flex: 1,
-                        }}
-                        disabled={authSubmitting}
-                    >
-                        Logowanie
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => onToggleMode('register')}
-                        style={{
-                            ...actionButtonStyle,
-                            background: authMode === 'register' ? '#9b59ff' : '#b7b7b7',
-                            boxShadow: 'none',
-                            padding: '8px 12px',
-                            flex: 1,
-                        }}
-                        disabled={authSubmitting}
-                    >
-                        Rejestracja
-                    </button>
+                <div style={{ color: '#4b4b4b', fontSize: 12, lineHeight: 1.45, marginBottom: 12 }}>
+                    Logowanie i utworzenie konta odbywa się przez Google.
                 </div>
 
-                <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <input
-                        style={inputStyle}
-                        type="email"
-                        placeholder="Email"
-                        value={authEmail}
-                        onChange={(e) => onEmailChange(e.target.value)}
-                        autoComplete="email"
-                        disabled={authSubmitting}
-                    />
-                    <input
-                        style={inputStyle}
-                        type="password"
-                        placeholder="Hasło (min. 6 znaków)"
-                        value={authPassword}
-                        onChange={(e) => onPasswordChange(e.target.value)}
-                        autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
-                        disabled={authSubmitting}
-                    />
-
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <button
-                        type="submit"
+                        type="button"
+                        onClick={onGoogleLogin}
                         style={{
                             ...actionButtonStyle,
-                            background: '#9b59ff',
+                            background: '#ffffff',
+                            color: '#3c4043',
+                            border: '1px solid #dadce0',
                             boxShadow: 'none',
                             padding: '10px 12px',
                         }}
                         disabled={authSubmitting}
                     >
-                        {authSubmitting ? 'Trwa...' : authMode === 'register' ? 'Utwórz konto' : 'Zaloguj się'}
+                        {authSubmitting ? 'Logowanie...' : 'Kontynuuj z Google'}
                     </button>
 
                     {demoAccessEnabled && (
@@ -177,27 +114,7 @@ const AuthPanel: React.FC<AuthPanelProps> = ({
                         </div>
                     )}
 
-                    {googleClientId && (
-                        <div
-                            style={{
-                                background: '#ffffff',
-                                border: '2px solid #c7c7c7',
-                                borderRadius: 999,
-                                padding: '6px 8px',
-                                display: 'grid',
-                                placeItems: 'center',
-                            }}
-                        >
-                            {googleReady && googleInitialized ? (
-                                <div ref={googleButtonRef} />
-                            ) : (
-                                <div style={{ fontSize: 13, fontWeight: 700, color: '#4b4b4b', padding: '6px 8px' }}>
-                                    Ładowanie Google...
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </form>
+                </div>
             </div>
         </div>
     );

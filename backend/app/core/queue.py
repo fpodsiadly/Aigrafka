@@ -6,7 +6,7 @@ import uuid
 
 from app.core.config import get_settings
 from app.core.crypto import decrypt_payload, encrypt_payload
-from app.core.redis_client import get_redis_client, invalidate_redis_client
+from app.core.redis_client import get_redis_client, invalidate_redis_client, is_upstash_client
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +151,7 @@ def dequeue_job(timeout: int = 5) -> str | None:
 
     # Move jobs to a processing list before returning them. A restart can then
     # requeue abandoned jobs instead of silently losing a destructive pop.
-    is_upstash = client.__class__.__module__.startswith("upstash_redis")
+    is_upstash = is_upstash_client(client)
     if not is_upstash:
         try:
             item = client.blmove(QUEUE_KEY, PROCESSING_QUEUE_KEY, timeout, "LEFT", "RIGHT")

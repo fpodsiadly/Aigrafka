@@ -24,8 +24,6 @@ import {
     validProductUrl,
 } from './utils';
 import {
-    authLogin,
-    authRegister,
     authMe,
     devAddTokens,
     getDemoAccessStatus,
@@ -39,6 +37,7 @@ import {
 import { actionButtonStyle, badge, inputStyle } from './styles';
 import useDebouncedCallback from './hooks/useDebouncedCallback';
 import { captureVisibleTab, cropFromScreenshot, pickAreaOnPage } from './capture';
+import { getCategoryError } from './garmentPolicy';
 
 import AuthPanel from './components/AuthPanel';
 import FieldRow from './components/FieldRow';
@@ -47,6 +46,12 @@ import MetricsForm from './components/MetricsForm';
 import PanelHeader from './components/PanelHeader';
 import ProductForm from './components/ProductForm';
 import SelfieUpload from './components/SelfieUpload';
+import InfoTooltip from './components/InfoTooltip';
+
+const PRODUCT_INFO =
+    'Wprowadzone informacje o produkcie posłużą do przygotowania wizualizacji. ' +
+    'Upewnij się, że dane, które wprowadzisz, dotyczą pojedynczego produktu.\n\n' +
+    'Pamiętaj, że wprowadzane dane muszą być zgodne z postanowieniami Regulaminu i Polityki Prywatności.';
 
 const App: React.FC = () => {
     const [form, setForm] = useState<FormState>(initialState);
@@ -80,14 +85,8 @@ const App: React.FC = () => {
     const [showMeasurements, setShowMeasurements] = useState<boolean>(false);
     const [autoExpandedMeasurementsKey, setAutoExpandedMeasurementsKey] = useState<string | null>(null);
     const [showAuthDialog, setShowAuthDialog] = useState<boolean>(false);
-    const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
-    const [authEmail, setAuthEmail] = useState<string>('');
-    const [authPassword, setAuthPassword] = useState<string>('');
     const [authSubmitting, setAuthSubmitting] = useState<boolean>(false);
     const [demoAccessEnabled, setDemoAccessEnabled] = useState<boolean>(false);
-    const [googleClientId, setGoogleClientId] = useState<string | null>(null);
-    const [googleReady, setGoogleReady] = useState<boolean>(false);
-    const [googleInitialized, setGoogleInitialized] = useState<boolean>(false);
     const [profileReadyForUser, setProfileReadyForUser] = useState<string | null>(null);
     const [waitingPulse, setWaitingPulse] = useState<number>(0);
     const [elapsedSec, setElapsedSec] = useState<number>(0);
@@ -97,7 +96,6 @@ const App: React.FC = () => {
     const [inputHips, setInputHips] = useState<string>(form.hips);
     const [inputProductUrl, setInputProductUrl] = useState<string>(form.productUrl);
     const [inputCategory, setInputCategory] = useState<string>(form.category);
-    const googleButtonRef = useRef<HTMLDivElement>(null);
     const storageSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const objectUrlsRef = useRef<string[]>([]);
     const isGeneratingRef = useRef(false);
@@ -117,7 +115,7 @@ const App: React.FC = () => {
     const canSubmit = useMemo(() => {
         const hasProductImage = Boolean(form.productImage1) || Boolean(form.productImage2);
         const hasSelfie = !!form.selfie;
-        if (!form.accepted || !hasProductImage || !hasSelfie) return false;
+        if (!form.accepted || !hasProductImage || !hasSelfie || getCategoryError(form.category, form.fitStyle)) return false;
         return auth.loggedIn ? auth.tokens >= form.variantCount : true;
     }, [form, auth]);
 
@@ -167,8 +165,21 @@ const App: React.FC = () => {
         (value: string) => {
             setInputCategory(value);
             debouncedUpdateCategory(value);
+            const error = getCategoryError(value, form.fitStyle);
+            if (error) setStatusError(error);
+            else setStatusSuccess('');
         },
-        [debouncedUpdateCategory]
+        [debouncedUpdateCategory, form.fitStyle, setStatusError, setStatusSuccess]
+    );
+
+    const handleFitStyleChange = useCallback(
+        (value: FormState['fitStyle']) => {
+            updateForm('fitStyle', value);
+            const error = getCategoryError(form.category, value);
+            if (error) setStatusError(error);
+            else setStatusSuccess('');
+        },
+        [form.category, setStatusError, setStatusSuccess]
     );
 
     useEffect(() => {
@@ -292,11 +303,8 @@ const App: React.FC = () => {
     }, [auth.accessToken, hydrateProfile, setAuth]);
 
     const handleLogin = useCallback(() => {
-        setAuthMode('login');
-        setAuthEmail(auth.email ?? '');
-        setAuthPassword('');
         setShowAuthDialog(true);
-    }, [auth.email]);
+    }, []);
 
     const handleDemoAccess = useCallback(async () => {
         setAuthSubmitting(true);
@@ -318,45 +326,6 @@ const App: React.FC = () => {
         setShowAuthDialog(false);
     }, [authSubmitting]);
 
-    async function handleAuthSubmit(event: React.FormEvent) {
-        event.preventDefault();
-        const email = authEmail.trim();
-        const password = authPassword;
-
-        if (!email.includes('@')) {
-            setStatusError('Podaj poprawny adres email.');
-            return;
-        }
-        if (password.length < 6) {
-            setStatusError('Hasło musi mieć co najmniej 6 znaków.');
-            return;
-        }
-
-        setAuthSubmitting(true);
-        try {
-            let data: Awaited<ReturnType<typeof authRegister>>;
-            try {
-                data = await (authMode === 'register' ? authRegister(email, password) : authLogin(email, password));
-            } catch (error) {
-                if (authMode === 'register' && error instanceof Error && error.message.toLowerCase().includes('409')) {
-                    data = await authLogin(email, password);
-                } else {
-                    throw error;
-                }
-            }
-            await authStorage.setToken(data.access_token);
-            setAuth({ loggedIn: true, tokens: data.tokens, accessToken: data.access_token, email: data.email, userId: data.user_id });
-            await hydrateProfile(data.user_id, data.access_token);
-            setShowAuthDialog(false);
-            setStatusSuccess(`Zalogowano jako ${data.email}.`);
-        } catch (error) {
-            console.error(error);
-            setStatusError(error instanceof Error ? error.message : 'Błąd logowania.');
-        } finally {
-            setAuthSubmitting(false);
-        }
-    }
-
     const handleGoogleCredential = useCallback(async (credential: string) => {
         if (!credential) {
             setStatusError('Nie udało się pobrać tokenu Google.');
@@ -377,6 +346,23 @@ const App: React.FC = () => {
             setAuthSubmitting(false);
         }
     }, [hydrateProfile, setAuth, setStatusError, setStatusSuccess]);
+
+    const handleGoogleLogin = useCallback(async () => {
+        setAuthSubmitting(true);
+        try {
+            const response = await chrome.runtime.sendMessage({
+                type: 'AIGRAFKA_GOOGLE_LOGIN',
+            }) as { ok?: boolean; credential?: string; error?: string };
+            if (!response?.ok || !response.credential) {
+                throw new Error(response?.error || 'Nie udało się zalogować przez Google.');
+            }
+            await handleGoogleCredential(response.credential);
+        } catch (error) {
+            console.error(error);
+            setStatusError(error instanceof Error ? error.message : 'Błąd logowania Google.');
+            setAuthSubmitting(false);
+        }
+    }, [handleGoogleCredential, setStatusError]);
 
     const handleLogout = useCallback(async () => {
         await authStorage.clearToken();
@@ -484,47 +470,6 @@ const App: React.FC = () => {
 
     useEffect(() => {
         if (!showAuthDialog) return;
-
-        // Google GIS injects a remote script, which MV3 extension CSP blocks.
-        // Keep the email/password flow available until chrome.identity OAuth is wired.
-        setGoogleClientId(null);
-        setGoogleReady(false);
-        setGoogleInitialized(false);
-    }, [showAuthDialog]);
-
-    useEffect(() => {
-        if (!googleReady || !googleClientId || googleInitialized) return;
-        if (!window.google?.accounts?.id) return;
-
-        window.google.accounts.id.initialize({
-            client_id: googleClientId,
-            callback: (response) => {
-                if (response?.credential) {
-                    handleGoogleCredential(response.credential);
-                } else {
-                    setStatusError('Google nie zwrócił poświadczenia.');
-                }
-            },
-        });
-        setGoogleInitialized(true);
-    }, [googleReady, googleClientId, googleInitialized, handleGoogleCredential, setStatusError]);
-
-    useEffect(() => {
-        if (!showAuthDialog || !googleInitialized) return;
-        if (!googleButtonRef.current || !window.google?.accounts?.id) return;
-
-        googleButtonRef.current.innerHTML = '';
-        window.google.accounts.id.renderButton(googleButtonRef.current, {
-            theme: 'outline',
-            size: 'large',
-            text: 'continue_with',
-            shape: 'pill',
-            width: 280,
-        });
-    }, [showAuthDialog, googleInitialized]);
-
-    useEffect(() => {
-        if (!showAuthDialog) return;
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') closeAuthDialog();
         };
@@ -552,6 +497,11 @@ const App: React.FC = () => {
         if (isGeneratingRef.current) return;
         if (!canSubmit || !form.selfie) return;
 
+        const categoryError = getCategoryError(form.category, form.fitStyle);
+        if (categoryError) {
+            setStatusError(categoryError);
+            return;
+        }
         const normalizedProductUrl = form.productUrl ? normalizeProductUrl(form.productUrl) : '';
         const hasProductImage = Boolean(form.productImage1) || Boolean(form.productImage2);
         if (!hasProductImage) {
@@ -599,7 +549,7 @@ const App: React.FC = () => {
                 .map((variant) => {
                     const base64 = extractBase64(variant.image_base64);
                     return {
-                        url: base64ToObjectUrl(base64, variant.mime_type ?? data.mime_type),
+                        url: variant.image_url || base64ToObjectUrl(base64, variant.mime_type ?? data.mime_type),
                         mimeType: variant.mime_type || data.mime_type || undefined,
                         latencyMs: variant.latency_ms ?? undefined,
                     };
@@ -678,8 +628,14 @@ const App: React.FC = () => {
             if (message.includes('Failed to fetch product page')) {
                 message = 'Sklep blokuje pobranie strony produktu. Wklej bezpośredni link do zdjęcia produktu (JPG/PNG) albo spróbuj innego URL produktu.';
             }
-            if (message.includes('incompatible_category:masculine_swimwear')) {
-                message = 'Wybrana kategoria produktu (strój kąpielowy / bielizna) nie jest dostępna dla kroju męskiego. Zmień kategorię lub styl dopasowania.';
+            if (message.includes('incompatible_category:masculine_intimate')) {
+                message = 'Bielizna, stroje kąpielowe i kreacje intymne nie są dostępne dla mężczyzn.';
+            } else if (message.includes('incompatible_category:masculine_feminine')) {
+                message = 'Ta kategoria damska nie jest dostępna dla mężczyzn.';
+            } else if (message.includes('category_required')) {
+                message = 'Wybierz kategorię produktu.';
+            } else if (message.includes('invalid_category')) {
+                message = 'Wybrana kategoria produktu jest nieobsługiwana.';
             }
             setView('generating');
             setPreviewUrl(placeholderPreview);
@@ -816,17 +772,27 @@ const App: React.FC = () => {
         }
     }
 
-    function handleDownload() {
+    async function handleDownload() {
         const url = variants[selectedVariant]?.url || previewUrl;
         if (!url) return;
-        const a = document.createElement('a');
-        a.href = url;
-        const ext = variants[selectedVariant]?.mimeType?.includes('png') ? 'png' : 'jpg';
-        a.download = `aigrafka-stylizacja.${ext}`;
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const blob = await response.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = objectUrl;
+            const ext = blob.type.includes('png') ? 'png' : 'jpg';
+            a.download = `aigrafka-stylizacja.${ext}`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+        } catch (error) {
+            console.error(error);
+            setStatusError('Nie udało się pobrać obrazu.');
+        }
     }
 
     function handleFileSelect(key: ProductImageKey, file: File | null) {
@@ -968,7 +934,7 @@ const App: React.FC = () => {
                                 measurementSummary={measurementSummary}
                                 onToggleMeasurements={() => setShowMeasurements((prev) => !prev)}
                                 onMetricChange={handleMetricChange}
-                                onFitStyleChange={(value) => updateForm('fitStyle', value)}
+                                onFitStyleChange={handleFitStyleChange}
                             />
 
                             <FieldRow label="Selfie:">
@@ -992,22 +958,7 @@ const App: React.FC = () => {
                         <div style={{ ...badge, boxShadow: '0 8px 16px rgba(0,0,0,0.08)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                                 <div style={{ fontWeight: 800, fontSize: 12, color: '#1c1c1c' }}>Wybrany produkt</div>
-                                <span
-                                    aria-hidden="true"
-                                    style={{
-                                        width: 16,
-                                        height: 16,
-                                        borderRadius: 6,
-                                        background: '#8bb0d6',
-                                        color: '#ffffff',
-                                        fontSize: 11,
-                                        display: 'grid',
-                                        placeItems: 'center',
-                                        fontWeight: 800,
-                                    }}
-                                >
-                                    i
-                                </span>
+                                <InfoTooltip label="Informacje o wybranym produkcie" content={PRODUCT_INFO} />
                             </div>
 
                             <ProductForm
@@ -1015,6 +966,8 @@ const App: React.FC = () => {
                                 category={form.category}
                                 inputProductUrl={inputProductUrl}
                                 inputCategory={inputCategory}
+                                categoryError={inputCategory ? getCategoryError(inputCategory, form.fitStyle) : null}
+                                fitStyle={form.fitStyle}
                                 productImage1={form.productImage1}
                                 productImage2={form.productImage2}
                                 productPreview1={productPreview1}
@@ -1029,7 +982,7 @@ const App: React.FC = () => {
                                         { type: 'AIGRAFKA_GET_ACTIVE_TAB_URL' },
                                         (response?: { ok?: boolean; url?: string; error?: string }) => {
                                             if (chrome.runtime.lastError) {
-                                                setStatusError(chrome.runtime.lastError.message);
+                                                setStatusError(chrome.runtime.lastError.message || 'Nie udało się odczytać aktywnej karty.');
                                                 return;
                                             }
                                             if (response?.ok && response.url) {
@@ -1231,20 +1184,10 @@ const App: React.FC = () => {
 
             <AuthPanel
                 showAuthDialog={showAuthDialog}
-                authMode={authMode}
-                authEmail={authEmail}
-                authPassword={authPassword}
                 authSubmitting={authSubmitting}
                 demoAccessEnabled={demoAccessEnabled}
-                googleClientId={googleClientId}
-                googleReady={googleReady}
-                googleInitialized={googleInitialized}
-                googleButtonRef={googleButtonRef}
                 onCloseDialog={closeAuthDialog}
-                onToggleMode={setAuthMode}
-                onEmailChange={setAuthEmail}
-                onPasswordChange={setAuthPassword}
-                onSubmit={handleAuthSubmit}
+                onGoogleLogin={() => void handleGoogleLogin()}
                 onDemoAccess={handleDemoAccess}
             />
         </div>

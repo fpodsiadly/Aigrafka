@@ -9,11 +9,9 @@ from pydantic import BaseModel, Field
 from app.core.config import get_settings
 from app.core.db import (
     add_tokens,
-    create_user_with_credentials,
     delete_credentials_for_email,
     get_or_create_user_by_email,
     get_user_by_id,
-    get_user_with_credentials_by_email,
 )
 from app.core.network import client_ip as _client_ip
 from app.core.rate_limit import enforce_auth_rate_limit
@@ -25,38 +23,14 @@ from app.core.security import (
     create_demo_access_token,
     decode_access_token,
     get_current_user_id,
-    hash_password,
     is_demo_user_id,
     revoke_token,
-    verify_password,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-LOGIN_WINDOW_SEC = 5 * 60
-LOGIN_MAX_PER_IP = 30
-LOGIN_MAX_PER_IP_EMAIL = 10
-REGISTER_WINDOW_SEC = 15 * 60
-REGISTER_MAX_PER_IP = 15
-REGISTER_MAX_PER_IP_EMAIL = 5
-
-
-def _normalize_email(email: str) -> str:
-    return (email or "").strip().lower()
-
-
 def _enforce_rate_limit(bucket_key: str, max_requests: int, window_seconds: int) -> None:
     enforce_auth_rate_limit(bucket_key, max_requests, window_seconds)
-
-
-class RegisterRequest(BaseModel):
-    email: str = Field(..., min_length=5, max_length=255)
-    password: str = Field(..., min_length=6, max_length=128)
-
-
-class LoginRequest(BaseModel):
-    email: str = Field(..., min_length=5, max_length=255)
-    password: str = Field(..., min_length=6, max_length=128)
 
 
 class AuthResponse(BaseModel):
@@ -88,63 +62,6 @@ class GoogleClientIdResponse(BaseModel):
 
 class DemoAccessResponse(BaseModel):
     enabled: bool
-
-
-@router.post("/register", response_model=AuthResponse)
-async def register(body: RegisterRequest, request: Request) -> AuthResponse:
-    email = _normalize_email(body.email)
-    if "@" not in email:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email")
-
-    client_ip = _client_ip(request)
-    _enforce_rate_limit(f"register:ip:{client_ip}", REGISTER_MAX_PER_IP, REGISTER_WINDOW_SEC)
-    _enforce_rate_limit(f"register:ip-email:{client_ip}:{email}", REGISTER_MAX_PER_IP_EMAIL, REGISTER_WINDOW_SEC)
-
-    settings = get_settings()
-    password_hash = await asyncio.to_thread(hash_password, body.password)
-
-    try:
-        user = await create_user_with_credentials(email, password_hash, settings.initial_user_tokens)
-    except ValueError as exc:
-        # Generic message avoids confirming which emails are already registered.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Nie udało się utworzyć konta dla podanych danych.",
-        ) from exc
-
-    token = create_access_token(str(user["id"]), str(user["email"]))
-    return AuthResponse(
-        access_token=token,
-        user_id=str(user["id"]),
-        email=str(user["email"]),
-        tokens=int(user["tokens"]),
-    )
-
-
-@router.post("/login", response_model=AuthResponse)
-async def login(body: LoginRequest, request: Request) -> AuthResponse:
-    email = _normalize_email(body.email)
-    if "@" not in email:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email")
-
-    client_ip = _client_ip(request)
-    _enforce_rate_limit(f"login:ip:{client_ip}", LOGIN_MAX_PER_IP, LOGIN_WINDOW_SEC)
-    _enforce_rate_limit(f"login:ip-email:{client_ip}:{email}", LOGIN_MAX_PER_IP_EMAIL, LOGIN_WINDOW_SEC)
-
-    user = await get_user_with_credentials_by_email(email)
-    password_ok = bool(user) and await asyncio.to_thread(
-        verify_password, body.password, str(user["password_hash"])
-    )
-    if not password_ok:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
-
-    token = create_access_token(str(user["id"]), str(user["email"]))
-    return AuthResponse(
-        access_token=token,
-        user_id=str(user["id"]),
-        email=str(user["email"]),
-        tokens=int(user["tokens"]),
-    )
 
 
 @router.post("/logout")

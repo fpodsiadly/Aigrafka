@@ -14,7 +14,8 @@
   },
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "identity"
   ],
   "host_permissions": [
     "https://*/*",
@@ -37,7 +38,7 @@
     "type": "module"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' https://api.aigrafka.pl https://aigrafka.onrender.com https://accounts.google.com; frame-src https://accounts.google.com;"
+    "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' data: blob: https://api.aigrafka.pl https://aigrafka.onrender.com; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' https://api.aigrafka.pl https://aigrafka.onrender.com https://accounts.google.com; frame-src https://accounts.google.com;"
   },
   "web_accessible_resources": [
     {

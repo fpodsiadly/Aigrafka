@@ -28,6 +28,25 @@ DEFAULT_HEADERS = {
 MAX_IMAGE_BYTES = settings.max_product_image_mb * 1024 * 1024
 MAX_SIDE_PX = settings.max_side_px
 MAX_HTML_BYTES = 5 * 1024 * 1024
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=settings.product_image_timeout,
+            headers=DEFAULT_HEADERS,
+            follow_redirects=False,
+        )
+    return _http_client
+
+
+async def close_product_image_client() -> None:
+    global _http_client
+    if _http_client is not None:
+        await _http_client.aclose()
+        _http_client = None
 
 
 def _verify_and_normalize(content: bytes) -> bytes:
@@ -54,7 +73,11 @@ def _extract_image_candidate(html: str) -> str | None:
     return None
 
 
-async def _get_safe(client: httpx.AsyncClient, url: str) -> "FetchedResponse":
+async def _get_safe(
+    client: httpx.AsyncClient,
+    url: str,
+    resolved_ips: dict[str, str] | None = None,
+) -> "FetchedResponse":
     """GET following redirects manually, validating and pinning every hop.
 
     The hostname is resolved and validated once, then the connection is made to
@@ -66,7 +89,12 @@ async def _get_safe(client: httpx.AsyncClient, url: str) -> "FetchedResponse":
     for _ in range(settings.product_image_max_redirects + 1):
         parsed = urlparse(current)
         host = (parsed.hostname or "").strip("[]")
-        pinned_ip = await _ensure_public_url(current)
+        cache_key = f"{parsed.scheme}://{host}:{parsed.port or ''}"
+        pinned_ip = resolved_ips.get(cache_key) if resolved_ips is not None else None
+        if pinned_ip is None:
+            pinned_ip = await _ensure_public_url(current)
+            if resolved_ips is not None:
+                resolved_ips[cache_key] = pinned_ip
         port = parsed.port
         netloc_ip = f"[{pinned_ip}]" if ":" in pinned_ip else pinned_ip
         connect_netloc = f"{netloc_ip}:{port}" if port else netloc_ip
@@ -106,11 +134,15 @@ class FetchedResponse:
     url: str
 
 
-async def _get_with_retry(client: httpx.AsyncClient, url: str) -> FetchedResponse:
+async def _get_with_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    resolved_ips: dict[str, str] | None = None,
+) -> FetchedResponse:
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            return await _get_safe(client, url)
+            return await _get_safe(client, url, resolved_ips)
         except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
             last_exc = exc
             await asyncio.sleep(0.2 * (2 ** attempt))
@@ -240,16 +272,21 @@ async def fetch_product_image(url: str, timeout: float | None = None) -> bytes:
     if parsed_url.scheme not in {"https", "http"} or not parsed_url.netloc:
         raise ValueError("Invalid product URL")
 
-    await _ensure_public_url(url)
-
     timeout = timeout or settings.product_image_timeout
 
     cached = await get_cached_product_image(url)
     if cached:
         return cached
 
-    async with httpx.AsyncClient(timeout=timeout, headers=DEFAULT_HEADERS, follow_redirects=False) as client:
-        resp = await _get_with_retry(client, url)
+    client = _get_http_client() if timeout == settings.product_image_timeout else httpx.AsyncClient(
+        timeout=timeout,
+        headers=DEFAULT_HEADERS,
+        follow_redirects=False,
+    )
+    close_client = client is not _http_client
+    resolved_ips: dict[str, str] = {}
+    try:
+        resp = await _get_with_retry(client, url, resolved_ips)
         content_type = resp.headers.get("content-type", "")
 
         if content_type.startswith("image/"):
@@ -264,10 +301,8 @@ async def fetch_product_image(url: str, timeout: float | None = None) -> bytes:
             raise ValueError("Product page does not expose an image")
 
         image_url = _sanitize_image_url(image_candidate, url)
-        await _ensure_public_url(image_url)
-
         try:
-            img_resp = await _get_safe(client, image_url)
+            img_resp = await _get_safe(client, image_url, resolved_ips)
         except httpx.HTTPStatusError as exc:
             raise ValueError(f"Failed to fetch product image (HTTP {exc.response.status_code})") from exc
         except httpx.TimeoutException as exc:
@@ -280,3 +315,6 @@ async def fetch_product_image(url: str, timeout: float | None = None) -> bytes:
         data = await asyncio.to_thread(_verify_and_normalize, img_resp.content)
         await set_cached_product_image(url, data)
         return data
+    finally:
+        if close_client:
+            await client.aclose()

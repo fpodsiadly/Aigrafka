@@ -57,6 +57,10 @@ def get_redis_client_required() -> redis.Redis | UpstashRedis:
     return client
 
 
+def is_upstash_client(client: object) -> bool:
+    return client.__class__.__module__.startswith("upstash_redis")
+
+
 def invalidate_redis_client() -> None:
     """Drop the cached client after a failed operation so the next call can
     rebuild a fresh connection instead of reusing a dead one until restart."""

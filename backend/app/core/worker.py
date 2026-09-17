@@ -6,7 +6,7 @@ import signal
 from time import perf_counter
 
 from app.ai.gemini_client import GeminiClient
-from app.ai.product_image import fetch_product_image
+from app.ai.product_image import close_product_image_client, fetch_product_image
 from app.ai.prompts.openvto_prompt import build_openvto_prompt
 from app.core.cache import get_cached_generation, set_cached_generation
 from app.core.config import get_settings
@@ -42,6 +42,7 @@ async def _run_variant_with_retry(
     hips_cm: str | None,
     variant_index: int,
     variant_count: int,
+    telemetry: dict | None = None,
 ) -> dict:
     settings = get_settings()
     last_error: str | None = None
@@ -49,6 +50,7 @@ async def _run_variant_with_retry(
 
     for attempt, model in enumerate(generation_models):
         # Cache is keyed per model so fallback results are reused correctly.
+        cache_started = perf_counter()
         cached = await get_cached_generation(
             selfie_bytes,
             product_image_bytes,
@@ -61,8 +63,13 @@ async def _run_variant_with_retry(
             variant_index,
             variant_count,
             model,
+            settings.gemini_image_size,
         )
+        if telemetry is not None:
+            telemetry["redis_ms"] = telemetry.get("redis_ms", 0.0) + (perf_counter() - cache_started) * 1000.0
         if cached:
+            if telemetry is not None:
+                telemetry["cache_hit"] = True
             return cached
 
         try:
@@ -73,11 +80,14 @@ async def _run_variant_with_retry(
                 timeout=settings.http_timeout,
             )
             latency_s = perf_counter() - started
+            if telemetry is not None:
+                telemetry["gemini_ms"] = max(telemetry.get("gemini_ms", 0.0), latency_s * 1000.0)
             result["latency_ms"] = latency_s * 1000.0
             result["model"] = model
             track_gemini_call(model, result.get("status", "unknown"))
             track_generation_latency(model, latency_s)
             if result.get("status") == "generated" and result.get("image_base64"):
+                cache_started = perf_counter()
                 await set_cached_generation(
                     selfie_bytes,
                     product_image_bytes,
@@ -90,8 +100,13 @@ async def _run_variant_with_retry(
                     variant_index,
                     variant_count,
                     model,
+                    settings.gemini_image_size,
                     result,
                 )
+                if telemetry is not None:
+                    telemetry["redis_ms"] = telemetry.get("redis_ms", 0.0) + (
+                        perf_counter() - cache_started
+                    ) * 1000.0
                 return result
             last_error = result.get("error") or "fallback"
         except Exception as exc:
@@ -108,32 +123,26 @@ async def _run_variant_with_retry(
     }
 
 
-async def process_job(job_id: str) -> None:
-    job = await get_job(job_id, include_payload=True)
-    if not job:
-        logger.error("Job %s not found", job_id)
-        return
+async def generate_from_payload(
+    payload: dict,
+    *,
+    operation_id: str = "synchronous",
+    telemetry: dict | None = None,
+) -> dict:
+    user_id = payload.get("user_id")
+    charged_tokens = payload.get("charged_tokens", 0)
+    refunded = False
 
-    payload = job.get("payload") or {}
-    await update_job_status(job_id, "running")
-
-    settings = get_settings()
-
-    async def _heartbeat() -> None:
-        # Refresh the lease well within the visibility timeout so a slow job is
-        # not requeued and processed twice.
-        interval = max(30, settings.job_visibility_timeout_seconds // 3)
-        while True:
-            await asyncio.sleep(interval)
-            await asyncio.to_thread(renew_job_lease, job_id)
-
-    heartbeat_task = asyncio.create_task(_heartbeat())
+    async def _refund_tokens() -> None:
+        nonlocal refunded
+        if refunded or not user_id or charged_tokens <= 0:
+            return
+        await add_tokens(user_id, charged_tokens)
+        track_token_refund()
+        refunded = True
 
     try:
         product_url = payload.get("product_url")
-        selfie_b64 = payload.get("selfie_b64")
-        product_image_1_b64 = payload.get("product_image_1_b64")
-        product_image_2_b64 = payload.get("product_image_2_b64")
         category = payload.get("category")
         fit_style = payload.get("fit_style")
         height_cm = payload.get("height_cm")
@@ -141,18 +150,25 @@ async def process_job(job_id: str) -> None:
         waist_cm = payload.get("waist_cm")
         hips_cm = payload.get("hips_cm")
         variant_count = payload.get("variant_count", 1)
-        user_id = payload.get("user_id")
-        charged_tokens = payload.get("charged_tokens", 0)
         used_upload = payload.get("used_upload", False)
         product_ref = payload.get("product_ref", "product")
         back_reference_available = payload.get("back_reference_available", False)
 
-        selfie_bytes = base64.b64decode(selfie_b64)
-        primary_product_image_bytes = base64.b64decode(product_image_1_b64) if product_image_1_b64 else None
-        secondary_product_image_bytes = base64.b64decode(product_image_2_b64) if product_image_2_b64 else None
+        selfie_bytes = payload.get("selfie_bytes")
+        if selfie_bytes is None:
+            selfie_bytes = base64.b64decode(payload.get("selfie_b64") or "")
+        primary_product_image_bytes = payload.get("product_image_1_bytes")
+        if primary_product_image_bytes is None and payload.get("product_image_1_b64"):
+            primary_product_image_bytes = base64.b64decode(payload["product_image_1_b64"])
+        secondary_product_image_bytes = payload.get("product_image_2_bytes")
+        if secondary_product_image_bytes is None and payload.get("product_image_2_b64"):
+            secondary_product_image_bytes = base64.b64decode(payload["product_image_2_b64"])
 
         if primary_product_image_bytes is None and product_url:
+            fetch_started = perf_counter()
             primary_product_image_bytes = await fetch_product_image(product_url)
+            if telemetry is not None:
+                telemetry["product_fetch_ms"] = (perf_counter() - fetch_started) * 1000.0
 
         if primary_product_image_bytes is None:
             raise ValueError("Product image not available")
@@ -190,6 +206,7 @@ async def process_job(job_id: str) -> None:
                 hips_cm,
                 variant_number,
                 variant_count,
+                telemetry,
             )
 
         variant_tasks = [_generate_one_variant(i) for i in range(variant_count)]
@@ -225,31 +242,58 @@ async def process_job(job_id: str) -> None:
         # so users are not billed for results they cannot use.
         if overall_status != "generated" and user_id and charged_tokens > 0:
             try:
-                await add_tokens(user_id, charged_tokens)
-                track_token_refund()
+                await _refund_tokens()
             except Exception:
-                logger.exception("Failed to refund tokens for non-generated job %s", job_id)
+                logger.exception("Failed to refund tokens for non-generated generation %s", operation_id)
 
-        await update_job_status(
-            job_id,
-            "completed",
-            result={
-                "status": overall_status,
-                "variants": variants,
-                "model": successful[0].get("model") if successful else variants[0].get("model") if variants else None,
-                "detail": fallback_detail,
-            },
-        )
+        result = {
+            "status": overall_status,
+            "variants": variants,
+            "model": successful[0].get("model") if successful else variants[0].get("model") if variants else None,
+            "detail": fallback_detail,
+        }
         track_job_status(overall_status)
-        logger.info("Job %s completed: %s", job_id, overall_status)
-    except Exception as exc:
-        logger.exception("Job %s failed", job_id)
+        logger.info("Generation %s completed: %s", operation_id, overall_status)
+        return result
+    except asyncio.CancelledError:
+        try:
+            await asyncio.shield(_refund_tokens())
+        except Exception:
+            logger.exception("Failed to refund tokens for cancelled generation %s", operation_id)
+        raise
+    except Exception:
+        logger.exception("Generation %s failed", operation_id)
         if user_id and charged_tokens > 0:
             try:
-                await add_tokens(user_id, charged_tokens)
-                track_token_refund()
+                await _refund_tokens()
             except Exception:
-                logger.exception("Failed to refund tokens for job %s", job_id)
+                logger.exception("Failed to refund tokens for generation %s", operation_id)
+        raise
+
+
+async def process_job(job_id: str) -> None:
+    job = await get_job(job_id, include_payload=True)
+    if not job:
+        logger.error("Job %s not found", job_id)
+        return
+
+    payload = job.get("payload") or {}
+    await update_job_status(job_id, "running")
+    settings = get_settings()
+
+    async def _heartbeat() -> None:
+        # Refresh the lease well within the visibility timeout so a slow job is
+        # not requeued and processed twice.
+        interval = max(30, settings.job_visibility_timeout_seconds // 3)
+        while True:
+            await asyncio.sleep(interval)
+            await asyncio.to_thread(renew_job_lease, job_id)
+
+    heartbeat_task = asyncio.create_task(_heartbeat())
+    try:
+        result = await generate_from_payload(payload, operation_id=job_id)
+        await update_job_status(job_id, "completed", result=result)
+    except Exception as exc:
         await update_job_status(job_id, "failed", error=str(exc))
     finally:
         heartbeat_task.cancel()
@@ -287,6 +331,7 @@ async def run_worker() -> None:
             finally:
                 await asyncio.to_thread(acknowledge_job, job_id)
 
+    await close_product_image_client()
     await close_engine()
     logger.info("Worker stopped cleanly")
 

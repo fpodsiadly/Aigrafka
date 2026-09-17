@@ -32,6 +32,7 @@ cp .env.example .env
 
 - `DATABASE_URL`
 - `JWT_SECRET` (min. 32 znaki)
+- `GOOGLE_CLIENT_ID` (OAuth 2.0 Web Client ID)
 - `GEMINI_API_KEY`
 
 3. Start backendu:
@@ -76,8 +77,12 @@ VITE_API_BASE=https://aigrafka.onrender.com npm run build
 ## Najwazniejsze endpointy (FastAPI)
 
 - `POST /generate` - generowanie stylizacji (multipart: selfie + produkt + opcje).
-- `POST /auth/register` - rejestracja.
-- `POST /auth/login` - logowanie.
+- `POST /auth/google` - logowanie i automatyczne utworzenie konta przez Google.
+- `GET /auth/google/client-id` - konfiguracja OAuth dla rozszerzenia.
+
+Google Cloud Console musi zawierać dokładny redirect URI rozszerzenia:
+`https://<CHROME_EXTENSION_ID>.chromiumapp.org/google`.
+To wartość zwracana przez `chrome.identity.getRedirectURL('google')`.
 - `GET /auth/me` - dane i saldo tokenow.
 - `POST /profile` - zapis profilu sylwetki.
 - `GET /profile` - odczyt profilu sylwetki.
@@ -90,7 +95,7 @@ VITE_API_BASE=https://aigrafka.onrender.com npm run build
 - Wymuszony `JWT_SECRET` (min. 32 znaki), brak slabych defaultow.
 - Krotki domyslny TTL access tokenu: `JWT_EXP_MINUTES=60`.
 - Ograniczony CORS: jawna lista originow, wildcard `*` zablokowany.
-- Rate limiting na `POST /auth/login` i `POST /auth/register` (per IP i per IP+email).
+- Rate limiting na `POST /auth/google` (per IP).
 - Odpowiedz `429` zawiera naglowek `Retry-After`.
 - `/auth/topup` dziala tylko w `DEV_MODE=true`.
 
@@ -136,8 +141,8 @@ Platnosci Przelewy24:
 - Build command: `pip install -r requirements.txt`
 - Start command: `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 - Generation: `/generate` runs synchronously in the API service; no separate worker service required
-- Required env: `DATABASE_URL`, `JWT_SECRET`, `GEMINI_API_KEY`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
-- API uses Redis for persisted job results and caching. Keep `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` configured.
+- Required env: `DATABASE_URL`, `JWT_SECRET`, `GEMINI_API_KEY`, `GOOGLE_CLIENT_ID`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
+- API uses Redis for generation caching, rate limiting, and one-hour signed result-image URLs. Keep `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` configured.
 - Nie ustawiaj jednocześnie `REDIS_URL`/`REDIS_TOKEN`, jeśli używasz `UPSTASH_*`; `REDIS_URL` ma pierwszeństwo w konfiguracji.
 - Health check: `GET /health`
 - Keep-warm: `.github/workflows/keep-api-warm.yml` odpytuje `GET /health` co 5 min przez darmowy GitHub Actions.

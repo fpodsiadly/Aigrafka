@@ -2,6 +2,8 @@ import asyncio
 import base64
 import io
 import logging
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from google import genai
@@ -10,6 +12,36 @@ from google.genai import types
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+BRAND_LOGO_PATH = Path(__file__).parent / "assets" / "aigrafka_logo_reference.png"
+
+
+@lru_cache(maxsize=1)
+def _load_brand_logo() -> bytes:
+    return BRAND_LOGO_PATH.read_bytes()
+
+
+@lru_cache(maxsize=4)
+def _get_genai_client(api_key: str) -> genai.Client:
+    return genai.Client(api_key=api_key)
+
+
+def _build_request_parts(
+    prompt: str,
+    selfie_bytes: bytes,
+    product_image_bytes: bytes,
+    brand_logo_bytes: bytes,
+) -> list[types.Part]:
+    return [
+        types.Part(text=prompt),
+        types.Part(text="REFERENCE IMAGE 1: user selfie and identity source."),
+        types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=selfie_bytes)),
+        types.Part(text="REFERENCE IMAGE 2: garment source. Copy garment construction, colour, and pattern."),
+        types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=product_image_bytes)),
+        types.Part(
+            text="REFERENCE IMAGE 3: exact AIgrafka brand mark. Reproduce this supplied mark faithfully in the backdrop."
+        ),
+        types.Part(inline_data=types.Blob(mime_type="image/png", data=brand_logo_bytes)),
+    ]
 
 
 class GeminiClient:
@@ -21,11 +53,11 @@ class GeminiClient:
         settings = get_settings()
         self.api_key = api_key or settings.gemini_api_key or ""
         # Primary model: Gemini 3 image generation (generateContent)
-        self.model = model or settings.gemini_model or "gemini-3.1-flash-image-preview"
+        self.model = model or settings.gemini_model or "gemini-3.1-flash-image"
         self.image_size = settings.gemini_image_size
         self.timeout = timeout or settings.http_timeout
         # Reuse a single genai client; mirrors OpenVTO reference behavior
-        self._client = genai.Client(api_key=self.api_key) if self.api_key else None
+        self._client = _get_genai_client(self.api_key) if self.api_key else None
 
     async def generate_image(self, prompt: str, selfie_bytes: bytes, product_image_bytes: bytes) -> dict[str, Any]:
         if self._client is None:
@@ -37,25 +69,10 @@ class GeminiClient:
                 "error": "GEMINI_API_KEY is not configured",
             }
 
-        # Build parts: prompt first (docs best practice for reference images), then selfie, then product
-        parts = [
-            types.Part(text=prompt),
-            types.Part(
-                inline_data=types.Blob(
-                    mime_type="image/jpeg",
-                    data=selfie_bytes,
-                )
-            ),
-            types.Part(
-                inline_data=types.Blob(
-                    mime_type="image/jpeg",
-                    data=product_image_bytes,
-                )
-            ),
-        ]
+        parts = _build_request_parts(prompt, selfie_bytes, product_image_bytes, _load_brand_logo())
 
         # Model-specific image config
-        MODELS_WITHOUT_SIZE = {"gemini-2.5-flash-image"}  # gemini-3.1-flash-image-preview supports image_size
+        MODELS_WITHOUT_SIZE = {"gemini-2.5-flash-image"}  # gemini-3.1-flash-image supports image_size
         use_image_size = self.model not in MODELS_WITHOUT_SIZE
         # Validate image_size — only "1K", "2K", "4K" are accepted by the API.
         # Env vars could contain legacy values like "768" which cause 400.

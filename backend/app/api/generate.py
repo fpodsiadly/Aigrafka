@@ -1,20 +1,22 @@
 import asyncio
-import base64
 import ipaddress
+import json
 import logging
 from io import BytesIO
+from time import perf_counter
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from PIL import Image
 
+from app.ai.garment_policy import validate_garment_category
 from app.core.config import get_settings
-from app.core.db import add_tokens, deduct_tokens_if_possible
+from app.core.db import deduct_tokens_if_possible
 from app.core.metrics import track_generate_request
-from app.core.queue import create_job, get_job
 from app.core.rate_limit import enforce_generate_rate_limit
+from app.core.result_images import build_result_image_url, store_result_image
 from app.core.security import get_optional_user_id, is_demo_user_id
-from app.core.worker import process_job
+from app.core.worker import generate_from_payload
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -126,7 +128,21 @@ async def generate_tryon(
     product_image_2: UploadFile | None = File(None),
     user_id: str | None = Depends(get_optional_user_id),
 ) -> dict:
+    total_started = getattr(request.state, "request_started_perf", perf_counter())
+    telemetry = {
+        "upload_ms": (perf_counter() - total_started) * 1000.0,
+        "rate_limit_ms": 0.0,
+        "normalize_ms": 0.0,
+        "redis_ms": 0.0,
+        "product_fetch_ms": 0.0,
+        "gemini_ms": 0.0,
+        "response_encode_ms": 0.0,
+        "total_ms": 0.0,
+        "cache_hit": False,
+    }
+    rate_limit_started = perf_counter()
     await enforce_generate_rate_limit(request, user_id)
+    telemetry["rate_limit_ms"] = (perf_counter() - rate_limit_started) * 1000.0
 
     category = _bound_text(category, "category")
     fit_style = _bound_text(fit_style, "fit_style")
@@ -135,6 +151,7 @@ async def generate_tryon(
     chest_cm = _bound_text(chest_cm, "chest_cm")
     waist_cm = _bound_text(waist_cm, "waist_cm")
     hips_cm = _bound_text(hips_cm, "hips_cm")
+    category_prompt_label = validate_garment_category(category, fit_style)
 
     normalized_product_url: str | None = None
     if product_url:
@@ -146,23 +163,31 @@ async def generate_tryon(
             detail="Provide product_url or upload a product image."
         )
 
-    selfie_bytes = await asyncio.to_thread(_validate_and_normalize_image, selfie, MAX_UPLOAD_BYTES, "Selfie")
+    normalize_started = perf_counter()
+    normalization_tasks = [
+        asyncio.to_thread(_validate_and_normalize_image, selfie, MAX_UPLOAD_BYTES, "Selfie")
+    ]
+    if product_image_1 and product_image_1.filename:
+        normalization_tasks.append(
+            asyncio.to_thread(_validate_and_normalize_image, product_image_1, MAX_PRODUCT_BYTES, "Product image")
+        )
+    if product_image_2 and product_image_2.filename:
+        normalization_tasks.append(
+            asyncio.to_thread(_validate_and_normalize_image, product_image_2, MAX_PRODUCT_BYTES, "Product image 2")
+        )
+    normalized_images = await asyncio.gather(*normalization_tasks)
+    telemetry["normalize_ms"] = (perf_counter() - normalize_started) * 1000.0
 
-    used_upload = False
+    selfie_bytes = normalized_images[0]
+    normalized_index = 1
     primary_product_image_bytes: bytes | None = None
     secondary_product_image_bytes: bytes | None = None
-
     if product_image_1 and product_image_1.filename:
-        primary_product_image_bytes = await asyncio.to_thread(
-            _validate_and_normalize_image, product_image_1, MAX_PRODUCT_BYTES, "Product image"
-        )
-        used_upload = True
-
+        primary_product_image_bytes = normalized_images[normalized_index]
+        normalized_index += 1
     if product_image_2 and product_image_2.filename:
-        secondary_product_image_bytes = await asyncio.to_thread(
-            _validate_and_normalize_image, product_image_2, MAX_PRODUCT_BYTES, "Product image 2"
-        )
-        used_upload = True
+        secondary_product_image_bytes = normalized_images[normalized_index]
+    used_upload = primary_product_image_bytes is not None or secondary_product_image_bytes is not None
 
     if primary_product_image_bytes is None and secondary_product_image_bytes is not None:
         primary_product_image_bytes = secondary_product_image_bytes
@@ -172,19 +197,6 @@ async def generate_tryon(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Product image not provided")
 
     product_ref = "uploaded product image" if used_upload else str(normalized_product_url)
-
-    _FEMININE_SWIMWEAR_KEYWORDS = {
-        "bikini", "swimsuit", "swimwear", "bathing suit", "one-piece", "monokini",
-        "strój kąpielowy", "kostium kąpielowy", "góra od bikini", "dół od bikini",
-        "bikini top", "bikini bottom", "lingerie", "bielizna", "bra", "biustonosz",
-    }
-    if fit_style == "masculine" and category:
-        cat_lower = category.lower()
-        if any(kw in cat_lower for kw in _FEMININE_SWIMWEAR_KEYWORDS):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="incompatible_category:masculine_swimwear",
-            )
 
     requested_variants = variants if variants is not None else settings.variants
     variant_count = max(1, min(requested_variants, 3))
@@ -202,10 +214,10 @@ async def generate_tryon(
 
     payload = {
         "product_url": normalized_product_url,
-        "selfie_b64": base64.b64encode(selfie_bytes).decode("ascii"),
-        "product_image_1_b64": base64.b64encode(primary_product_image_bytes).decode("ascii") if primary_product_image_bytes else None,
-        "product_image_2_b64": base64.b64encode(secondary_product_image_bytes).decode("ascii") if secondary_product_image_bytes else None,
-        "category": category,
+        "selfie_bytes": selfie_bytes,
+        "product_image_1_bytes": primary_product_image_bytes,
+        "product_image_2_bytes": secondary_product_image_bytes,
+        "category": category_prompt_label,
         "fit_style": fit_style,
         "height_cm": height_cm,
         "chest_cm": chest_cm,
@@ -220,39 +232,54 @@ async def generate_tryon(
         "back_reference_available": back_reference_available,
     }
 
+    request_id = getattr(request.state, "request_id", "unknown")
     try:
-        job_id = await create_job(payload)
+        result = await generate_from_payload(
+            payload,
+            operation_id=request_id,
+            telemetry=telemetry,
+        )
     except Exception as exc:
-        # Enqueue failed after charging: refund to avoid losing user tokens.
-        if charged_tokens > 0 and user_id:
-            try:
-                await add_tokens(user_id, charged_tokens)
-            except Exception:
-                logger.exception("Failed to refund tokens after enqueue failure user=%s", user_id)
-        track_generate_request("create_failed")
-        logger.exception("generate_tryon job creation failed user=%s", user_id)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Generation service unavailable. Please try again.",
-        ) from exc
-
-    await process_job(job_id)
-    job = await get_job(job_id)
-    if not job:
-        track_generate_request("failed")
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Generation result unavailable.")
-    if job.get("status") == "failed":
         track_generate_request("failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=job.get("error") or "Generation failed.",
-        )
+            detail="Generation failed.",
+        ) from exc
 
-    result = job.get("result")
-    if not isinstance(result, dict):
-        track_generate_request("failed")
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Generation result unavailable.")
+    variants_with_images = [
+        variant
+        for variant in result.get("variants", [])
+        if variant.get("image_base64") and variant.get("mime_type")
+    ]
+    redis_started = perf_counter()
+    image_tokens = await asyncio.gather(
+        *[
+            store_result_image(variant["image_base64"], variant["mime_type"])
+            for variant in variants_with_images
+        ]
+    )
+    telemetry["redis_ms"] += (perf_counter() - redis_started) * 1000.0
+    for variant, token in zip(variants_with_images, image_tokens, strict=True):
+        if token:
+            variant["image_url"] = build_result_image_url(str(request.base_url), token)
+            variant.pop("image_base64", None)
 
     track_generate_request(result.get("status", "completed"))
-    logger.info("generate_tryon completed job_id=%s user=%s variants=%d", job_id, user_id, variant_count)
+    telemetry["total_ms"] = (perf_counter() - total_started) * 1000.0
+    result["telemetry"] = telemetry
+    encode_started = perf_counter()
+    json.dumps(result, separators=(",", ":"))
+    telemetry["response_encode_ms"] = (perf_counter() - encode_started) * 1000.0
+    telemetry["total_ms"] = (perf_counter() - total_started) * 1000.0
+    result["telemetry"] = {
+        key: round(value, 2) if isinstance(value, float) else value
+        for key, value in telemetry.items()
+    }
+    logger.info(
+        "generate_tryon completed request_id=%s user=%s variants=%d telemetry=%s",
+        request_id,
+        user_id,
+        variant_count,
+        json.dumps(result["telemetry"], separators=(",", ":")),
+    )
     return result

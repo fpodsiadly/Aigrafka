@@ -30,4 +30,8 @@ uvicorn app.main:app --reload --port 8000
 
 ## Redis / wyniki generacji
 
-`/generate` wykonuje generację synchronicznie w procesie API. Redis przechowuje rekord joba, wynik i cache; osobny worker nie jest wymagany. Wymaga `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` albo `REDIS_URL` + `REDIS_TOKEN`. Rate limit per user/IP też w Redis.
+`/generate` wykonuje generację synchronicznie w procesie API. Redis przechowuje cache oraz obrazy wynikowe dostępne przez podpisane URL-e przez 1 godzinę; osobny worker nie jest wymagany. Wymaga `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` albo `REDIS_URL` + `REDIS_TOKEN`. Rate limit per user/IP też działa w Redis.
+
+## Logowanie Google
+
+Logowanie i tworzenie kont działa wyłącznie przez Google. Ustaw `GOOGLE_CLIENT_ID` na OAuth 2.0 Web Client ID. W Google Cloud Console dodaj redirect URI `https://<CHROME_EXTENSION_ID>.chromiumapp.org/google`.

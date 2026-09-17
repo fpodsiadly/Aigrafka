@@ -1,15 +1,19 @@
 import asyncio
 import hmac
 import logging
+import re
 from contextlib import asynccontextmanager
+from time import perf_counter
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.ai.product_image import close_product_image_client
 from app.api.auth import router as auth_router
 from app.api.generate import router as generate_router
+from app.api.images import router as images_router
 from app.api.jobs import router as jobs_router
 from app.api.payments import router as payments_router
 from app.api.profile import router as profile_router
@@ -31,6 +35,7 @@ async def lifespan(_app: FastAPI):
     if not get_redis_client():
         logging.warning("Redis not configured; generation queue and caching are disabled")
     yield
+    await close_product_image_client()
     await close_engine()
 
 
@@ -61,7 +66,9 @@ app.add_middleware(CORSMiddleware, **cors_kwargs)
 
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
-    request_id = request.headers.get("x-request-id") or uuid4().hex
+    request.state.request_started_perf = perf_counter()
+    supplied_request_id = request.headers.get("x-request-id", "")
+    request_id = supplied_request_id if re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", supplied_request_id) else uuid4().hex
     request.state.request_id = request_id
     try:
         response = await call_next(request)
@@ -94,6 +101,7 @@ async def unhandled_exception_handler(request: Request, _exc: Exception) -> JSON
 
 
 app.include_router(generate_router, prefix="")
+app.include_router(images_router, prefix="")
 app.include_router(auth_router, prefix="")
 app.include_router(profile_router, prefix="")
 app.include_router(payments_router, prefix="")

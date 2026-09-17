@@ -8,6 +8,7 @@ for two environments (A and B), then prints median/mean/p95 comparison.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import math
 import mimetypes
@@ -15,9 +16,10 @@ import statistics
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import httpx
+from PIL import Image, ImageDraw
 
 
 @dataclass
@@ -25,9 +27,10 @@ class RunResult:
     ok: bool
     status_code: int
     client_ms: float
-    backend_ms: Optional[float]
-    model: Optional[str]
-    error: Optional[str]
+    backend_ms: float | None
+    model: str | None
+    error: str | None
+    cache_hit: bool | None
 
 
 @dataclass
@@ -37,15 +40,15 @@ class Summary:
     ok_runs: int
     fail_runs: int
     success_rate: float
-    median_client_ms: Optional[float]
-    mean_client_ms: Optional[float]
-    p95_client_ms: Optional[float]
-    median_backend_ms: Optional[float]
-    mean_backend_ms: Optional[float]
-    p95_backend_ms: Optional[float]
+    median_client_ms: float | None
+    mean_client_ms: float | None
+    p95_client_ms: float | None
+    median_backend_ms: float | None
+    mean_backend_ms: float | None
+    p95_backend_ms: float | None
 
 
-def percentile(values: list[float], p: float) -> Optional[float]:
+def percentile(values: list[float], p: float) -> float | None:
     if not values:
         return None
     if len(values) == 1:
@@ -66,9 +69,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--url-b", required=True, help="Base URL B (e.g. https://api-new.onrender.com)")
     parser.add_argument("--selfie", required=True, type=Path, help="Path to selfie image")
     parser.add_argument("--product", required=True, type=Path, help="Path to product image")
-    parser.add_argument("--iterations", type=int, default=20, help="Requests per variant (default: 20)")
-    parser.add_argument("--warmup", type=int, default=2, help="Warmup requests per variant (default: 2)")
-    parser.add_argument("--pause-ms", type=int, default=400, help="Pause between requests in ms")
+    parser.add_argument("--iterations", type=int, default=5, help="Requests per variant (default: 5)")
+    parser.add_argument("--warmup", type=int, default=1, help="Warmup requests per variant (default: 1)")
+    parser.add_argument("--pause-ms", type=int, default=12_500, help="Pause between requests in ms")
+    parser.add_argument(
+        "--cold-cache",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Slightly vary inputs per run to avoid generation cache hits (default: enabled)",
+    )
     parser.add_argument("--timeout", type=float, default=120.0, help="HTTP timeout in seconds")
     parser.add_argument("--model-choice", default="banana-pro-2", help="model_choice form field")
     parser.add_argument("--variants", type=int, default=1, choices=[1, 2, 3], help="variants form field")
@@ -84,7 +93,10 @@ def guess_content_type(path: Path) -> str:
     return guessed or "image/jpeg"
 
 
-def first_variant_latency(payload: dict[str, Any]) -> Optional[float]:
+def first_variant_latency(payload: dict[str, Any]) -> float | None:
+    telemetry = payload.get("telemetry")
+    if isinstance(telemetry, dict) and isinstance(telemetry.get("gemini_ms"), (float, int)):
+        return float(telemetry["gemini_ms"])
     variants = payload.get("variants")
     if isinstance(variants, list) and variants:
         first = variants[0]
@@ -95,6 +107,25 @@ def first_variant_latency(payload: dict[str, Any]) -> Optional[float]:
     return None
 
 
+def benchmark_image(path: Path, run_id: int | None) -> bytes:
+    raw = path.read_bytes()
+    if run_id is None:
+        return raw
+    with Image.open(io.BytesIO(raw)) as source:
+        image = source.convert("RGB")
+    draw = ImageDraw.Draw(image)
+    size = max(8, min(image.size) // 100)
+    color = (
+        32 + (run_id * 67) % 192,
+        32 + (run_id * 97) % 192,
+        32 + (run_id * 131) % 192,
+    )
+    draw.rectangle((0, 0, size, size), fill=color)
+    output = io.BytesIO()
+    image.save(output, format="JPEG", quality=95)
+    return output.getvalue()
+
+
 def run_once(
     client: httpx.Client,
     base_url: str,
@@ -102,15 +133,15 @@ def run_once(
     product_path: Path,
     form_data: dict[str, str],
     headers: dict[str, str],
+    run_id: int | None,
 ) -> RunResult:
     started = time.perf_counter()
     try:
-        with selfie_path.open("rb") as selfie_fp, product_path.open("rb") as product_fp:
-            files = {
-                "selfie": (selfie_path.name, selfie_fp, guess_content_type(selfie_path)),
-                "product_image_1": (product_path.name, product_fp, guess_content_type(product_path)),
-            }
-            response = client.post(f"{base_url.rstrip('/')}/generate", data=form_data, files=files, headers=headers)
+        files = {
+            "selfie": (selfie_path.name, benchmark_image(selfie_path, run_id), guess_content_type(selfie_path)),
+            "product_image_1": (product_path.name, benchmark_image(product_path, run_id), guess_content_type(product_path)),
+        }
+        response = client.post(f"{base_url.rstrip('/')}/generate", data=form_data, files=files, headers=headers)
 
         elapsed_ms = (time.perf_counter() - started) * 1000
 
@@ -128,11 +159,14 @@ def run_once(
                 backend_ms=None,
                 model=None,
                 error=str(detail or f"HTTP {response.status_code}"),
+                cache_hit=None,
             )
 
         payload = response.json()
         model = payload.get("model") if isinstance(payload, dict) else None
         backend_ms = first_variant_latency(payload if isinstance(payload, dict) else {})
+        telemetry = payload.get("telemetry") if isinstance(payload, dict) else None
+        cache_hit = telemetry.get("cache_hit") if isinstance(telemetry, dict) else None
 
         return RunResult(
             ok=True,
@@ -141,6 +175,7 @@ def run_once(
             backend_ms=backend_ms,
             model=str(model) if model else None,
             error=None,
+            cache_hit=cache_hit if isinstance(cache_hit, bool) else None,
         )
     except Exception as exc:
         elapsed_ms = (time.perf_counter() - started) * 1000
@@ -151,6 +186,7 @@ def run_once(
             backend_ms=None,
             model=None,
             error=str(exc),
+            cache_hit=None,
         )
 
 
@@ -159,10 +195,10 @@ def summarize(label: str, results: list[RunResult]) -> Summary:
     client_values = [r.client_ms for r in ok]
     backend_values = [r.backend_ms for r in ok if r.backend_ms is not None]
 
-    def safe_mean(values: list[float]) -> Optional[float]:
+    def safe_mean(values: list[float]) -> float | None:
         return statistics.mean(values) if values else None
 
-    def safe_median(values: list[float]) -> Optional[float]:
+    def safe_median(values: list[float]) -> float | None:
         return statistics.median(values) if values else None
 
     return Summary(
@@ -180,11 +216,11 @@ def summarize(label: str, results: list[RunResult]) -> Summary:
     )
 
 
-def fmt(v: Optional[float]) -> str:
+def fmt(v: float | None) -> str:
     return "-" if v is None else f"{v:.1f}"
 
 
-def delta_pct(new: Optional[float], old: Optional[float]) -> str:
+def delta_pct(new: float | None, old: float | None) -> str:
     if new is None or old is None or old == 0:
         return "-"
     diff = ((new - old) / old) * 100.0
@@ -203,23 +239,24 @@ def run_group(
     warmup: int,
     iterations: int,
     pause_ms: int,
+    cold_cache: bool,
 ) -> list[RunResult]:
     print(f"\n=== {label} ({base_url}) ===")
     for i in range(warmup):
-        _ = run_once(client, base_url, selfie_path, product_path, form_data, headers)
+        _ = run_once(client, base_url, selfie_path, product_path, form_data, headers, -(i + 1) if cold_cache else None)
         print(f"warmup {i + 1}/{warmup} done")
         if pause_ms > 0:
             time.sleep(pause_ms / 1000)
 
     results: list[RunResult] = []
     for i in range(iterations):
-        result = run_once(client, base_url, selfie_path, product_path, form_data, headers)
+        result = run_once(client, base_url, selfie_path, product_path, form_data, headers, i + 1 if cold_cache else None)
         results.append(result)
         marker = "OK" if result.ok else "ERR"
         print(
             f"{i + 1:02d}/{iterations:02d} {marker} "
             f"client={result.client_ms:.1f}ms backend={fmt(result.backend_ms)}ms "
-            f"status={result.status_code}"
+            f"status={result.status_code} cache_hit={result.cache_hit}"
         )
         if pause_ms > 0:
             time.sleep(pause_ms / 1000)
@@ -260,6 +297,7 @@ def main() -> int:
             warmup=args.warmup,
             iterations=args.iterations,
             pause_ms=args.pause_ms,
+            cold_cache=args.cold_cache,
         )
         results_b = run_group(
             label="B",
@@ -272,6 +310,7 @@ def main() -> int:
             warmup=args.warmup,
             iterations=args.iterations,
             pause_ms=args.pause_ms,
+            cold_cache=args.cold_cache,
         )
 
     summary_a = summarize("A", results_a)
@@ -305,6 +344,7 @@ def main() -> int:
                 "variants": args.variants,
                 "category": args.category,
                 "fit_style": args.fit_style,
+                "cold_cache": args.cold_cache,
             },
             "summary": {
                 "a": summary_a.__dict__,

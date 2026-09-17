@@ -43,6 +43,41 @@ async function resolveApiBase(): Promise<string> {
   }
 }
 
+async function getGoogleCredential(): Promise<string> {
+  const apiBase = await resolveApiBase();
+  const configResponse = await fetch(`${apiBase}/auth/google/client-id`, { cache: 'no-store' });
+  if (!configResponse.ok) throw new Error('Nie udało się pobrać konfiguracji Google.');
+  const config = await configResponse.json() as { enabled?: boolean; client_id?: string };
+  if (!config.enabled || !config.client_id) throw new Error('Logowanie Google nie jest skonfigurowane.');
+
+  const redirectUri = chrome.identity.getRedirectURL('google');
+  const state = crypto.randomUUID();
+  const nonce = crypto.randomUUID();
+  const params = new URLSearchParams({
+    client_id: config.client_id,
+    redirect_uri: redirectUri,
+    response_type: 'id_token',
+    scope: 'openid email profile',
+    state,
+    nonce,
+    prompt: 'select_account',
+  });
+  const redirectUrl = await chrome.identity.launchWebAuthFlow({
+    url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
+    interactive: true,
+  });
+  if (!redirectUrl) throw new Error('Google nie zwrócił danych logowania.');
+
+  const result = new URL(redirectUrl);
+  const response = new URLSearchParams(result.hash.slice(1));
+  if (response.get('state') !== state) throw new Error('Nieprawidłowy stan logowania Google.');
+  const error = response.get('error');
+  if (error) throw new Error(error === 'access_denied' ? 'Anulowano logowanie Google.' : `Błąd Google: ${error}`);
+  const credential = response.get('id_token');
+  if (!credential) throw new Error('Google nie zwrócił tokenu tożsamości.');
+  return credential;
+}
+
 type ApiBody =
   | { kind: 'json'; value: unknown }
   | {
@@ -53,11 +88,11 @@ type ApiBody =
       >;
     };
 
-function decodeBase64(base64: string): Uint8Array {
+function decodeBase64(base64: string): ArrayBuffer {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
+  return bytes.buffer;
 }
 
 async function proxyApiRequest(message: {
@@ -143,7 +178,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === 'AIGRAFKA_CAPTURE_VISIBLE_TAB') {
-    chrome.tabs.captureVisibleTab(sender.tab?.windowId, { format: 'png' })
+    const capture = sender.tab?.windowId === undefined
+      ? chrome.tabs.captureVisibleTab({ format: 'png' })
+      : chrome.tabs.captureVisibleTab(sender.tab.windowId, { format: 'png' });
+    capture
       .then(dataUrl => sendResponse({ ok: true, dataUrl }))
       .catch(e => sendResponse({ ok: false, error: e?.message || 'Capture failed' }));
     return true;
@@ -153,6 +191,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     proxyApiRequest(message)
       .then(sendResponse)
       .catch((error: Error) => sendResponse({ ok: false, status: 503, text: error.message || 'Backend unavailable' }));
+    return true;
+  }
+
+  if (message?.type === 'AIGRAFKA_GOOGLE_LOGIN') {
+    getGoogleCredential()
+      .then(credential => sendResponse({ ok: true, credential }))
+      .catch((error: Error) => sendResponse({ ok: false, error: error.message || 'Błąd logowania Google.' }));
     return true;
   }
 

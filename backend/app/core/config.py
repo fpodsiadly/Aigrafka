@@ -7,11 +7,11 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
     # Default to the faster image model; can be overridden via GEMINI_MODEL
-    gemini_model: str = Field(default="gemini-3.1-flash-image-preview")
+    gemini_model: str = Field(default="gemini-3.1-flash-image")
     # Valid values for gemini-3.x image models: "512", "1K", "2K", "4K"
     gemini_image_size: str = Field(default="1K", alias="GEMINI_IMAGE_SIZE")
     gemini_fallback_models: str = Field(
-        default="gemini-3.1-flash-image-preview,gemini-2.5-flash-image",
+        default="gemini-3.1-flash-image,gemini-2.5-flash-image",
         alias="GEMINI_FALLBACK_MODELS",
     )
     http_timeout: float = Field(default=90.0, ge=1.0, alias="HTTP_TIMEOUT")
@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     generate_rate_limit_per_hour: int = Field(default=30, ge=1, alias="GENERATE_RATE_LIMIT_PER_HOUR")
     generate_rate_limit_burst: int = Field(default=3, ge=1, alias="GENERATE_RATE_LIMIT_BURST")
     job_result_ttl_seconds: int = Field(default=3600, ge=60, alias="JOB_RESULT_TTL_SECONDS")
+    result_image_ttl_seconds: int = Field(default=3600, ge=60, le=86400, alias="RESULT_IMAGE_TTL_SECONDS")
     job_visibility_timeout_seconds: int = Field(default=900, ge=60, alias="JOB_VISIBILITY_TIMEOUT_SECONDS")
     generation_cache_ttl_seconds: int = Field(default=86400, ge=60, alias="GENERATION_CACHE_TTL_SECONDS")
     product_image_cache_ttl_seconds: int = Field(default=300, ge=30, alias="PRODUCT_IMAGE_CACHE_TTL_SECONDS")

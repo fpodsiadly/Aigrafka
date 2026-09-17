@@ -56,19 +56,11 @@ async def test_rate_limit_blocks_excess(monkeypatch):
     class FakeRedis:
         def __init__(self):
             self.data = {}
+            self.calls = 0
 
-        def zremrangebyscore(self, key, min_score, max_score):
-            self.data[key] = [ts for ts in self.data.get(key, []) if ts > max_score]
-
-        def zcard(self, key):
-            return len(self.data.get(key, []))
-
-        def zadd(self, key, mapping):
-            self.data.setdefault(key, []).extend(mapping.values())
-
-        def expire(self, key, seconds):
-            pass
-
+        def eval(self, _script, _numkeys, *_keys_and_args):
+            self.calls += 1
+            return 3 if self.calls > 2 else 0
     import app.core.rate_limit as rl
 
     rl._local_hits.clear()
@@ -82,3 +74,30 @@ async def test_rate_limit_blocks_excess(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         await enforce_generate_rate_limit(req, "user1")
     assert exc.value.status_code == 429
+    assert fake.calls == 3
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_uses_upstash_eval_signature(monkeypatch):
+    class FakeUpstashRedis:
+        __module__ = "upstash_redis.client"
+
+        def __init__(self):
+            self.keys = None
+            self.args = None
+
+        def eval(self, _script, keys=None, args=None):
+            self.keys = keys
+            self.args = args
+            return 0
+
+    import app.core.rate_limit as rl
+
+    fake = FakeUpstashRedis()
+    monkeypatch.setattr(rl, "get_redis_client", lambda: fake)
+    monkeypatch.setattr(rl, "get_settings", lambda: _settings())
+
+    await enforce_generate_rate_limit(_mock_request(), "user1")
+
+    assert len(fake.keys) == 6
+    assert len(fake.args) == 20

@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.core.redis_client import get_redis_client, invalidate_redis_client
 
 logger = logging.getLogger(__name__)
+CACHE_VERSION = "v4-brand-logo-reference"
 
 
 def _build_generation_cache_key(
@@ -22,9 +23,11 @@ def _build_generation_cache_key(
     variant_index: int,
     variant_count: int,
     model: str,
+    image_size: str,
 ) -> str:
     """Stable cache key based on image content + parameters."""
     data = {
+        "cache_version": CACHE_VERSION,
         "selfie_hash": hashlib.sha256(selfie_bytes).hexdigest(),
         "product_hash": hashlib.sha256(product_bytes).hexdigest(),
         "category": category or "",
@@ -36,6 +39,7 @@ def _build_generation_cache_key(
         "variant_index": variant_index,
         "variant_count": variant_count,
         "model": model,
+        "image_size": image_size,
     }
     raw = json.dumps(data, sort_keys=True, separators=(",", ":"))
     return f"gen_cache:{hashlib.sha256(raw.encode()).hexdigest()}"
@@ -53,6 +57,7 @@ async def get_cached_generation(
     variant_index: int,
     variant_count: int,
     model: str,
+    image_size: str,
 ) -> dict | None:
     client = get_redis_client()
     if not client:
@@ -70,6 +75,7 @@ async def get_cached_generation(
         variant_index,
         variant_count,
         model,
+        image_size,
     )
     try:
         cached = await asyncio.to_thread(client.get, key)
@@ -94,6 +100,7 @@ async def set_cached_generation(
     variant_index: int,
     variant_count: int,
     model: str,
+    image_size: str,
     result: dict,
 ) -> None:
     client = get_redis_client()
@@ -113,6 +120,7 @@ async def set_cached_generation(
         variant_index,
         variant_count,
         model,
+        image_size,
     )
     try:
         await asyncio.to_thread(client.setex, key, settings.generation_cache_ttl_seconds, json.dumps(result))

@@ -2,12 +2,13 @@ import asyncio
 import logging
 import threading
 import time
+import uuid
 
 from fastapi import HTTPException, Request, status
 
 from app.core.config import get_settings
 from app.core.network import client_ip
-from app.core.redis_client import get_redis_client, invalidate_redis_client
+from app.core.redis_client import get_redis_client, invalidate_redis_client, is_upstash_client
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,42 @@ def _check_redis_window(client, key: str, window_ms: int, max_count: int, now_ms
     return True
 
 
+_GENERATE_RATE_LIMIT_SCRIPT = """
+local now = tonumber(ARGV[1])
+local member = ARGV[2]
+for index, key in ipairs(KEYS) do
+    local offset = 2 + (index - 1) * 3
+    local window = tonumber(ARGV[offset + 1])
+    local maximum = tonumber(ARGV[offset + 2])
+    redis.call('ZREMRANGEBYSCORE', key, 0, now - window)
+    if redis.call('ZCARD', key) >= maximum then
+        return index
+    end
+end
+for index, key in ipairs(KEYS) do
+    local offset = 2 + (index - 1) * 3
+    local window = tonumber(ARGV[offset + 1])
+    local expiry = tonumber(ARGV[offset + 3])
+    redis.call('ZADD', key, now, member .. ':' .. index)
+    redis.call('EXPIRE', key, expiry)
+end
+return 0
+"""
+
+
+def _check_redis_windows(client, checks: list[tuple[str, int, int, int]], now_ms: int) -> int:
+    keys = [key for key, _, _, _ in checks]
+    args = [str(now_ms), f"{now_ms}:{uuid.uuid4().hex}"]
+    for _, window_ms, max_count, _ in checks:
+        args.extend((str(window_ms), str(max_count), str(int(window_ms / 1000) + 1)))
+
+    if is_upstash_client(client):
+        result = client.eval(_GENERATE_RATE_LIMIT_SCRIPT, keys=keys, args=args)
+    else:
+        result = client.eval(_GENERATE_RATE_LIMIT_SCRIPT, len(keys), *keys, *args)
+    return int(result)
+
+
 def enforce_auth_rate_limit(bucket_key: str, max_requests: int, window_seconds: int, retry_after: int | None = None) -> None:
     """Shared sliding-window limiter for auth endpoints.
 
@@ -116,20 +153,27 @@ async def enforce_generate_rate_limit(request: Request, user_id: str | None) -> 
         ("hour", hour_ms, settings.generate_rate_limit_per_hour, 3600),
     ]
 
-    for scope, ident in scopes:
-        for suffix, window_ms, max_count, retry_after in windows:
-            key = f"rate_limit:generate:{scope}:{ident}:{suffix}"
-            allowed = True
-            if client:
-                try:
-                    allowed = await asyncio.to_thread(_check_redis_window, client, key, window_ms, max_count, now_ms)
-                except Exception as exc:
-                    logger.error("Rate limit Redis error for %s; using local fallback: %s", key, exc)
-                    invalidate_redis_client()
-                    allowed = _check_local_window(key, window_ms, max_count, now_ms)
-            else:
-                allowed = _check_local_window(key, window_ms, max_count, now_ms)
+    checks = [
+        (f"rate_limit:generate:{scope}:{ident}:{suffix}", window_ms, max_count, retry_after)
+        for scope, ident in scopes
+        for suffix, window_ms, max_count, retry_after in windows
+    ]
 
-            if not allowed:
+    if client:
+        try:
+            blocked_index = await asyncio.to_thread(_check_redis_windows, client, checks, now_ms)
+            if blocked_index:
+                key, _, _, retry_after = checks[blocked_index - 1]
                 logger.warning("Rate limit hit: %s", key)
                 raise _too_many(retry_after)
+            return
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("Rate limit Redis error; using local fallback: %s", exc)
+            invalidate_redis_client()
+
+    for key, window_ms, max_count, retry_after in checks:
+        if not _check_local_window(key, window_ms, max_count, now_ms):
+            logger.warning("Rate limit hit: %s", key)
+            raise _too_many(retry_after)

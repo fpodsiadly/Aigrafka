@@ -3,7 +3,6 @@ import {
     AuthApiResponse,
     AuthMeResponse,
     GenerateResponse,
-    GoogleClientIdResponse,
     ProfileResponse,
 } from './types';
 
@@ -30,19 +29,55 @@ function toBase64(file: File): Promise<string> {
 }
 
 const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
+const MAX_SOURCE_IMAGE_BYTES = 24 * 1024 * 1024;
+const MAX_IMAGE_SIDE = 1600;
+const IMAGE_QUALITY = 0.88;
+
+async function compressImage(file: File): Promise<File> {
+    if (!file.type.startsWith('image/')) return file;
+
+    try {
+        const bitmap = await createImageBitmap(file);
+        try {
+            const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+            canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+            const context = canvas.getContext('2d');
+            if (!context) return file;
+            context.fillStyle = '#ffffff';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            const blob = await new Promise<Blob | null>((resolve) => {
+                canvas.toBlob(resolve, 'image/jpeg', IMAGE_QUALITY);
+            });
+            if (!blob || (scale === 1 && blob.size >= file.size)) return file;
+            const filename = file.name.replace(/\.[^.]+$/, '') || 'image';
+            return new File([blob], `${filename}.jpg`, { type: blob.type, lastModified: file.lastModified });
+        } finally {
+            bitmap.close();
+        }
+    } catch {
+        return file;
+    }
+}
 
 async function serializeFormData(formData: FormData): Promise<ApiBody> {
     const entries = await Promise.all(Array.from(formData.entries()).map(async ([name, value]) => {
         if (typeof value === 'string') return { name, kind: 'text' as const, value };
-        if (value.size > MAX_UPLOAD_BYTES) {
-            throw new Error(`Plik „${value.name}” jest za duży (maks. ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB).`);
+        if (value.size > MAX_SOURCE_IMAGE_BYTES) {
+            throw new Error(`Plik „${value.name}” jest za duży (maks. ${MAX_SOURCE_IMAGE_BYTES / (1024 * 1024)} MB).`);
+        }
+        const file = await compressImage(value);
+        if (file.size > MAX_UPLOAD_BYTES) {
+            throw new Error(`Plik „${file.name}” jest za duży (maks. ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB).`);
         }
         return {
             name,
             kind: 'file' as const,
-            filename: value.name,
-            contentType: value.type || 'application/octet-stream',
-            base64: await toBase64(value),
+            filename: file.name,
+            contentType: file.type || 'application/octet-stream',
+            base64: await toBase64(file),
         };
     }));
     return { kind: 'form', entries };
@@ -75,30 +110,6 @@ async function apiRequest(
 
 function parseJson<T>(response: ApiResponse): T {
     return JSON.parse(response.text) as T;
-}
-
-export async function authLogin(email: string, password: string): Promise<AuthApiResponse> {
-    const response = await apiRequest('/auth/login', {
-        method: 'POST',
-        body: { email, password },
-    });
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(formatApiError(text, 'Nie udało się zalogować.'));
-    }
-    return parseJson<AuthApiResponse>(response);
-}
-
-export async function authRegister(email: string, password: string): Promise<AuthApiResponse> {
-    const response = await apiRequest('/auth/register', {
-        method: 'POST',
-        body: { email, password },
-    });
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(formatApiError(text, 'Nie udało się utworzyć konta.'));
-    }
-    return parseJson<AuthApiResponse>(response);
 }
 
 export async function getDemoAccessStatus(): Promise<boolean> {
@@ -145,7 +156,7 @@ export async function submitGenerate(formData: FormData, token?: string | null):
         headers,
     });
     if (!response.ok) {
-        throw new Error(`Błąd generowania (HTTP ${response.status}).`);
+        throw new Error(formatApiError(response.text, `Błąd generowania (HTTP ${response.status}).`));
     }
     return parseJson<GenerateResponse>(response);
 }
@@ -182,14 +193,6 @@ export async function devAddTokens(token: string): Promise<{ ok: boolean; tokens
     return parseJson<{ ok: boolean; tokens: number }>(response);
 }
 
-export async function getGoogleClientId(): Promise<GoogleClientIdResponse> {
-    const response = await apiRequest('/auth/google/client-id');
-    if (!response.ok) {
-        throw new Error('Nie udało się pobrać konfiguracji Google.');
-    }
-    return parseJson<GoogleClientIdResponse>(response);
-}
-
 export async function startCheckout(
     token: string,
     pack: string,
@@ -222,7 +225,7 @@ export async function googleLogin(credential: string): Promise<AuthApiResponse> 
         body: { id_token: credential },
     });
     if (!response.ok) {
-        const text = await response.text();
+        const text = response.text;
         let message = 'Logowanie Google nie powiodło się.';
         try {
             const parsed = JSON.parse(text);

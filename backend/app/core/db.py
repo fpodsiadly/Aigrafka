@@ -2,7 +2,6 @@ from uuid import uuid4
 
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.core.config import get_settings
@@ -175,24 +174,6 @@ async def upsert_profile(
     return dict(saved)
 
 
-async def get_user_with_credentials_by_email(email: str) -> dict | None:
-    engine = get_engine()
-    async with engine.connect() as conn:
-        row = (await conn.execute(
-            text(
-                """
-                SELECT u.id, u.email, u.tokens, c.password_hash
-                FROM "User" u
-                JOIN auth_user_credentials c ON c.user_id = u.id
-                WHERE LOWER(u.email) = LOWER(:email)
-                LIMIT 1
-                """
-            ),
-            {"email": email},
-        )).mappings().first()
-    return dict(row) if row else None
-
-
 async def get_user_by_id(user_id: str) -> dict | None:
     engine = get_engine()
     async with engine.connect() as conn:
@@ -262,43 +243,6 @@ async def delete_credentials_for_email(email: str) -> None:
             text('DELETE FROM auth_user_credentials WHERE LOWER(email) = LOWER(:email)'),
             {"email": email},
         )
-
-
-async def create_user_with_credentials(email: str, password_hash: str, initial_tokens: int) -> dict:
-    engine = get_engine()
-
-    try:
-        async with engine.begin() as conn:
-            user = (await conn.execute(
-                text(
-                    """
-                    INSERT INTO "User" (id, email, tokens, "createdAt", "updatedAt")
-                    VALUES (:id, :email, :tokens, NOW(), NOW())
-                    ON CONFLICT (email) DO UPDATE SET "updatedAt" = NOW()
-                    RETURNING id, email, tokens
-                    """
-                ),
-                {"id": uuid4().hex, "email": email, "tokens": initial_tokens},
-            )).mappings().first()
-
-            # Fails with IntegrityError if credentials already exist for this
-            # user/email (i.e. the account is already registered).
-            await conn.execute(
-                text(
-                    """
-                    INSERT INTO auth_user_credentials (user_id, email, password_hash)
-                    VALUES (:user_id, :email, :password_hash)
-                    """
-                ),
-                {"user_id": user["id"], "email": email, "password_hash": password_hash},
-            )
-
-        if not user:
-            raise RuntimeError("Failed to create user")
-
-        return dict(user)
-    except IntegrityError as exc:
-        raise ValueError("User already exists") from exc
 
 
 async def add_tokens(user_id: str, amount: int) -> int:

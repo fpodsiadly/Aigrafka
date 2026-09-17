@@ -2,6 +2,12 @@ import React from 'react';
 
 import { FormState } from '../types';
 import { inputStyle, sectionTitleStyle } from '../styles';
+import InfoTooltip from './InfoTooltip';
+
+const METRICS_INFO =
+    'Twoje dane posłużą do przygotowania wizualizacji.\n\n' +
+    'W każdej chwili możesz zmienić wprowadzone dane. Pamiętaj, że wprowadzane dane muszą być zgodne ' +
+    'z postanowieniami Regulaminu i Polityki Prywatności.';
 
 interface MetricsFormProps {
     height: string;
@@ -35,22 +41,7 @@ const MetricsForm: React.FC<MetricsFormProps> = ({
     <>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <div style={sectionTitleStyle}>Twoje dane</div>
-            <span
-                aria-hidden="true"
-                style={{
-                    width: 16,
-                    height: 16,
-                    borderRadius: 6,
-                    background: '#8bb0d6',
-                    color: '#ffffff',
-                    fontSize: 11,
-                    display: 'grid',
-                    placeItems: 'center',
-                    fontWeight: 800,
-                }}
-            >
-                i
-            </span>
+            <InfoTooltip label="Informacje o danych sylwetki" content={METRICS_INFO} />
         </div>
 
         <div
