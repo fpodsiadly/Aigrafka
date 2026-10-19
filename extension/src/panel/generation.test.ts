@@ -25,7 +25,9 @@ describe('error messages', () => {
 
     it('explains content policy refusals', () => {
         expect(describeFallback({ status: 'refused' })).toContain('polityka moderacji');
-        expect(describeFallback({ status: 'fallback', detail: 'timeout' })).toBe('Generacja nieudana: timeout. Spróbuj ponownie.');
+        expect(describeFallback({ status: 'fallback', detail: 'service_unavailable' })).toContain('chwilowo niedostępna');
+        expect(describeFallback({ status: 'fallback', detail: 'generation_failed' })).toContain('Generacja nieudana.');
+        expect(describeFallback({ status: 'fallback', detail: 'RESOURCE_EXHAUSTED raw' })).not.toContain('RESOURCE');
     });
 });
 

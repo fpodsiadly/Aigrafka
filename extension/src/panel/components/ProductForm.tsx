@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 import { actionButtonStyle, inputStyle } from '../styles';
-import { GARMENT_CATEGORIES, getCategoryError } from '../garmentPolicy';
+import { GARMENT_CATEGORIES, MAX_CATEGORY_LENGTH, getCategoryError } from '../garmentPolicy';
 import { FormState, ProductImageKey } from '../types';
 import FieldRow from './FieldRow';
 
@@ -259,7 +259,11 @@ const ProductForm: React.FC<ProductFormProps> = ({
             </FieldRow>
 
             <FieldRow label="Kategoria produktu:">
-                <select
+                <input
+                    type="text"
+                    list="aigrafka-category-suggestions"
+                    maxLength={MAX_CATEGORY_LENGTH}
+                    placeholder="Wpisz, np. sweter, kurtka jeansowa"
                     style={{
                         ...inputStyle,
                         borderColor: categoryError ? '#c62828' : inputStyle.borderColor,
@@ -267,18 +271,14 @@ const ProductForm: React.FC<ProductFormProps> = ({
                     value={inputCategory}
                     onChange={(e) => onCategoryChange(e.target.value)}
                     aria-label="Kategoria produktu"
-                >
-                    <option value="">Wybierz kategorię</option>
-                    {GARMENT_CATEGORIES.map((category) => (
-                        <option
-                            key={category.value}
-                            value={category.value}
-                            disabled={Boolean(getCategoryError(category.value, fitStyle))}
-                        >
-                            {category.label}
-                        </option>
-                    ))}
-                </select>
+                />
+                <datalist id="aigrafka-category-suggestions">
+                    {GARMENT_CATEGORIES.filter((category) => !getCategoryError(category.label, fitStyle)).map(
+                        (category) => (
+                            <option key={category.value} value={category.label} />
+                        )
+                    )}
+                </datalist>
                 {categoryError && (
                     <div role="alert" style={{ marginTop: 4, color: '#a61b1b', fontSize: 10, fontWeight: 700 }}>
                         {categoryError}

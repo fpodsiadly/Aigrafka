@@ -11,7 +11,7 @@ import useAuthSession from './hooks/useAuthSession';
 import useGeneration from './hooks/useGeneration';
 import useProductImageInput from './hooks/useProductImageInput';
 import useResultActions from './hooks/useResultActions';
-import { getCategoryError } from './garmentPolicy';
+import { getCategoryError, toCategoryText } from './garmentPolicy';
 
 import AuthPanel from './components/AuthPanel';
 import FieldRow from './components/FieldRow';
@@ -162,7 +162,11 @@ const App: React.FC = () => {
     useEffect(() => {
         Promise.all([storage.get(), selfieStorage.load()]).then(([stored, selfieFile]) => {
             if (stored) {
-                setForm((prev) => ({ ...prev, ...stored }));
+                setForm((prev) => ({
+                    ...prev,
+                    ...stored,
+                    category: stored.category ? toCategoryText(stored.category) : prev.category,
+                }));
             }
             if (selfieFile) {
                 setForm((prev) => ({ ...prev, selfie: selfieFile }));
@@ -261,21 +265,20 @@ const App: React.FC = () => {
         void runGeneration();
     }
 
+    // Start over with another product: the selfie and measurements stay, so the
+    // user does not have to upload them again for every garment.
     function handleChangeParams() {
         setForm((prev) => ({
             ...prev,
-            selfie: null,
             productImage1: null,
             productImage2: null,
             productUrl: '',
         }));
-        setSelfiePreview('');
         setProductPreview1('');
         setProductPreview2('');
         setGenerationError('');
         setStatusSuccess('');
         setView('form');
-        void selfieStorage.clear();
     }
 
     return (

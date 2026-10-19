@@ -51,6 +51,46 @@ async def test_generate_from_payload_refunds_unusable_result(monkeypatch):
     assert refunds == [("user-1", 1)]
 
 
+@pytest.mark.asyncio
+async def test_failed_variant_hides_placeholder_image_and_raw_provider_error(monkeypatch):
+    import app.core.worker as worker
+
+    raw_error = "402 RESOURCE_EXHAUSTED. {'error': {'message': 'Your prepayment credits are depleted.'}}"
+
+    async def exhausted(*_args, **_kwargs):
+        return {"status": "fallback", "image_base64": "placeholder", "mime_type": "image/png", "error": raw_error}
+
+    async def add_tokens(user_id, amount):
+        return None
+
+    monkeypatch.setattr(worker, "_run_variant_with_retry", exhausted)
+    monkeypatch.setattr(worker, "add_tokens", add_tokens)
+
+    result = await generate_from_payload(_payload(), operation_id="request-1")
+
+    assert result["status"] == "fallback"
+    assert result["detail"] == "service_unavailable"
+    variant = result["variants"][0]
+    assert "image_base64" not in variant and "mime_type" not in variant
+    assert variant["error"] == "service_unavailable"
+
+
+@pytest.mark.parametrize(
+    ("raw", "code"),
+    [
+        ("content_policy", "content_policy"),
+        ("429 Too Many Requests", "service_unavailable"),
+        ("Quota exceeded for model", "service_unavailable"),
+        ("Missing image data in Gemini response", "generation_failed"),
+        (None, None),
+    ],
+)
+def test_public_error_codes(raw, code):
+    import app.core.worker as worker
+
+    assert worker._public_error(raw) == code
+
+
 def test_generation_models_prefer_nano_banana_then_flash(monkeypatch):
     import app.core.worker as worker
     from app.core.config import Settings

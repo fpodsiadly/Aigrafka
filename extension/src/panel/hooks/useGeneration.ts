@@ -193,7 +193,12 @@ export default function useGeneration({ form, canSubmit, refreshAuthFromServer }
                 }
                 setStatusError(fallbackMsg);
                 setGenerationError(fallbackMsg);
-                if (!normalizedVariants.length) setPreviewUrl(placeholderPreview);
+                // Nothing to show: use the error screen with "try again" instead
+                // of an empty result card.
+                if (!normalizedVariants.length) {
+                    setPreviewUrl(placeholderPreview);
+                    setView('generating');
+                }
             } else {
                 setStatusSuccess(`Gotowe: ${variantCount} wariant${variantCount === 1 ? '' : 'y'}.`);
                 succeeded = true;

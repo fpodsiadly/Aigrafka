@@ -34,12 +34,15 @@ export function describeGenerationError(message: string): string {
     return message;
 }
 
+// `detail` is a stable code from the backend; raw provider errors stay in server logs.
 export function describeFallback(data: Pick<GenerateResponse, 'status' | 'detail'>): string {
     if (data.status === 'refused' || data.detail === 'content_policy') {
         return 'Ten produkt nie może zostać wygenerowany — polityka moderacji treści nie pozwala na tę kombinację zdjęcia i produktu.';
     }
-    const detail = data.detail ? `: ${data.detail}` : '';
-    return `Generacja nieudana${detail}. Spróbuj ponownie.`;
+    if (data.detail === 'service_unavailable') {
+        return 'Usługa generowania jest chwilowo niedostępna. Spróbuj ponownie za kilka minut — tokeny za tę próbę nie zostały pobrane.';
+    }
+    return 'Generacja nieudana. Spróbuj ponownie — tokeny za tę próbę nie zostały pobrane.';
 }
 
 interface PollOptions {

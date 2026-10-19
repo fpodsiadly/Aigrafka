@@ -39,6 +39,34 @@ def _without_model_content(result: dict) -> dict:
     return {key: value for key, value in result.items() if key != MODEL_CONTENT_KEY}
 
 
+# Provider errors meaning "out of quota / credits / capacity", not a bad request.
+_SERVICE_UNAVAILABLE_MARKERS = ("resource_exhausted", "quota", "credits", "rate limit", "429", "402", "503")
+
+
+def _public_error(error: str | None) -> str | None:
+    """Map a raw provider error to a stable code; raw text stays in the logs only."""
+    if not error:
+        return None
+    if error == "content_policy":
+        return error
+    lowered = error.lower()
+    if any(marker in lowered for marker in _SERVICE_UNAVAILABLE_MARKERS):
+        return "service_unavailable"
+    return "generation_failed"
+
+
+def _to_public_variant(variant: dict) -> dict:
+    """Client-facing variant: no model turn, and no placeholder image when it failed."""
+    public = _without_model_content(variant)
+    if public.get("status") != "generated":
+        if public.get("error"):
+            logger.warning("Variant not generated: status=%s error=%s", public.get("status"), public["error"])
+        public.pop("image_base64", None)
+        public.pop("mime_type", None)
+        public["error"] = _public_error(public.get("error"))
+    return public
+
+
 async def _apply_branding(result: dict) -> None:
     try:
         image_bytes = base64.b64decode(result["image_base64"])
@@ -279,7 +307,7 @@ async def generate_from_payload(
                 variant = {"status": "failed", "error": str(exc) or "variant_error"}
             if on_variant is not None:
                 try:
-                    await on_variant(index, _without_model_content(variant))
+                    await on_variant(index, _to_public_variant(variant))
                 except Exception:
                     logger.exception("Variant callback failed for variant %d", index + 1)
             return variant
@@ -298,7 +326,7 @@ async def generate_from_payload(
                 for index in range(1, variant_count)
             ]
         )
-        variants = [_without_model_content(variant) for variant in (first_variant, *remaining)]
+        variants = [_to_public_variant(variant) for variant in (first_variant, *remaining)]
 
         successful = [v for v in variants if v.get("status") == "generated" and v.get("image_base64")]
         if successful:
