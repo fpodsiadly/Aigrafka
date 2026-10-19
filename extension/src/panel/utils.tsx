@@ -48,33 +48,7 @@ export const validProductUrl = (url: string) => {
 
 export const normalizeProductUrl = (url: string) => url.trim().replace(/[|\s]+$/g, '');
 
-// Best-effort client-side SSRF guard for URLs the extension fetches with its
-// (broad) host permissions: allow only public http/https hosts, blocking
-// localhost, private/link-local IP literals and obvious internal names.
-export const isSafeExternalUrl = (url: string): boolean => {
-    let parsed: URL;
-    try {
-        parsed = new URL(url);
-    } catch {
-        return false;
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
-    const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) {
-        return false;
-    }
-    const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-    if (ipv4) {
-        const [a, b] = ipv4.slice(1).map(Number);
-        if (a === 10 || a === 127 || a === 0) return false;
-        if (a === 172 && b >= 16 && b <= 31) return false;
-        if (a === 192 && b === 168) return false;
-        if (a === 169 && b === 254) return false;
-        if (a === 100 && b >= 64 && b <= 127) return false;
-    }
-    if (host === '::1' || host.startsWith('fe80') || host.startsWith('fc') || host.startsWith('fd')) return false;
-    return true;
-};
+export { isSafeExternalUrl } from './safeUrl';
 
 export function hasAnyBodyMetrics(metrics: BodyMetrics): boolean {
     return [metrics.height, metrics.chest, metrics.waist, metrics.hips].some(value => value.trim().length > 0);
@@ -99,6 +73,12 @@ export const storage = {
         } catch {
             return {};
         }
+    },
+    async clear(): Promise<void> {
+        if (chrome?.storage?.local) {
+            return new Promise(resolve => chrome.storage.local.remove([storageKey], () => resolve()));
+        }
+        try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
     },
     async set(data: Partial<Persistable>): Promise<void> {
         if (chrome?.storage?.local) {

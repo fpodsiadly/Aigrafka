@@ -76,7 +76,9 @@ VITE_API_BASE=https://aigrafka.onrender.com npm run build
 
 ## Najwazniejsze endpointy (FastAPI)
 
-- `POST /generate` - generowanie stylizacji (multipart: selfie + produkt + opcje).
+- `POST /generate` - generowanie stylizacji (multipart: selfie + produkt + opcje). Z `mode=async` zwraca `202` z `job_id`, a wynik (także częściowy, wariant po wariancie) jest dostępny pod `GET /jobs/{job_id}`; bez `mode` działa synchronicznie.
+- `GET /jobs/{job_id}` - status i (częściowe) wyniki generowania asynchronicznego.
+- `POST /profile/delete-data` - usunięcie profilu sylwetki i wszystkich zapisanych stylizacji użytkownika (Bearer required).
 - `POST /auth/google` - logowanie i automatyczne utworzenie konta przez Google.
 - `GET /auth/google/client-id` - konfiguracja OAuth dla rozszerzenia.
 
@@ -114,11 +116,12 @@ Wazne opcjonalne:
 - `JWT_EXP_MINUTES`
 - `DEV_MODE`
 - `CORS_ORIGINS`
-- `GEMINI_MODEL`
+- `GEMINI_MODEL` — model główny (domyślnie `gemini-nano-banana-2.1`)
+- `GEMINI_FALLBACK_MODELS` — modele zapasowe po przecinku, próbowane po głównym (domyślnie `gemini-3.1-flash-image`)
 - `GEMINI_IMAGE_SIZE`
 - `MAX_SELFIE_MB`
 - `MAX_PRODUCT_IMAGE_MB`
-- `MAX_SIDE_PX`
+- `MAX_SIDE_PX` — dłuższy bok selfie/zdjęcia produktu wysyłanego do modelu (domyślnie 1536)
 - `HTTP_TIMEOUT`
 - `PRODUCT_IMAGE_TIMEOUT`
 - `PAYLOAD_ENCRYPTION_KEY` — opcjonalny klucz Fernet do szyfrowania payloadow jobow w Redis.
@@ -140,7 +143,7 @@ Platnosci Przelewy24:
 - Service root: `backend/`
 - Build command: `pip install -r requirements.txt`
 - Start command: `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- Generation: `/generate` runs synchronously in the API service; no separate worker service required
+- Generation runs in the API service (async jobs as in-process background tasks); no separate worker service required
 - Required env: `DATABASE_URL`, `JWT_SECRET`, `GEMINI_API_KEY`, `GOOGLE_CLIENT_ID`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
 - API uses Redis for generation caching, rate limiting, and one-hour signed result-image URLs. Keep `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` configured.
 - Nie ustawiaj jednocześnie `REDIS_URL`/`REDIS_TOKEN`, jeśli używasz `UPSTASH_*`; `REDIS_URL` ma pierwszeństwo w konfiguracji.

@@ -230,6 +230,13 @@ async def get_or_create_user_by_email(email: str, initial_tokens: int) -> dict:
     return dict(user)
 
 
+async def delete_profile(user_id: str) -> None:
+    """Remove the user's stored body measurements and style preferences."""
+    engine = get_engine()
+    async with engine.begin() as conn:
+        await conn.execute(text('DELETE FROM "Profile" WHERE "userId" = :user_id'), {"user_id": user_id})
+
+
 async def delete_credentials_for_email(email: str) -> None:
     """Remove any password credentials for an email.
 

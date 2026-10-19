@@ -17,7 +17,123 @@ export async function captureVisibleTab(): Promise<string> {
     });
 }
 
-export async function pickAreaOnPage(): Promise<{ x: number; y: number; width: number; height: number } | null> {
+export interface PickedArea {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface PickResult {
+    area: PickedArea;
+    // Full-resolution source of the clicked image element, when one was clicked.
+    imageUrl: string | null;
+}
+
+// Tokenise per the HTML spec: a URL runs until whitespace (URLs may contain
+// commas, e.g. CDN transforms) and its optional descriptor runs until a comma.
+function parseSrcset(srcset: string): { url: string; descriptor: string }[] {
+    const candidates: { url: string; descriptor: string }[] = [];
+    let position = 0;
+    while (position < srcset.length) {
+        while (position < srcset.length && /[\s,]/.test(srcset[position])) position += 1;
+        const urlStart = position;
+        while (position < srcset.length && !/\s/.test(srcset[position])) position += 1;
+        let url = srcset.slice(urlStart, position);
+        if (!url) break;
+        let descriptor = '';
+        if (url.endsWith(',')) {
+            url = url.replace(/,+$/, '');
+        } else {
+            const descriptorStart = position;
+            while (position < srcset.length && srcset[position] !== ',') position += 1;
+            descriptor = srcset.slice(descriptorStart, position).trim();
+        }
+        candidates.push({ url, descriptor: descriptor || '1x' });
+    }
+    return candidates;
+}
+
+/**
+ * Pick the widest candidate from a `srcset` attribute, resolved against `baseUrl`.
+ * Density descriptors (2x) are ranked like widths; candidates without a
+ * descriptor count as 1x.
+ */
+export function pickLargestSrcsetUrl(srcset: string, baseUrl: string): string | null {
+    let best: { url: string; score: number } | null = null;
+    for (const { url: rawUrl, descriptor } of parseSrcset(srcset)) {
+        const value = parseFloat(descriptor);
+        if (Number.isNaN(value)) continue;
+        const score = descriptor.endsWith('x') ? value * 1000 : value;
+        if (!best || score > best.score) {
+            try {
+                best = { url: new URL(rawUrl, baseUrl).href, score };
+            } catch {
+                /* skip malformed candidate */
+            }
+        }
+    }
+    return best?.url ?? null;
+}
+
+function backgroundImageUrl(element: Element): string | null {
+    const match = getComputedStyle(element).backgroundImage.match(/url\(["']?(.*?)["']?\)/);
+    return match?.[1] || null;
+}
+
+/** Resolve the highest-resolution image URL behind a picked element. */
+export function resolveBestImageUrl(element: Element, baseUrl: string = document.baseURI): string | null {
+    const img = element instanceof HTMLPictureElement ? element.querySelector('img') : element;
+    let url: string | null = null;
+    if (img instanceof HTMLImageElement) {
+        const sources = img.parentElement instanceof HTMLPictureElement
+            ? Array.from(img.parentElement.querySelectorAll('source')).map((source) => source.srcset)
+            : [];
+        for (const srcset of [img.srcset, ...sources]) {
+            url = srcset ? pickLargestSrcsetUrl(srcset, baseUrl) : null;
+            if (url) break;
+        }
+        url = url || img.currentSrc || img.src || null;
+    } else if (element instanceof HTMLVideoElement) {
+        url = element.poster || null;
+    } else {
+        url = backgroundImageUrl(element);
+    }
+    if (!url || url.startsWith('data:') || url.startsWith('blob:')) return null;
+    try {
+        return new URL(url, baseUrl).href;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Download an image through the extension service worker, which may read any
+ * host thanks to host_permissions (a page-context fetch would hit CORS).
+ */
+export async function fetchImageViaExtension(url: string): Promise<File> {
+    const response = await new Promise<{ ok?: boolean; base64?: string; contentType?: string; error?: string } | undefined>(
+        (resolve, reject) => {
+            chrome.runtime.sendMessage({ type: 'AIGRAFKA_FETCH_IMAGE', url }, (result) => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                    return;
+                }
+                resolve(result);
+            });
+        }
+    );
+    if (!response?.ok || !response.base64 || !response.contentType) {
+        throw new Error(response?.error || 'Nie udało się pobrać zdjęcia produktu.');
+    }
+    const binary = atob(response.base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    const extension = response.contentType.split('/')[1]?.split(/[;+]/)[0] || 'jpg';
+    return new File([bytes], `produkt-${Date.now()}.${extension}`, { type: response.contentType });
+}
+
+export async function pickAreaOnPage(): Promise<PickResult | null> {
     return new Promise((resolve) => {
         const panelHost = document.getElementById('aigrafka-extension-root') as HTMLElement | null;
         if (panelHost) panelHost.style.display = 'none';
@@ -76,7 +192,7 @@ export async function pickAreaOnPage(): Promise<{ x: number; y: number; width: n
             return el;
         }
 
-        function cleanup(result: { x: number; y: number; width: number; height: number } | null) {
+        function cleanup(result: PickResult | null) {
             document.removeEventListener('mousemove', onMouseMove, true);
             document.removeEventListener('mousedown', onMouseDown, true);
             document.removeEventListener('mouseup', onMouseUp, true);
@@ -182,7 +298,7 @@ export async function pickAreaOnPage(): Promise<{ x: number; y: number; width: n
                 hint.textContent = 'Najedź na zdjęcie produktu i kliknij  •  lub zaznacz obszar przeciąganiem  •  ESC = anuluj';
                 return;
             }
-            cleanup({ x, y, width, height });
+            cleanup({ area: { x, y, width, height }, imageUrl: null });
         }
 
         function onClick(e: MouseEvent) {
@@ -193,10 +309,13 @@ export async function pickAreaOnPage(): Promise<{ x: number; y: number; width: n
             e.stopPropagation();
             const r = found.getBoundingClientRect();
             cleanup({
-                x: Math.max(0, r.left),
-                y: Math.max(0, r.top),
-                width: Math.max(12, Math.min(r.width, window.innerWidth - Math.max(0, r.left))),
-                height: Math.max(12, Math.min(r.height, window.innerHeight - Math.max(0, r.top))),
+                area: {
+                    x: Math.max(0, r.left),
+                    y: Math.max(0, r.top),
+                    width: Math.max(12, Math.min(r.width, window.innerWidth - Math.max(0, r.left))),
+                    height: Math.max(12, Math.min(r.height, window.innerHeight - Math.max(0, r.top))),
+                },
+                imageUrl: resolveBestImageUrl(found),
             });
         }
 
@@ -212,10 +331,7 @@ export async function pickAreaOnPage(): Promise<{ x: number; y: number; width: n
     });
 }
 
-export async function cropFromScreenshot(
-    dataUrl: string,
-    area: { x: number; y: number; width: number; height: number }
-): Promise<Blob> {
+export async function cropFromScreenshot(dataUrl: string, area: PickedArea): Promise<Blob> {
     const image = new Image();
     image.src = dataUrl;
     await new Promise<void>((resolve, reject) => {

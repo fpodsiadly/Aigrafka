@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from app.core.config import get_settings
 from app.core.redis_client import get_redis_client
+from app.core.user_data import track_user_data_key
 
 RESULT_IMAGE_KEY_PREFIX = "result_image:"
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -30,7 +31,7 @@ def _parse_token(token: str) -> str | None:
     return image_id if hmac.compare_digest(signature, _signature(image_id)) else None
 
 
-def _store_result_image_sync(image_base64: str, mime_type: str) -> str | None:
+def _store_result_image_sync(image_base64: str, mime_type: str) -> tuple[str, str] | None:
     client = get_redis_client()
     if client is None or mime_type not in ALLOWED_IMAGE_TYPES:
         return None
@@ -38,19 +39,21 @@ def _store_result_image_sync(image_base64: str, mime_type: str) -> str | None:
     try:
         image_id = hashlib.sha256(f"{mime_type}:".encode() + image_base64.encode()).hexdigest()
         payload = json.dumps({"data": image_base64, "mime_type": mime_type}, separators=(",", ":"))
-        client.set(
-            f"{RESULT_IMAGE_KEY_PREFIX}{image_id}",
-            payload,
-            ex=get_settings().result_image_ttl_seconds,
-        )
-        return _build_token(image_id)
+        key = f"{RESULT_IMAGE_KEY_PREFIX}{image_id}"
+        client.set(key, payload, ex=get_settings().result_image_ttl_seconds)
+        return _build_token(image_id), key
     except Exception as exc:
         logger.error("Result image storage failed: %s", exc)
         return None
 
 
-async def store_result_image(image_base64: str, mime_type: str) -> str | None:
-    return await asyncio.to_thread(_store_result_image_sync, image_base64, mime_type)
+async def store_result_image(image_base64: str, mime_type: str, owner_id: str | None = None) -> str | None:
+    stored = await asyncio.to_thread(_store_result_image_sync, image_base64, mime_type)
+    if stored is None:
+        return None
+    token, key = stored
+    await track_user_data_key(owner_id, key, get_settings().result_image_ttl_seconds)
+    return token
 
 
 def _get_result_image_sync(token: str) -> tuple[bytes, str] | None:

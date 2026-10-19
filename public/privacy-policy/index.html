@@ -278,6 +278,45 @@
       </div>
 
       <div class="section">
+        <h2>Wirtualna przymiarka: zdjęcia i wymiary</h2>
+        <p>
+          Aby wygenerować stylizację, rozszerzenie AIgrafka przesyła selfie,
+          zdjęcie produktu oraz opcjonalnie wymiary ciała i preferowany krój do
+          serwera AIgrafka. Na czas generowania obrazy są przekazywane do
+          Google (Gemini API), który działa jako podmiot przetwarzający i
+          tworzy obraz przymiarki.
+        </p>
+        <ul>
+          <li>
+            Przesłane selfie i zdjęcia produktu są przetwarzane w pamięci
+            serwera i nie są zapisywane.
+          </li>
+          <li>
+            Wygenerowane stylizacje (przedstawiające wizerunek Użytkownika) są
+            przechowywane tymczasowo: obrazy wynikowe do 1 godziny, a pamięć
+            podręczna generacji do 24 godzin.
+          </li>
+          <li>
+            Rozszerzenie przechowuje w przeglądarce pomniejszoną kopię ostatniego
+            selfie do 30 dni, aby automatycznie uzupełnić formularz.
+          </li>
+          <li>
+            Wymiary ciała i preferowany krój zalogowanego Użytkownika są
+            zapisywane w jego profilu.
+          </li>
+        </ul>
+        <p>
+          Użytkownik może w każdej chwili usunąć te dane przyciskiem
+          <strong>„Usuń moje dane”</strong> w stopce panelu rozszerzenia.
+          Usuwane są selfie i wymiary zapisane w przeglądarce, a u
+          zalogowanego Użytkownika także profil z wymiarami i wszystkie
+          przechowywane stylizacje z jego wizerunkiem. Konto, saldo tokenów i
+          dane płatności pozostają; w sprawie usunięcia Konta należy
+          skontaktować się z ADO.
+        </p>
+      </div>
+
+      <div class="section">
         <h2>Udostępnianie danych osobowych</h2>
         <p>Odbiorcami danych mogą być m.in.:</p>
         <ul>
@@ -398,7 +437,7 @@
       </div>
 
       <hr />
-      <p class="meta">Data aktualizacji: 4 lutego 2026</p>
+      <p class="meta">Data aktualizacji: 19 października 2026</p>
     </main>
   </body>
 </html>

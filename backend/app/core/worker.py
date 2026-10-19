@@ -3,11 +3,13 @@ import base64
 import contextlib
 import logging
 import signal
+from collections.abc import Awaitable, Callable
 from time import perf_counter
 
-from app.ai.gemini_client import GeminiClient
+from app.ai.branding import apply_brand_mark
+from app.ai.gemini_client import MODEL_CONTENT_KEY, GeminiClient, VariantFollowUp
 from app.ai.product_image import close_product_image_client, fetch_product_image
-from app.ai.prompts.openvto_prompt import build_openvto_prompt
+from app.ai.prompts.openvto_prompt import build_openvto_prompt, build_variant_follow_up_prompt
 from app.core.cache import get_cached_generation, set_cached_generation
 from app.core.config import get_settings
 from app.core.db import add_tokens, close_engine
@@ -22,12 +24,30 @@ from app.core.queue import (
 )
 
 logger = logging.getLogger(__name__)
+# Called with (variant_index, variant) as soon as each variant finishes, so
+# async jobs can expose partial results before the whole batch completes.
+VariantCallback = Callable[[int, dict], Awaitable[None]]
 
 
 def _generation_models() -> list[str]:
     settings = get_settings()
     fallback_models = [model.strip() for model in settings.gemini_fallback_models.split(",") if model.strip()]
     return list(dict.fromkeys([settings.gemini_model, *fallback_models]))
+
+
+def _without_model_content(result: dict) -> dict:
+    return {key: value for key, value in result.items() if key != MODEL_CONTENT_KEY}
+
+
+async def _apply_branding(result: dict) -> None:
+    try:
+        image_bytes = base64.b64decode(result["image_base64"])
+        branded, mime_type = await asyncio.to_thread(apply_brand_mark, image_bytes)
+    except Exception:
+        logger.exception("Brand mark overlay failed; returning the unbranded image")
+        return
+    result["image_base64"] = base64.b64encode(branded).decode()
+    result["mime_type"] = mime_type
 
 
 async def _run_variant_with_retry(
@@ -43,13 +63,20 @@ async def _run_variant_with_retry(
     variant_index: int,
     variant_count: int,
     telemetry: dict | None = None,
+    follow_up: VariantFollowUp | None = None,
+    follow_up_model: str | None = None,
+    owner_id: str | None = None,
 ) -> dict:
     settings = get_settings()
     last_error: str | None = None
-    generation_models = _generation_models()
+    # A follow-up turn must stay on the model that produced the first variant:
+    # the conversation history (incl. thought signatures) is model-specific.
+    generation_models = [follow_up_model] if follow_up is not None and follow_up_model else _generation_models()
 
     for attempt, model in enumerate(generation_models):
-        # Cache is keyed per model so fallback results are reused correctly.
+        # Cache is keyed per model so fallback results are reused correctly;
+        # follow-up turns get their own key as their output depends on variant 1.
+        cache_model_key = f"{model}:follow-up" if follow_up is not None else model
         cache_started = perf_counter()
         cached = await get_cached_generation(
             selfie_bytes,
@@ -62,7 +89,7 @@ async def _run_variant_with_retry(
             hips_cm,
             variant_index,
             variant_count,
-            model,
+            cache_model_key,
             settings.gemini_image_size,
         )
         if telemetry is not None:
@@ -76,7 +103,7 @@ async def _run_variant_with_retry(
             client = GeminiClient(model=model)
             started = perf_counter()
             result = await asyncio.wait_for(
-                client.generate_image(prompt, selfie_bytes, product_image_bytes),
+                client.generate_image(prompt, selfie_bytes, product_image_bytes, follow_up),
                 timeout=settings.http_timeout,
             )
             latency_s = perf_counter() - started
@@ -87,6 +114,7 @@ async def _run_variant_with_retry(
             track_gemini_call(model, result.get("status", "unknown"))
             track_generation_latency(model, latency_s)
             if result.get("status") == "generated" and result.get("image_base64"):
+                await _apply_branding(result)
                 cache_started = perf_counter()
                 await set_cached_generation(
                     selfie_bytes,
@@ -99,9 +127,10 @@ async def _run_variant_with_retry(
                     hips_cm,
                     variant_index,
                     variant_count,
-                    model,
+                    cache_model_key,
                     settings.gemini_image_size,
-                    result,
+                    _without_model_content(result),
+                    owner_id=owner_id,
                 )
                 if telemetry is not None:
                     telemetry["redis_ms"] = telemetry.get("redis_ms", 0.0) + (
@@ -128,6 +157,7 @@ async def generate_from_payload(
     *,
     operation_id: str = "synchronous",
     telemetry: dict | None = None,
+    on_variant: VariantCallback | None = None,
 ) -> dict:
     user_id = payload.get("user_id")
     charged_tokens = payload.get("charged_tokens", 0)
@@ -173,10 +203,8 @@ async def generate_from_payload(
         if primary_product_image_bytes is None:
             raise ValueError("Product image not available")
 
-        # Build per-variant tasks for concurrent generation (batch)
-        async def _generate_one_variant(index: int) -> dict:
-            variant_number = index + 1
-            prompt = build_openvto_prompt(
+        def _standalone_prompt(variant_number: int) -> str:
+            return build_openvto_prompt(
                 product_ref,
                 is_upload=used_upload,
                 category=category,
@@ -189,13 +217,16 @@ async def generate_from_payload(
                 variant_index=variant_number,
                 back_reference_available=back_reference_available,
             )
+
+        def _uses_back_reference(variant_number: int) -> bool:
+            return variant_count == 3 and variant_number == 3 and secondary_product_image_bytes is not None
+
+        async def _run_standalone(variant_number: int) -> dict:
             current_product_image_bytes = (
-                secondary_product_image_bytes
-                if variant_count == 3 and variant_number == 3 and secondary_product_image_bytes is not None
-                else primary_product_image_bytes
+                secondary_product_image_bytes if _uses_back_reference(variant_number) else primary_product_image_bytes
             )
             return await _run_variant_with_retry(
-                prompt,
+                _standalone_prompt(variant_number),
                 selfie_bytes,
                 current_product_image_bytes,
                 category,
@@ -207,19 +238,67 @@ async def generate_from_payload(
                 variant_number,
                 variant_count,
                 telemetry,
+                owner_id=user_id,
             )
 
-        variant_tasks = [_generate_one_variant(i) for i in range(variant_count)]
-        # return_exceptions=True: one failing variant must not abort the whole
-        # batch; normalize any raised exception into a failed-variant dict.
-        raw_variants = await asyncio.gather(*variant_tasks, return_exceptions=True)
-        variants: list[dict] = []
-        for i, v in enumerate(raw_variants):
-            if isinstance(v, BaseException):
-                logger.warning("Variant %d raised: %s", i + 1, v)
-                variants.append({"status": "failed", "error": str(v) or "variant_error"})
-            else:
-                variants.append(v)
+        async def _run_follow_up(variant_number: int, first_variant: dict) -> dict:
+            follow_up = VariantFollowUp(
+                previous_content=first_variant[MODEL_CONTENT_KEY],
+                prompt=build_variant_follow_up_prompt(variant_number, variant_count, back_reference_available),
+                extra_image_bytes=secondary_product_image_bytes if _uses_back_reference(variant_number) else None,
+            )
+            result = await _run_variant_with_retry(
+                _standalone_prompt(1),
+                selfie_bytes,
+                primary_product_image_bytes,
+                category,
+                fit_style,
+                height_cm,
+                chest_cm,
+                waist_cm,
+                hips_cm,
+                variant_number,
+                variant_count,
+                telemetry,
+                follow_up=follow_up,
+                follow_up_model=first_variant.get("model"),
+                owner_id=user_id,
+            )
+            if result.get("status") == "generated":
+                return result
+            logger.warning("Follow-up variant %d failed; generating it standalone", variant_number)
+            return await _run_standalone(variant_number)
+
+        async def _settle(index: int, generation: Awaitable[dict]) -> dict:
+            # One failing variant must not abort the whole batch; normalise any
+            # raised exception into a failed-variant dict.
+            try:
+                variant = await generation
+            except Exception as exc:
+                logger.warning("Variant %d raised: %s", index + 1, exc)
+                variant = {"status": "failed", "error": str(exc) or "variant_error"}
+            if on_variant is not None:
+                try:
+                    await on_variant(index, _without_model_content(variant))
+                except Exception:
+                    logger.exception("Variant callback failed for variant %d", index + 1)
+            return variant
+
+        # Variant 1 is rendered first; the remaining variants continue its
+        # conversation in parallel so all of them show the same person and
+        # garment. Without a usable first turn they fall back to standalone calls.
+        first_variant = await _settle(0, _run_standalone(1))
+        can_follow_up = first_variant.get("status") == "generated" and first_variant.get(MODEL_CONTENT_KEY) is not None
+        remaining = await asyncio.gather(
+            *[
+                _settle(
+                    index,
+                    _run_follow_up(index + 1, first_variant) if can_follow_up else _run_standalone(index + 1),
+                )
+                for index in range(1, variant_count)
+            ]
+        )
+        variants = [_without_model_content(variant) for variant in (first_variant, *remaining)]
 
         successful = [v for v in variants if v.get("status") == "generated" and v.get("image_base64")]
         if successful:

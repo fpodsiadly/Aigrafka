@@ -1,5 +1,6 @@
 import asyncio
 import ipaddress
+import json
 import re
 import socket
 from dataclasses import dataclass
@@ -53,7 +54,65 @@ def _verify_and_normalize(content: bytes) -> bytes:
     return _normalize_image(_verify_image(content))
 
 
+_JSON_LD_PATTERN = re.compile(
+    r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _json_ld_image_url(image: object) -> str | None:
+    if isinstance(image, str):
+        return image or None
+    if isinstance(image, list):
+        for item in image:
+            url = _json_ld_image_url(item)
+            if url:
+                return url
+        return None
+    if isinstance(image, dict):
+        return _json_ld_image_url(image.get("contentUrl") or image.get("url"))
+    return None
+
+
+def _find_json_ld_product_image(node: object) -> str | None:
+    if isinstance(node, list):
+        for item in node:
+            url = _find_json_ld_product_image(item)
+            if url:
+                return url
+        return None
+    if not isinstance(node, dict):
+        return None
+    node_type = node.get("@type")
+    types_ = node_type if isinstance(node_type, list) else [node_type]
+    if "Product" in types_ or "ProductGroup" in types_:
+        url = _json_ld_image_url(node.get("image"))
+        if url:
+            return url
+    return _find_json_ld_product_image(node.get("@graph"))
+
+
+def _extract_json_ld_product_image(html: str) -> str | None:
+    """Return the schema.org Product image, the shop's own canonical packshot.
+
+    Preferred over og:image, which is often a banner or lifestyle shot.
+    """
+    for block in _JSON_LD_PATTERN.findall(html):
+        try:
+            data = json.loads(block.strip())
+        except ValueError:
+            continue
+        url = _find_json_ld_product_image(data)
+        if url:
+            return url
+    return None
+
+
 def _extract_image_candidate(html: str) -> str | None:
+    json_ld_image = _extract_json_ld_product_image(html)
+    if json_ld_image:
+        return json_ld_image
+
     patterns = [
         r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
         r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',

@@ -55,6 +55,21 @@ export interface GenerateResponse {
     };
 }
 
+// Returned by POST /generate with mode=async; the result is polled via /jobs/{id}.
+export interface GenerateJobAccepted {
+    job_id: string;
+    status: 'pending';
+    variant_count: number;
+}
+
+export interface GenerateJobStatus {
+    id: string;
+    status: 'pending' | 'running' | 'completed' | 'failed' | string;
+    // While running, `variants` holds null for variants that are not ready yet.
+    result?: (Omit<GenerateResponse, 'variants'> & { variants?: (ApiVariant | null)[] }) | null;
+    error?: string | null;
+}
+
 export interface ShareData {
     title?: string;
     text?: string;

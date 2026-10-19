@@ -6,13 +6,14 @@ from io import BytesIO
 from time import perf_counter
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
 from PIL import Image
 
 from app.ai.garment_policy import validate_garment_category
 from app.core.config import get_settings
 from app.core.db import deduct_tokens_if_possible
 from app.core.metrics import track_generate_request
+from app.core.queue import create_job, update_job_status
 from app.core.rate_limit import enforce_generate_rate_limit
 from app.core.result_images import build_result_image_url, store_result_image
 from app.core.security import get_optional_user_id, is_demo_user_id
@@ -20,6 +21,9 @@ from app.core.worker import generate_from_payload
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+# Strong references to in-flight async generations; asyncio only keeps weak
+# references to tasks, so an unreferenced task could be garbage-collected.
+_background_generations: set[asyncio.Task] = set()
 
 settings = get_settings()
 MAX_UPLOAD_BYTES = settings.max_selfie_mb * 1024 * 1024
@@ -35,6 +39,7 @@ _TEXT_FIELD_LIMITS = {
     "category": 200,
     "fit_style": 32,
     "model_choice": 64,
+    "mode": 16,
     "height_cm": 16,
     "chest_cm": 16,
     "waist_cm": 16,
@@ -111,9 +116,73 @@ def _validate_and_normalize_image(upload: UploadFile, max_bytes: int, label: str
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid {label} upload") from exc
 
 
+async def _attach_image_url(variant: dict, base_url: str, owner_id: str | None = None) -> None:
+    """Move a variant's image into short-lived storage and expose it by URL."""
+    if not variant.get("image_base64") or not variant.get("mime_type"):
+        return
+    token = await store_result_image(variant["image_base64"], variant["mime_type"], owner_id)
+    if token:
+        variant["image_url"] = build_result_image_url(base_url, token)
+        variant.pop("image_base64", None)
+
+
+async def _start_async_generation(payload: dict, base_url: str, variant_count: int, telemetry: dict) -> str | None:
+    """Create a job and run the generation in this process in the background.
+
+    Production runs no separate worker, so the job is not put on the worker
+    queue; the job record only carries status and (partial) results for
+    polling via GET /jobs/{id}. Returns None when Redis is unavailable.
+    """
+    try:
+        job_id = await create_job({"user_id": payload.get("user_id")})
+    except Exception:
+        logger.exception("Could not create async generation job")
+        return None
+
+    task = asyncio.create_task(_run_async_generation(job_id, payload, base_url, variant_count, telemetry))
+    _background_generations.add(task)
+    task.add_done_callback(_background_generations.discard)
+    return job_id
+
+
+async def _run_async_generation(job_id: str, payload: dict, base_url: str, variant_count: int, telemetry: dict) -> None:
+    owner_id = payload.get("user_id")
+    partial: list[dict | None] = [None] * variant_count
+    lock = asyncio.Lock()
+
+    async def publish_variant(index: int, variant: dict) -> None:
+        await _attach_image_url(variant, base_url, owner_id)
+        # Serialise snapshot writes so a slower write never overwrites a newer one.
+        async with lock:
+            partial[index] = variant
+            await update_job_status(job_id, "running", result={"status": "running", "variants": partial})
+
+    try:
+        await update_job_status(job_id, "running", result={"status": "running", "variants": partial})
+        result = await generate_from_payload(
+            payload,
+            operation_id=job_id,
+            telemetry=telemetry,
+            on_variant=publish_variant,
+        )
+        await asyncio.gather(
+            *[_attach_image_url(variant, base_url, owner_id) for variant in result.get("variants", [])]
+        )
+        track_generate_request(result.get("status", "completed"))
+        await update_job_status(job_id, "completed", result=result)
+    except Exception:
+        logger.exception("Async generation job %s failed", job_id)
+        track_generate_request("failed")
+        try:
+            await update_job_status(job_id, "failed", error="Generation failed.")
+        except Exception:
+            logger.exception("Could not mark job %s as failed", job_id)
+
+
 @router.post("/generate")
 async def generate_tryon(
     request: Request,
+    response: Response,
     product_url: str | None = Form(None),
     selfie: UploadFile = File(...),
     category: str | None = Form(None),
@@ -126,6 +195,7 @@ async def generate_tryon(
     variants: int | None = Form(None),
     product_image_1: UploadFile | None = File(None),
     product_image_2: UploadFile | None = File(None),
+    mode: str | None = Form(None),
     user_id: str | None = Depends(get_optional_user_id),
 ) -> dict:
     total_started = getattr(request.state, "request_started_perf", perf_counter())
@@ -147,6 +217,7 @@ async def generate_tryon(
     category = _bound_text(category, "category")
     fit_style = _bound_text(fit_style, "fit_style")
     model_choice = _bound_text(model_choice, "model_choice")
+    mode = _bound_text(mode, "mode")
     height_cm = _bound_text(height_cm, "height_cm")
     chest_cm = _bound_text(chest_cm, "chest_cm")
     waist_cm = _bound_text(waist_cm, "waist_cm")
@@ -233,6 +304,15 @@ async def generate_tryon(
     }
 
     request_id = getattr(request.state, "request_id", "unknown")
+    base_url = str(request.base_url)
+
+    if mode == "async":
+        job_id = await _start_async_generation(payload, base_url, variant_count, telemetry)
+        if job_id is not None:
+            response.status_code = status.HTTP_202_ACCEPTED
+            return {"job_id": job_id, "status": "pending", "variant_count": variant_count}
+        logger.warning("Async generation unavailable (no Redis); falling back to synchronous request_id=%s", request_id)
+
     try:
         result = await generate_from_payload(
             payload,
@@ -246,23 +326,9 @@ async def generate_tryon(
             detail="Generation failed.",
         ) from exc
 
-    variants_with_images = [
-        variant
-        for variant in result.get("variants", [])
-        if variant.get("image_base64") and variant.get("mime_type")
-    ]
     redis_started = perf_counter()
-    image_tokens = await asyncio.gather(
-        *[
-            store_result_image(variant["image_base64"], variant["mime_type"])
-            for variant in variants_with_images
-        ]
-    )
+    await asyncio.gather(*[_attach_image_url(variant, base_url, user_id) for variant in result.get("variants", [])])
     telemetry["redis_ms"] += (perf_counter() - redis_started) * 1000.0
-    for variant, token in zip(variants_with_images, image_tokens, strict=True):
-        if token:
-            variant["image_url"] = build_result_image_url(str(request.base_url), token)
-            variant.pop("image_base64", None)
 
     track_generate_request(result.get("status", "completed"))
     telemetry["total_ms"] = (perf_counter() - total_started) * 1000.0

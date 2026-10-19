@@ -51,6 +51,76 @@ async def test_generate_from_payload_refunds_unusable_result(monkeypatch):
     assert refunds == [("user-1", 1)]
 
 
+def test_generation_models_prefer_nano_banana_then_flash(monkeypatch):
+    import app.core.worker as worker
+    from app.core.config import Settings
+
+    settings = Settings(GEMINI_MODEL="gemini-nano-banana-2.1", GEMINI_FALLBACK_MODELS="gemini-3.1-flash-image")
+    monkeypatch.setattr(worker, "get_settings", lambda: settings)
+
+    assert worker._generation_models() == ["gemini-nano-banana-2.1", "gemini-3.1-flash-image"]
+
+
+@pytest.mark.asyncio
+async def test_follow_up_variants_continue_first_variant_conversation(monkeypatch):
+    import app.core.worker as worker
+    from app.ai.gemini_client import MODEL_CONTENT_KEY
+
+    calls = []
+    first_turn = object()
+
+    async def run(*args, follow_up=None, follow_up_model=None, **_kwargs):
+        variant_index = args[9]
+        calls.append((variant_index, follow_up, follow_up_model))
+        result = {"status": "generated", "image_base64": f"img{variant_index}", "model": "gemini-nano-banana-2.1"}
+        if variant_index == 1:
+            result[MODEL_CONTENT_KEY] = first_turn
+        return result
+
+    notified = []
+
+    async def on_variant(index, variant):
+        notified.append((index, variant))
+
+    monkeypatch.setattr(worker, "_run_variant_with_retry", run)
+
+    result = await generate_from_payload({**_payload(), "variant_count": 3}, on_variant=on_variant)
+
+    assert [call[0] for call in calls][0] == 1
+    follow_ups = [call for call in calls if call[0] != 1]
+    assert len(follow_ups) == 2
+    assert all(call[1].previous_content is first_turn for call in follow_ups)
+    assert all(call[2] == "gemini-nano-banana-2.1" for call in follow_ups)
+    assert [variant["image_base64"] for variant in result["variants"]] == ["img1", "img2", "img3"]
+    assert all(MODEL_CONTENT_KEY not in variant for variant in result["variants"])
+    assert sorted(index for index, _ in notified) == [0, 1, 2]
+    assert all(MODEL_CONTENT_KEY not in variant for _, variant in notified)
+
+
+@pytest.mark.asyncio
+async def test_failed_follow_up_falls_back_to_standalone_generation(monkeypatch):
+    import app.core.worker as worker
+    from app.ai.gemini_client import MODEL_CONTENT_KEY
+
+    calls = []
+
+    async def run(*args, follow_up=None, **_kwargs):
+        variant_index = args[9]
+        calls.append((variant_index, follow_up is not None))
+        if variant_index == 1:
+            return {"status": "generated", "image_base64": "img1", "model": "m", MODEL_CONTENT_KEY: object()}
+        if follow_up is not None:
+            return {"status": "fallback", "error": "boom", "model": "m"}
+        return {"status": "generated", "image_base64": "standalone", "model": "m"}
+
+    monkeypatch.setattr(worker, "_run_variant_with_retry", run)
+
+    result = await generate_from_payload({**_payload(), "variant_count": 2})
+
+    assert calls == [(1, False), (2, True), (2, False)]
+    assert result["variants"][1]["image_base64"] == "standalone"
+
+
 @pytest.mark.asyncio
 async def test_generate_from_payload_refunds_cancelled_generation(monkeypatch):
     import asyncio

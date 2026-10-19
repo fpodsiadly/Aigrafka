@@ -1,6 +1,6 @@
 import pytest
 
-from app.ai.prompts.openvto_prompt import build_openvto_prompt
+from app.ai.prompts.openvto_prompt import build_openvto_prompt, build_variant_follow_up_prompt
 
 
 @pytest.mark.parametrize("variants", [1, 2, 3])
@@ -64,7 +64,7 @@ def test_prompt_ignores_invalid_measurements():
     assert "estimated balanced upper- and lower-body proportions" in prompt
 
 
-def test_prompt_uses_supplied_brand_mark_instead_of_inventing_logo():
+def test_prompt_asks_for_plain_backdrop_without_brand_mark():
     prompt = build_openvto_prompt(
         "uploaded product image",
         is_upload=True,
@@ -72,7 +72,35 @@ def test_prompt_uses_supplied_brand_mark_instead_of_inventing_logo():
         fit_style="unisex",
     )
 
-    assert "REFERENCE IMAGE 3 contains the exact AIgrafka brand mark" in prompt
-    assert "Tile only the supplied AIgrafka brand mark" in prompt
-    assert "Do not redesign, reinterpret, blur, distort" in prompt
-    assert "aigrafka.pl" not in prompt
+    assert "no logos, patterns, text, or watermarks" in prompt
+    assert "REFERENCE IMAGE 3" not in prompt
+    assert "brand mark" not in prompt
+
+
+@pytest.mark.parametrize("variants", [1, 2, 3])
+def test_prompt_requests_exactly_one_image_per_call(variants):
+    prompt = build_openvto_prompt("uploaded product image", is_upload=True, variants=variants, variant_index=variants)
+
+    assert "Generate ONE photorealistic full-body portrait" in prompt
+    assert "separate images" not in prompt
+
+
+def test_prompt_targets_requested_shot():
+    prompt = build_openvto_prompt("uploaded product image", is_upload=True, variants=3, variant_index=2)
+
+    assert "Requested shot: soft 15-degree one-quarter RIGHT view." in prompt
+
+
+def test_follow_up_prompt_keeps_identity_and_changes_pose_only():
+    prompt = build_variant_follow_up_prompt(2, 3, back_reference_available=False)
+
+    assert "SAME person wearing the SAME garment" in prompt
+    assert "Change only the pose and camera angle: soft 15-degree one-quarter RIGHT view." in prompt
+    assert "REFERENCE IMAGE 3" not in prompt
+
+
+def test_follow_up_prompt_uses_back_reference_for_third_variant():
+    prompt = build_variant_follow_up_prompt(3, 3, back_reference_available=True)
+
+    assert "full BACK view" in prompt
+    assert "REFERENCE IMAGE 3 shows the back of the garment" in prompt

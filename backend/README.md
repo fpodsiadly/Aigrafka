@@ -30,7 +30,7 @@ uvicorn app.main:app --reload --port 8000
 
 ## Redis / wyniki generacji
 
-`/generate` wykonuje generację synchronicznie w procesie API. Redis przechowuje cache oraz obrazy wynikowe dostępne przez podpisane URL-e przez 1 godzinę; osobny worker nie jest wymagany. Wymaga `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` albo `REDIS_URL` + `REDIS_TOKEN`. Rate limit per user/IP też działa w Redis.
+`/generate` wykonuje generację w procesie API: synchronicznie albo, z `mode=async`, jako zadanie w tle z wynikami odpytywanymi przez `GET /jobs/{id}`. Redis przechowuje status zadań, cache oraz obrazy wynikowe dostępne przez podpisane URL-e przez 1 godzinę; osobny worker nie jest wymagany. Wymaga `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` albo `REDIS_URL` + `REDIS_TOKEN`. Rate limit per user/IP też działa w Redis.
 
 ## Logowanie Google
 

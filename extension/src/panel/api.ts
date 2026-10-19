@@ -2,6 +2,8 @@ import { apiBase } from './utils';
 import {
     AuthApiResponse,
     AuthMeResponse,
+    GenerateJobAccepted,
+    GenerateJobStatus,
     GenerateResponse,
     ProfileResponse,
 } from './types';
@@ -145,20 +147,48 @@ export async function authMe(token: string): Promise<AuthMeResponse> {
     return parseJson<AuthMeResponse>(response);
 }
 
-export async function submitGenerate(formData: FormData, token?: string | null): Promise<GenerateResponse> {
-    const headers: Record<string, string> = {};
-    if (token) {
-        headers.Authorization = `Bearer ${token}`;
-    }
+function authHeaders(token?: string | null): Record<string, string> {
+    return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/**
+ * Start a generation in async mode. The backend answers with a job to poll, or
+ * with the full result when it had to fall back to synchronous generation.
+ */
+export async function submitGenerate(
+    formData: FormData,
+    token?: string | null,
+): Promise<GenerateResponse | GenerateJobAccepted> {
+    formData.set('mode', 'async');
     const response = await apiRequest('/generate', {
         method: 'POST',
         body: formData,
-        headers,
+        headers: authHeaders(token),
     });
     if (!response.ok) {
         throw new Error(formatApiError(response.text, `Błąd generowania (HTTP ${response.status}).`));
     }
-    return parseJson<GenerateResponse>(response);
+    return parseJson<GenerateResponse | GenerateJobAccepted>(response);
+}
+
+export function isGenerateJobAccepted(data: GenerateResponse | GenerateJobAccepted): data is GenerateJobAccepted {
+    return typeof (data as GenerateJobAccepted).job_id === 'string';
+}
+
+export async function getGenerationJob(jobId: string, token?: string | null): Promise<GenerateJobStatus> {
+    const response = await apiRequest(`/jobs/${encodeURIComponent(jobId)}`, { headers: authHeaders(token) });
+    if (!response.ok) {
+        throw new Error(formatApiError(response.text, `Błąd odczytu statusu generowania (HTTP ${response.status}).`));
+    }
+    return parseJson<GenerateJobStatus>(response);
+}
+
+export async function deleteMyData(token: string): Promise<{ deleted: boolean; removedImages: number }> {
+    const response = await apiRequest('/profile/delete-data', { method: 'POST', headers: authHeaders(token) });
+    if (!response.ok) {
+        throw new Error(formatApiError(response.text, `Nie udało się usunąć danych (HTTP ${response.status}).`));
+    }
+    return parseJson<{ deleted: boolean; removedImages: number }>(response);
 }
 
 export async function loadProfile(userId: string, token: string): Promise<ProfileResponse | null> {

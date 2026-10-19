@@ -6,9 +6,10 @@ import logging
 
 from app.core.config import get_settings
 from app.core.redis_client import get_redis_client, invalidate_redis_client
+from app.core.user_data import track_user_data_key
 
 logger = logging.getLogger(__name__)
-CACHE_VERSION = "v4-brand-logo-reference"
+CACHE_VERSION = "v5-postprocessed-brand-mark"
 
 
 def _build_generation_cache_key(
@@ -102,6 +103,7 @@ async def set_cached_generation(
     model: str,
     image_size: str,
     result: dict,
+    owner_id: str | None = None,
 ) -> None:
     client = get_redis_client()
     if not client:
@@ -128,6 +130,8 @@ async def set_cached_generation(
     except Exception as exc:
         logger.error("Generation cache write failed: %s", exc)
         invalidate_redis_client()
+        return
+    await track_user_data_key(owner_id, key, settings.generation_cache_ttl_seconds)
 
 
 def _product_image_key(url: str) -> str:

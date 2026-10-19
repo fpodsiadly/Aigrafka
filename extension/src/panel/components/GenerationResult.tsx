@@ -62,6 +62,9 @@ const GenerationResult: React.FC<GenerationResultProps> = ({
 }) => {
     const activeVariant = variants[selectedVariant] || variants[0];
     const mainImage = activeVariant?.url || previewUrl || placeholderPreview;
+    // With async generation the first variant is shown while the rest render.
+    const isRenderingMainImage = isLoading && !activeVariant;
+    const pendingVariants = Math.max(0, form.variantCount - variants.length);
 
     if (view === 'generating') {
         return (
@@ -177,7 +180,13 @@ const GenerationResult: React.FC<GenerationResultProps> = ({
         <div style={{ ...badge, boxShadow: '0 10px 22px rgba(0,0,0,0.08)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                 <div style={sectionTitleStyle}>Twoja stylizacja</div>
-                {isLoading && <span style={sectionHintStyle}>Renderowanie...</span>}
+                {isLoading && (
+                    <span style={sectionHintStyle}>
+                        {isRenderingMainImage || pendingVariants === 0
+                            ? 'Renderowanie...'
+                            : `Generuję kolejne warianty (${variants.length}/${form.variantCount})...`}
+                    </span>
+                )}
             </div>
 
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
@@ -193,7 +202,7 @@ const GenerationResult: React.FC<GenerationResultProps> = ({
                         minWidth: 0,
                     }}
                 >
-                    {isLoading && (
+                    {isRenderingMainImage && (
                         <div
                             style={{
                                 position: 'absolute',
@@ -211,8 +220,8 @@ const GenerationResult: React.FC<GenerationResultProps> = ({
                             width: '100%',
                             height: '100%',
                             objectFit: 'cover',
-                            filter: isLoading ? 'blur(3px)' : 'none',
-                            opacity: isLoading ? 0.7 : 1,
+                            filter: isRenderingMainImage ? 'blur(3px)' : 'none',
+                            opacity: isRenderingMainImage ? 0.7 : 1,
                         }}
                     />
                 </div>

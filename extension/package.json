@@ -8,6 +8,7 @@
     "build": "vite build --config vite.content.config.ts && vite build",
     "postbuild": "node -e \"const fs=require('fs'); fs.cpSync('manifest.json','dist/manifest.json'); fs.cpSync('icons','dist/icons',{recursive:true});\" && python3 scripts/package_extension.py",
     "package": "npm run build",
+    "test": "vitest run",
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
     "format": "prettier --write 'src/**/*.{ts,tsx}'",
@@ -37,6 +38,7 @@
     "globals": "^17.7.0",
     "prettier": "^3.9.5",
     "typescript": "^5.5.4",
-    "vite": "^5.4.10"
+    "vite": "^5.4.10",
+    "vitest": "^2.1.9"
   }
 }

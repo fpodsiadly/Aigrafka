@@ -6,19 +6,21 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
-    # Default to the faster image model; can be overridden via GEMINI_MODEL
-    gemini_model: str = Field(default="gemini-3.1-flash-image")
+    # Primary model (Nano Banana 2.1); GEMINI_FALLBACK_MODELS are tried after it.
+    gemini_model: str = Field(default="gemini-nano-banana-2.1")
     # Valid values for gemini-3.x image models: "512", "1K", "2K", "4K"
     gemini_image_size: str = Field(default="1K", alias="GEMINI_IMAGE_SIZE")
     gemini_fallback_models: str = Field(
-        default="gemini-3.1-flash-image,gemini-2.5-flash-image",
+        default="gemini-3.1-flash-image",
         alias="GEMINI_FALLBACK_MODELS",
     )
     http_timeout: float = Field(default=90.0, ge=1.0, alias="HTTP_TIMEOUT")
     max_selfie_mb: int = Field(default=8, ge=1, le=32)
     max_product_image_mb: int = Field(default=10, ge=1, le=64)
     product_image_timeout: float = Field(default=15.0, ge=1.0)
-    max_side_px: int = Field(default=768, ge=256, le=4096)
+    # Longest side of selfie / product images sent to the model. Garment
+    # patterns, prints and text need detail; 768 px blurred them noticeably.
+    max_side_px: int = Field(default=1536, ge=256, le=4096)
     product_image_max_redirects: int = Field(default=3, ge=0, le=10, alias="PRODUCT_IMAGE_MAX_REDIRECTS")
     image_output_format: str = Field(default="webp", alias="IMAGE_OUTPUT_FORMAT")
     image_output_quality: int = Field(default=85, ge=1, le=100, alias="IMAGE_OUTPUT_QUALITY")

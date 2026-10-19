@@ -1,3 +1,5 @@
+import { isSafeExternalUrl } from '../panel/safeUrl';
+
 // Prefer the public API domain. Fall back to Render when DNS, proxy, or the
 // custom domain is unavailable. Resolve before requests instead of retrying a
 // failed POST, which could duplicate generation or payment operations.
@@ -139,6 +141,43 @@ async function proxyApiRequest(message: {
   return { ok: response.ok, status: response.status, text: await response.text() };
 }
 
+const MAX_PRODUCT_IMAGE_BYTES = 8 * 1024 * 1024;
+
+function encodeBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  // Chunked to stay below the argument limit of String.fromCharCode.
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  return btoa(binary);
+}
+
+// Fetch a product image picked on the page in full resolution. Runs here
+// because host_permissions let the service worker bypass page CORS.
+async function fetchProductImage(rawUrl: unknown): Promise<{ ok: true; base64: string; contentType: string }> {
+  if (typeof rawUrl !== 'string' || !isSafeExternalUrl(rawUrl)) {
+    throw new Error('Ten adres obrazu nie jest dozwolony.');
+  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
+  try {
+    // credentials: 'omit' so the user's cookies for the shop are never sent.
+    const response = await fetch(rawUrl, { credentials: 'omit', signal: controller.signal });
+    if (!isSafeExternalUrl(response.url)) throw new Error('Obraz przekierowuje na niedozwolony adres.');
+    if (!response.ok) throw new Error(`Nie udało się pobrać obrazu (HTTP ${response.status}).`);
+    const contentType = (response.headers.get('content-type') || '').split(';')[0].trim();
+    if (!contentType.startsWith('image/')) throw new Error('Wskazany element nie jest obrazem.');
+    const declaredLength = Number(response.headers.get('content-length') || 0);
+    if (declaredLength > MAX_PRODUCT_IMAGE_BYTES) throw new Error('Obraz jest za duży (maks. 8 MB).');
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength > MAX_PRODUCT_IMAGE_BYTES) throw new Error('Obraz jest za duży (maks. 8 MB).');
+    return { ok: true, base64: encodeBase64(buffer), contentType };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // Only open checkout URLs on trusted payment hosts, so a tampered/buggy backend
 // response cannot redirect the user to a phishing domain.
 const ALLOWED_CHECKOUT_HOSTS = new Set([
@@ -184,6 +223,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     capture
       .then(dataUrl => sendResponse({ ok: true, dataUrl }))
       .catch(e => sendResponse({ ok: false, error: e?.message || 'Capture failed' }));
+    return true;
+  }
+
+  if (message?.type === 'AIGRAFKA_FETCH_IMAGE') {
+    fetchProductImage(message.url)
+      .then(sendResponse)
+      .catch((error: Error) => sendResponse({ ok: false, error: error.message || 'Nie udało się pobrać obrazu.' }));
     return true;
   }
 

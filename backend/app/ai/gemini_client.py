@@ -2,8 +2,8 @@ import asyncio
 import base64
 import io
 import logging
+from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 from google import genai
@@ -12,12 +12,22 @@ from google.genai import types
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
-BRAND_LOGO_PATH = Path(__file__).parent / "assets" / "aigrafka_logo_reference.png"
+# Key under which a generated result carries the raw model turn, so a follow-up
+# variant can continue the same conversation. Never serialised or cached.
+MODEL_CONTENT_KEY = "_model_content"
 
 
-@lru_cache(maxsize=1)
-def _load_brand_logo() -> bytes:
-    return BRAND_LOGO_PATH.read_bytes()
+@dataclass(frozen=True)
+class VariantFollowUp:
+    """Continue a previous generation as a new conversation turn.
+
+    `previous_content` is the model turn returned for the first variant; it is
+    sent back unchanged so thought signatures are preserved.
+    """
+
+    previous_content: types.Content
+    prompt: str
+    extra_image_bytes: bytes | None = None
 
 
 @lru_cache(maxsize=4)
@@ -29,7 +39,6 @@ def _build_request_parts(
     prompt: str,
     selfie_bytes: bytes,
     product_image_bytes: bytes,
-    brand_logo_bytes: bytes,
 ) -> list[types.Part]:
     return [
         types.Part(text=prompt),
@@ -37,11 +46,26 @@ def _build_request_parts(
         types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=selfie_bytes)),
         types.Part(text="REFERENCE IMAGE 2: garment source. Copy garment construction, colour, and pattern."),
         types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=product_image_bytes)),
-        types.Part(
-            text="REFERENCE IMAGE 3: exact AIgrafka brand mark. Reproduce this supplied mark faithfully in the backdrop."
-        ),
-        types.Part(inline_data=types.Blob(mime_type="image/png", data=brand_logo_bytes)),
     ]
+
+
+def _build_contents(
+    prompt: str,
+    selfie_bytes: bytes,
+    product_image_bytes: bytes,
+    follow_up: VariantFollowUp | None,
+) -> list[types.Content]:
+    contents = [types.Content(role="user", parts=_build_request_parts(prompt, selfie_bytes, product_image_bytes))]
+    if follow_up is None:
+        return contents
+
+    follow_up_parts = [types.Part(text=follow_up.prompt)]
+    if follow_up.extra_image_bytes is not None:
+        follow_up_parts.append(types.Part(text="REFERENCE IMAGE 3: back side of the same garment."))
+        follow_up_parts.append(types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=follow_up.extra_image_bytes)))
+    contents.append(follow_up.previous_content)
+    contents.append(types.Content(role="user", parts=follow_up_parts))
+    return contents
 
 
 class GeminiClient:
@@ -52,14 +76,20 @@ class GeminiClient:
     def __init__(self, api_key: str | None = None, timeout: float | None = None, model: str | None = None) -> None:
         settings = get_settings()
         self.api_key = api_key or settings.gemini_api_key or ""
-        # Primary model: Gemini 3 image generation (generateContent)
-        self.model = model or settings.gemini_model or "gemini-3.1-flash-image"
+        # Primary model: Nano Banana 2.1 image generation (generateContent)
+        self.model = model or settings.gemini_model or "gemini-nano-banana-2.1"
         self.image_size = settings.gemini_image_size
         self.timeout = timeout or settings.http_timeout
         # Reuse a single genai client; mirrors OpenVTO reference behavior
         self._client = _get_genai_client(self.api_key) if self.api_key else None
 
-    async def generate_image(self, prompt: str, selfie_bytes: bytes, product_image_bytes: bytes) -> dict[str, Any]:
+    async def generate_image(
+        self,
+        prompt: str,
+        selfie_bytes: bytes,
+        product_image_bytes: bytes,
+        follow_up: VariantFollowUp | None = None,
+    ) -> dict[str, Any]:
         if self._client is None:
             return {
                 "image_base64": self.FALLBACK_IMAGE_BASE64,
@@ -69,7 +99,7 @@ class GeminiClient:
                 "error": "GEMINI_API_KEY is not configured",
             }
 
-        parts = _build_request_parts(prompt, selfie_bytes, product_image_bytes, _load_brand_logo())
+        contents = _build_contents(prompt, selfie_bytes, product_image_bytes, follow_up)
 
         # Model-specific image config
         MODELS_WITHOUT_SIZE = {"gemini-2.5-flash-image"}  # gemini-3.1-flash-image supports image_size
@@ -98,7 +128,7 @@ class GeminiClient:
         def _do_generate() -> Any:
             return self._client.models.generate_content(
                 model=self.model,
-                contents=[types.Content(role="user", parts=parts)],
+                contents=contents,
                 config=config,
             )
 
@@ -198,9 +228,11 @@ class GeminiClient:
             # If inspection fails, still return what we got
             pass
 
+        candidates = getattr(response, "candidates", None) or []
         return {
             "image_base64": image_b64,
             "mime_type": mime or "image/jpeg",
             "status": "generated",
             "model": self.model,
+            MODEL_CONTENT_KEY: getattr(candidates[0], "content", None) if candidates else None,
         }

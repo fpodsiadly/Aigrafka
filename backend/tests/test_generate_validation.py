@@ -3,7 +3,7 @@ from time import perf_counter
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from PIL import Image
 from starlette.datastructures import Headers, UploadFile
 from starlette.requests import Request
@@ -81,6 +81,7 @@ async def test_generate_returns_signed_image_url_and_telemetry_without_job_round
 
     result = await generate_tryon(
         request=request,
+        response=Response(),
         product_url=None,
         selfie=_jpeg_upload("selfie.jpg"),
         category="hoodie",
@@ -93,9 +94,64 @@ async def test_generate_returns_signed_image_url_and_telemetry_without_job_round
         variants=1,
         product_image_1=_jpeg_upload("product.jpg"),
         product_image_2=None,
+        mode=None,
         user_id=None,
     )
 
     assert result["variants"][0]["image_url"].startswith("https://api.example.com/images/")
     assert "image_base64" not in result["variants"][0]
     assert result["telemetry"]["cache_hit"] is False
+
+
+@pytest.mark.asyncio
+async def test_generate_async_mode_returns_job_id_with_202(monkeypatch):
+    import app.api.generate as generate
+
+    async def allow(*_args):
+        return None
+
+    started = []
+
+    async def start(payload, base_url, variant_count, telemetry):
+        started.append((base_url, variant_count))
+        return "job-123"
+
+    monkeypatch.setattr(generate, "enforce_generate_rate_limit", allow)
+    monkeypatch.setattr(generate, "_start_async_generation", start)
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "scheme": "https",
+            "server": ("api.example.com", 443),
+            "path": "/generate",
+            "headers": [],
+        }
+    )
+    request.state.request_started_perf = perf_counter()
+    request.state.request_id = "request-1"
+    response = Response()
+
+    result = await generate_tryon(
+        request=request,
+        response=response,
+        product_url=None,
+        selfie=_jpeg_upload("selfie.jpg"),
+        category="hoodie",
+        fit_style="unisex",
+        height_cm=None,
+        chest_cm=None,
+        waist_cm=None,
+        hips_cm=None,
+        model_choice=None,
+        variants=2,
+        product_image_1=_jpeg_upload("product.jpg"),
+        product_image_2=None,
+        mode="async",
+        user_id=None,
+    )
+
+    assert response.status_code == 202
+    assert result == {"job_id": "job-123", "status": "pending", "variant_count": 2}
+    assert started == [("https://api.example.com/", 2)]
