@@ -20,7 +20,7 @@ from app.api.profile import router as profile_router
 from app.core.config import get_settings
 from app.core.db import close_engine, get_engine
 from app.core.metrics import render_prometheus, setup_structured_logging
-from app.core.redis_client import get_redis_client
+from app.core.redis_client import connect_redis_at_startup, get_redis_client, is_redis_configured
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -32,8 +32,13 @@ ALLOWED_HEADERS = ["Authorization", "Content-Type"]
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     setup_structured_logging()
-    if not get_redis_client():
-        logging.warning("Redis not configured; generation queue and caching are disabled")
+    if not is_redis_configured():
+        logging.warning("Redis not configured (set UPSTASH_REDIS_REST_URL/TOKEN); caching and async generation are disabled")
+    elif not await connect_redis_at_startup():
+        logging.warning(
+            "Redis unreachable at startup; retrying on demand every 15 s, until then caching and async "
+            "generation are disabled"
+        )
     yield
     await close_product_image_client()
     await close_engine()

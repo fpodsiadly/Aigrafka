@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 
@@ -10,10 +11,20 @@ logger = logging.getLogger(__name__)
 _redis_client: redis.Redis | UpstashRedis | None = None
 _next_retry_at: float = 0.0
 _RETRY_COOLDOWN_SEC = 15.0
+# Consecutive failed connection attempts, reported once a connection succeeds.
+_failed_attempts: int = 0
+# Startup retries absorb transient DNS failures of a freshly deployed instance.
+STARTUP_CONNECT_ATTEMPTS = 3
+STARTUP_RETRY_DELAY_SEC = 2.0
+
+
+def is_redis_configured() -> bool:
+    settings = get_settings()
+    return bool(settings.redis_url or settings.upstash_redis_rest_url)
 
 
 def get_redis_client() -> redis.Redis | UpstashRedis | None:
-    global _redis_client, _next_retry_at
+    global _redis_client, _next_retry_at, _failed_attempts
     if _redis_client is not None:
         return _redis_client
 
@@ -42,12 +53,38 @@ def get_redis_client() -> redis.Redis | UpstashRedis | None:
         else:
             _redis_client = redis.from_url(url, decode_responses=True, socket_connect_timeout=5, socket_timeout=5)
             _redis_client.ping()
-        logger.info("Redis connected")
+        if _failed_attempts:
+            logger.info("Redis connected after %d failed attempt(s)", _failed_attempts)
+        else:
+            logger.info("Redis connected")
+        _failed_attempts = 0
     except Exception as exc:
-        logger.error("Redis connection failed: %s", exc)
+        _failed_attempts += 1
+        logger.error("Redis connection failed (attempt %d): %s", _failed_attempts, exc)
         _redis_client = None
 
     return _redis_client
+
+
+async def connect_redis_at_startup(
+    attempts: int = STARTUP_CONNECT_ATTEMPTS, delay_seconds: float = STARTUP_RETRY_DELAY_SEC
+) -> bool:
+    """Connect during startup, retrying a few times without the usual cooldown.
+
+    A new Render instance can fail DNS resolution for a moment right after
+    boot; one failed attempt should not leave the API without Redis until
+    the first request retries it.
+    """
+    global _next_retry_at
+    if not is_redis_configured():
+        return False
+    for attempt in range(attempts):
+        _next_retry_at = 0.0
+        if await asyncio.to_thread(get_redis_client) is not None:
+            return True
+        if attempt < attempts - 1:
+            await asyncio.sleep(delay_seconds)
+    return False
 
 
 def get_redis_client_required() -> redis.Redis | UpstashRedis:
