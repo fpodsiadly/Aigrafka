@@ -1,6 +1,5 @@
 
 import type { ProductInfo } from './productInfo';
-import type { SizeChartRow } from './sizeChart';
 
 export interface BodyMetrics {
     height: string;
@@ -21,9 +20,6 @@ export interface FormState extends BodyMetrics {
     modelChoice: 'banana-pro-2';
     // Name/description read from the shop page the product image was picked on.
     productInfo: ProductInfo | null;
-    // Chosen garment size and the shop's size chart (if found on the page).
-    garmentSize: string;
-    sizeChart: SizeChartRow[] | null;
 }
 
 export type ProductImageKey = 'productImage1' | 'productImage2';

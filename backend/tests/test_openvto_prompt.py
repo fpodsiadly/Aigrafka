@@ -147,3 +147,27 @@ def test_prompt_includes_size_fit_after_the_general_fit_sentence():
     prompt = build_openvto_prompt(category="Koszula", size_fit="The garment is size M.")
 
     assert "for the person's height. The garment is size M." in prompt
+
+
+def test_prompt_scales_the_head_to_adult_proportions():
+    prompt = build_openvto_prompt(category="Sweter", height_cm="186")
+
+    assert "about 8 head heights tall, so for a person about 186 cm tall the head is about 23 cm" in prompt
+    assert "The head is never enlarged relative to the shoulders and body." in prompt
+    assert "Photographed from about 4 metres away" in prompt
+
+
+def test_head_scale_without_height_omits_the_centimetres():
+    prompt = build_openvto_prompt(category="Sweter")
+
+    assert "about 8 head heights tall. The head is never enlarged" in prompt
+
+
+def test_follow_up_re_renders_the_head_instead_of_copying_it():
+    prompt = build_variant_follow_up_prompt(2, 3, back_reference_available=False, category="Sweter")
+
+    assert "the face appears at a new place in the frame and from the new angle" in prompt
+    assert "rather than copied over from the previous image" in prompt
+    assert "head turning with the body" in prompt
+    assert "The head is never enlarged" in prompt
+    assert "the face and identity" not in prompt

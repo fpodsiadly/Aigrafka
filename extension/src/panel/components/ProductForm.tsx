@@ -25,10 +25,6 @@ interface ProductFormProps {
     onActiveTabUrl: () => void;
     productInfo: ProductInfo | null;
     onClearProductInfo: () => void;
-    garmentSize: string;
-    sizeOptions: string[];
-    recommendedSize: string | null;
-    onGarmentSizeChange: (size: string) => void;
 }
 
 const ProductForm: React.FC<ProductFormProps> = ({
@@ -48,10 +44,6 @@ const ProductForm: React.FC<ProductFormProps> = ({
     onActiveTabUrl,
     productInfo,
     onClearProductInfo,
-    garmentSize,
-    sizeOptions,
-    recommendedSize,
-    onGarmentSizeChange,
 }) => {
     const [hoveredProductBtn, setHoveredProductBtn] = useState<ProductImageKey | null>(null);
     const [uploadMenuFor, setUploadMenuFor] = useState<ProductImageKey | null>(null);
@@ -296,43 +288,6 @@ const ProductForm: React.FC<ProductFormProps> = ({
                     <div role="alert" style={{ marginTop: 4, color: '#a61b1b', fontSize: 10, fontWeight: 700 }}>
                         {categoryError}
                     </div>
-                )}
-            </FieldRow>
-
-            <FieldRow label="Rozmiar:">
-                <input
-                    type="text"
-                    list="aigrafka-size-suggestions"
-                    maxLength={12}
-                    placeholder="np. M, 40, L/XL (opcjonalnie)"
-                    style={inputStyle}
-                    value={garmentSize}
-                    onChange={(e) => onGarmentSizeChange(e.target.value)}
-                    aria-label="Rozmiar produktu"
-                />
-                <datalist id="aigrafka-size-suggestions">
-                    {sizeOptions.map((size) => (
-                        <option key={size} value={size} />
-                    ))}
-                </datalist>
-                {recommendedSize && (
-                    <button
-                        type="button"
-                        onClick={() => onGarmentSizeChange(recommendedSize)}
-                        style={{
-                            marginTop: 4,
-                            background: 'none',
-                            border: 'none',
-                            padding: 0,
-                            cursor: 'pointer',
-                            color: '#6f45cc',
-                            fontSize: 10,
-                            fontWeight: 700,
-                            textAlign: 'left',
-                        }}
-                    >
-                        Polecany rozmiar wg tabeli sklepu i Twoich wymiarów: {recommendedSize}
-                    </button>
                 )}
             </FieldRow>
 

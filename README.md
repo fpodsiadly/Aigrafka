@@ -11,7 +11,7 @@ AIgrafka to rozszerzenie przeglądarki do wirtualnej przymiarki ubrań z AI (vir
 ## Architektura w praktyce
 
 - Uzytkownik uruchamia panel extension na stronie sklepu.
-- Extension wysyla dane (selfie, zdjecie produktu lub URL, kategoria, wymiary, rozmiar, opis produktu ze strony) do FastAPI `POST /generate` w trybie `mode=async`.
+- Extension wysyla dane (selfie, zdjecie produktu lub URL, kategoria, wymiary, opis produktu ze strony) do FastAPI `POST /generate` w trybie `mode=async`.
 - Backend tworzy zadanie i generuje w tle: buduje narracyjny prompt (`backend/app/ai/prompts/openvto_prompt.py`) i wywoluje Gemini (domyslnie Nano Banana 2.1, zapasowo Gemini 3.1 Flash Image).
 - Wariant 1 jest generowany pierwszy; warianty 2-3 sa kolejnymi turami tej samej rozmowy z modelem, wiec pokazuja te sama osobe i ubranie.
 - Logo AIgrafka jest nakladane na gotowy obraz (`backend/app/ai/branding.py`), nie generowane przez model.
@@ -24,7 +24,6 @@ AIgrafka to rozszerzenie przeglądarki do wirtualnej przymiarki ubrań z AI (vir
 - Wybor zdjecia produktu kliknieciem na stronie sklepu: pobierany jest oryginalny plik w pelnej rozdzielczosci (najwiekszy wariant `srcset`), a zrzut ekranu jest tylko rezerwa.
 - Rozpoznany produkt: nazwa, marka, kolor, material i opis ze strony (JSON-LD `Product` albo Open Graph) trafiaja do promptu; mozna je usunac.
 - Kategoria wpisywana recznie z podpowiedziami; dla kroju meskiego blokowane sa kategorie intymne i damskie (PL/EN slowa kluczowe, `garment_policy`).
-- Rozmiar: pole z podpowiedziami z tabeli rozmiarow na stronie i rekomendacja na podstawie wymiarow uzytkownika; prompt opisuje dopasowanie (np. ciasno w klatce).
 - Selfie i wymiary zostaja zapamietane (selfie do 30 dni w pamieci rozszerzenia); "Zacznij od nowa" czysci tylko produkt.
 - "Usun moje dane" w stopce panelu kasuje selfie i wymiary w przegladarce oraz profil i zapisane stylizacje na serwerze.
 

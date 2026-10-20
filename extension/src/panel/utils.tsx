@@ -15,8 +15,6 @@ export const initialState: FormState = {
     fitStyle: 'unisex',
     modelChoice: 'banana-pro-2',
     productInfo: null,
-    garmentSize: '',
-    sizeChart: null,
     productUrl: '',
     productImage1: null,
     productImage2: null,

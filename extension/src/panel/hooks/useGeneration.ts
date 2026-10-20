@@ -10,7 +10,6 @@ import {
     pollGenerationJob,
     toVariantPreviews,
 } from '../generation';
-import { findSizeRow } from '../sizeChart';
 import { FormState, GenerateResponse, VariantPreview } from '../types';
 import {
     base64ToObjectUrl,
@@ -46,13 +45,6 @@ function buildGenerateFormData(form: FormState & { selfie: File }, productUrl: s
     if (form.productImage2) formData.append('product_image_2', form.productImage2);
     if (form.productInfo?.name) formData.append('product_name', form.productInfo.name);
     if (form.productInfo?.details) formData.append('product_details', form.productInfo.details);
-    if (form.garmentSize.trim()) {
-        formData.append('garment_size', form.garmentSize.trim());
-        const sizeRow = findSizeRow(form.sizeChart, form.garmentSize);
-        if (sizeRow?.chest) formData.append('size_chest_range', sizeRow.chest);
-        if (sizeRow?.waist) formData.append('size_waist_range', sizeRow.waist);
-        if (sizeRow?.hips) formData.append('size_hips_range', sizeRow.hips);
-    }
     return formData;
 }
 

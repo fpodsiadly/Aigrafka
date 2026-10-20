@@ -60,8 +60,25 @@ class _Shot:
 
 
 _FULL_LENGTH = (
-    "Show the whole figure from head to shoes, centred in a vertical 3:4 frame with a little space above the head."
+    "Photographed from about 4 metres away, show the whole figure from head to shoes, centred in a vertical 3:4 "
+    "frame with a little space above the head."
 )
+# An adult is about eight head heights tall.
+HEAD_HEIGHTS_PER_BODY = 8
+
+
+def _head_scale_text(height_cm: float | None) -> str:
+    """Image 1 is a close-up; without this the model keeps its scale and the head comes out too large."""
+    size = (
+        f", so for a person about {height_cm:g} cm tall the head is about "
+        f"{height_cm / HEAD_HEIGHTS_PER_BODY:.0f} cm from chin to crown"
+        if height_cm is not None
+        else ""
+    )
+    return (
+        "Image 1 is a close-up, so scale the head down to realistic adult proportions: the full body is about "
+        f"{HEAD_HEIGHTS_PER_BODY} head heights tall{size}. The head is never enlarged relative to the shoulders and body."
+    )
 
 
 def _shot(variant_index: int, variants: int, back_reference_available: bool, zone: str) -> _Shot:
@@ -73,7 +90,8 @@ def _shot(variant_index: int, variants: int, back_reference_available: bool, zon
         )
     if variant_index == 2:
         return _Shot(
-            "in a natural mid-stride walking pose, body turned slightly to the right, face towards the camera",
+            "in a natural mid-stride walking pose, body turned slightly to the right, head turning with the body "
+            "and eyes towards the camera",
             _FULL_LENGTH,
         )
     if variants == 3 and back_reference_available:
@@ -131,7 +149,8 @@ def _body_text(
     proportions = f": {' '.join(parts)}" if parts else ""
     return (
         "Image 1 may show only the face and upper body. Give the person a natural, realistic body that continues "
-        f"the build visible in Image 1{proportions}. Keep their real proportions without slimming or idealising."
+        f"the build visible in Image 1{proportions}. Keep their real proportions without slimming or idealising. "
+        f"{_head_scale_text(height)}"
     )
 
 
@@ -221,8 +240,13 @@ def build_variant_follow_up_prompt(
     segments = [
         f"Now photograph the same person wearing the same {garment} as in your previous image, in the same studio.",
         f"This time the person is {shot.pose}. {shot.framing}",
+        "Re-pose the whole figure including the head: the head and shoulders turn with the new pose, so the face "
+        "appears at a new place in the frame and from the new angle, rendered fresh in this pose rather than copied "
+        "over from the previous image.",
+        _head_scale_text(None),
         back_reference_text,
-        "Keep everything else identical to the previous image: the face and identity, hairstyle, skin tone, body "
+        "Keep everything else identical to the previous image: the person's identity and facial features, hairstyle, "
+        "skin tone, body "
         f"proportions, the {garment}'s colour, pattern, fit and length, the rest of the outfit, the lighting and the "
         "light-grey backdrop.",
         "The result is a single, clean, continuous catalog photograph of this one person.",
