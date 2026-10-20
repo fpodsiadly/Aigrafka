@@ -51,6 +51,118 @@ async def test_generate_from_payload_refunds_unusable_result(monkeypatch):
     assert refunds == [("user-1", 1)]
 
 
+def _billed_payload(variant_count: int) -> dict:
+    return {**_payload(), "variant_count": variant_count, "charged_tokens": variant_count}
+
+
+@pytest.fixture
+def refunds(monkeypatch):
+    import app.core.worker as worker
+
+    recorded = []
+
+    async def add_tokens(user_id, amount):
+        recorded.append((user_id, amount))
+
+    monkeypatch.setattr(worker, "add_tokens", add_tokens)
+    return recorded
+
+
+@pytest.mark.asyncio
+async def test_partially_failed_generation_refunds_only_failed_variants(monkeypatch, refunds):
+    import app.core.worker as worker
+
+    async def run(*args, **_kwargs):
+        if args[9] == 2:
+            return {"status": "fallback", "error": "boom", "model": "m"}
+        return {"status": "generated", "image_base64": f"img{args[9]}", "model": "m"}
+
+    monkeypatch.setattr(worker, "_run_variant_with_retry", run)
+
+    result = await generate_from_payload(_billed_payload(3))
+
+    assert result["status"] == "generated"
+    assert refunds == [("user-1", 1)]
+    assert result["refunded_tokens"] == 1
+
+
+@pytest.mark.asyncio
+async def test_cached_variants_are_not_billed(monkeypatch, refunds):
+    import app.core.worker as worker
+
+    async def run(*args, **_kwargs):
+        return {"status": "generated", "image_base64": "img", "model": "m", "cached": True}
+
+    monkeypatch.setattr(worker, "_run_variant_with_retry", run)
+
+    result = await generate_from_payload(_billed_payload(2))
+
+    assert refunds == [("user-1", 2)]
+    assert result["refunded_tokens"] == 2
+
+
+@pytest.mark.asyncio
+async def test_fresh_request_bypasses_cache_reads(monkeypatch, refunds):
+    import app.core.worker as worker
+
+    seen = []
+
+    async def run(*_args, use_cache=True, **_kwargs):
+        seen.append(use_cache)
+        return {"status": "generated", "image_base64": "img", "model": "m"}
+
+    monkeypatch.setattr(worker, "_run_variant_with_retry", run)
+
+    await generate_from_payload({**_billed_payload(1), "fresh": True})
+    await generate_from_payload(_billed_payload(1))
+
+    assert seen == [False, True]
+    assert refunds == []
+
+
+@pytest.mark.asyncio
+async def test_unexpected_error_refunds_the_whole_charge(monkeypatch, refunds):
+    import app.core.worker as worker
+
+    async def explode(*_args, **_kwargs):
+        raise RuntimeError("product fetch exploded")
+
+    monkeypatch.setattr(worker, "_run_variant_with_retry", explode)
+    monkeypatch.setattr(worker, "_to_public_variant", lambda _variant: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    with pytest.raises(RuntimeError):
+        await generate_from_payload(_billed_payload(3))
+
+    assert refunds == [("user-1", 3)]
+
+
+@pytest.mark.asyncio
+async def test_cache_hit_is_flagged_and_skipped_when_fresh(monkeypatch):
+    import app.core.worker as worker
+
+    reads = []
+
+    async def cached_generation(*_args, **_kwargs):
+        reads.append(True)
+        return {"status": "generated", "image_base64": "cached", "model": "m"}
+
+    monkeypatch.setattr(worker, "get_cached_generation", cached_generation)
+
+    hit = await worker._run_variant_with_retry("p", b"s", b"p", None, None, None, None, None, None, 1, 1)
+
+    assert hit["cached"] is True
+    assert reads == [True]
+
+    async def generated(self, *_args, **_kwargs):
+        return {"status": "generated", "image_base64": "", "model": "m"}
+
+    monkeypatch.setattr(worker.GeminiClient, "generate_image", generated)
+    monkeypatch.setattr(worker, "_generation_models", lambda: ["m"])
+    await worker._run_variant_with_retry("p", b"s", b"p", None, None, None, None, None, None, 1, 1, use_cache=False)
+
+    assert reads == [True]
+
+
 @pytest.mark.asyncio
 async def test_failed_variant_hides_placeholder_image_and_raw_provider_error(monkeypatch):
     import app.core.worker as worker
@@ -188,3 +300,23 @@ async def test_generate_from_payload_refunds_cancelled_generation(monkeypatch):
         await task
 
     assert refunds == [("user-1", 1)]
+
+
+@pytest.mark.asyncio
+async def test_size_chart_fields_reach_the_prompt(monkeypatch):
+    import app.core.worker as worker
+
+    prompts = []
+
+    async def run(prompt, *_args, **_kwargs):
+        prompts.append(prompt)
+        return {"status": "generated", "image_base64": "img", "model": "m"}
+
+    monkeypatch.setattr(worker, "_run_variant_with_retry", run)
+
+    await generate_from_payload(
+        {**_payload(), "category": "Koszula", "chest_cm": "106", "garment_size": "m", "size_chest_range": "96-100"}
+    )
+
+    assert "The garment is size M, cut for a body with chest 96-100 cm." in prompts[0]
+    assert "clearly tight at the chest (106 cm)" in prompts[0]

@@ -53,23 +53,23 @@ _FEMININE_WORDS = ("dress", "dresses", "skirt", "skirts", "blouse", "blouses", "
 
 
 @dataclass(frozen=True)
-class _CategoryFlags:
+class CategoryFlags:
     feminine_only: bool
     intimate: bool
 
 
-def _fold(text: str) -> str:
+def fold_text(text: str) -> str:
     """Lower-case and strip diacritics so 'Strój kąpielowy' matches 'kapiel'."""
     decomposed = unicodedata.normalize("NFKD", text.lower().replace("ł", "l"))
     return "".join(char for char in decomposed if not unicodedata.combining(char))
 
 
-def _flags_for_free_text(category: str) -> _CategoryFlags:
-    folded = _fold(category)
+def garment_flags(category: str) -> CategoryFlags:
+    folded = fold_text(category)
     words = set(re.findall(r"[a-z]+", folded))
     intimate = any(stem in folded for stem in _INTIMATE_STEMS) or bool(words.intersection(_INTIMATE_WORDS))
     feminine_only = any(stem in folded for stem in _FEMININE_STEMS) or bool(words.intersection(_FEMININE_WORDS))
-    return _CategoryFlags(feminine_only=feminine_only, intimate=intimate)
+    return CategoryFlags(feminine_only=feminine_only, intimate=intimate)
 
 
 def normalize_category(category: str) -> str:
@@ -87,7 +87,7 @@ def validate_garment_category(category: str | None, fit_style: str | None) -> st
     legacy_category = GARMENT_CATEGORIES.get(category)
     if legacy_category is not None:
         prompt_label = legacy_category.prompt_label
-        flags = _CategoryFlags(legacy_category.feminine_only, legacy_category.intimate)
+        flags = CategoryFlags(legacy_category.feminine_only, legacy_category.intimate)
     else:
         prompt_label = normalize_category(category)
         if not prompt_label:
@@ -95,7 +95,7 @@ def validate_garment_category(category: str | None, fit_style: str | None) -> st
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="invalid_category",
             )
-        flags = _flags_for_free_text(prompt_label)
+        flags = garment_flags(prompt_label)
 
     if fit_style == "masculine" and flags.intimate:
         raise HTTPException(

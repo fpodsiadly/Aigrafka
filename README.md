@@ -11,10 +11,22 @@ AIgrafka to rozszerzenie przeglądarki do wirtualnej przymiarki ubrań z AI (vir
 ## Architektura w praktyce
 
 - Uzytkownik uruchamia panel extension na stronie sklepu.
-- Extension wysyla dane (selfie + produkt URL/zdjecie + opcje) do FastAPI `POST /generate`.
-- Backend pobiera obraz produktu, buduje prompt OpenVTO i wywoluje Gemini image generation.
-- Wynik wraca jako 1-3 warianty obrazow base64.
+- Extension wysyla dane (selfie, zdjecie produktu lub URL, kategoria, wymiary, rozmiar, opis produktu ze strony) do FastAPI `POST /generate` w trybie `mode=async`.
+- Backend tworzy zadanie i generuje w tle: buduje narracyjny prompt (`backend/app/ai/prompts/openvto_prompt.py`) i wywoluje Gemini (domyslnie Nano Banana 2.1, zapasowo Gemini 3.1 Flash Image).
+- Wariant 1 jest generowany pierwszy; warianty 2-3 sa kolejnymi turami tej samej rozmowy z modelem, wiec pokazuja te sama osobe i ubranie.
+- Logo AIgrafka jest nakladane na gotowy obraz (`backend/app/ai/branding.py`), nie generowane przez model.
+- Panel odpytuje `GET /jobs/{id}` i pokazuje kazdy wariant, gdy tylko jest gotowy; obrazy sa dostepne przez podpisane URL-e przez 1 godzine.
+- Tokeny sa pobierane tylko za warianty faktycznie wygenerowane (nieudane i wziete z cache wracaja).
 - Platnosci tokenow obsluguje Przelewy24 (`/payments/checkout`, `/payments/webhook`).
+
+## Rozszerzenie: najwazniejsze funkcje
+
+- Wybor zdjecia produktu kliknieciem na stronie sklepu: pobierany jest oryginalny plik w pelnej rozdzielczosci (najwiekszy wariant `srcset`), a zrzut ekranu jest tylko rezerwa.
+- Rozpoznany produkt: nazwa, marka, kolor, material i opis ze strony (JSON-LD `Product` albo Open Graph) trafiaja do promptu; mozna je usunac.
+- Kategoria wpisywana recznie z podpowiedziami; dla kroju meskiego blokowane sa kategorie intymne i damskie (PL/EN slowa kluczowe, `garment_policy`).
+- Rozmiar: pole z podpowiedziami z tabeli rozmiarow na stronie i rekomendacja na podstawie wymiarow uzytkownika; prompt opisuje dopasowanie (np. ciasno w klatce).
+- Selfie i wymiary zostaja zapamietane (selfie do 30 dni w pamieci rozszerzenia); "Zacznij od nowa" czysci tylko produkt.
+- "Usun moje dane" w stopce panelu kasuje selfie i wymiary w przegladarce oraz profil i zapisane stylizacje na serwerze.
 
 ## Szybki start lokalnie
 
@@ -77,7 +89,8 @@ VITE_API_BASE=https://aigrafka.onrender.com npm run build
 ## Najwazniejsze endpointy (FastAPI)
 
 - `POST /generate` - generowanie stylizacji (multipart: selfie + produkt + opcje). Z `mode=async` zwraca `202` z `job_id`, a wynik (także częściowy, wariant po wariancie) jest dostępny pod `GET /jobs/{job_id}`; bez `mode` działa synchronicznie.
-- `GET /jobs/{job_id}` - status i (częściowe) wyniki generowania asynchronicznego.
+  Dodatkowe pola: `fresh=true` (nowe obrazy zamiast cache), `product_name` / `product_details` (opis produktu ze strony sklepu), `garment_size` oraz `size_chest_range` / `size_waist_range` / `size_hips_range` (zakresy wybranego rozmiaru z tabeli sklepu). Tokeny są pobierane tylko za warianty faktycznie wygenerowane — nieudane i wzięte z cache są zwracane (`refunded_tokens`). Błędy dostawcy wracają jako kody (`service_unavailable`, `generation_failed`, `content_policy`); pełna treść zostaje w logach.
+- `GET /jobs/{job_id}` - status i (częściowe) wyniki generowania asynchronicznego. Zadanie bez znaku życia dłużej niż `JOB_ORPHAN_TIMEOUT_SECONDS` (np. po restarcie serwera) jest oznaczane jako `failed` (`interrupted`) z jednorazowym zwrotem tokenów.
 - `POST /profile/delete-data` - usunięcie profilu sylwetki i wszystkich zapisanych stylizacji użytkownika (Bearer required).
 - `POST /auth/google` - logowanie i automatyczne utworzenie konta przez Google.
 - `GET /auth/google/client-id` - konfiguracja OAuth dla rozszerzenia.
@@ -124,6 +137,7 @@ Wazne opcjonalne:
 - `MAX_SIDE_PX` — dłuższy bok selfie/zdjęcia produktu wysyłanego do modelu (domyślnie 1536)
 - `HTTP_TIMEOUT`
 - `PRODUCT_IMAGE_TIMEOUT`
+- `JOB_ORPHAN_TIMEOUT_SECONDS` — po ilu sekundach bez znaku życia zadanie generowania uznać za przerwane (domyślnie 120)
 - `PAYLOAD_ENCRYPTION_KEY` — opcjonalny klucz Fernet do szyfrowania payloadow jobow w Redis.
 - `METRICS_TOKEN` — token wymagany do `/metrics` poza `DEV_MODE`.
 
@@ -164,4 +178,26 @@ Platnosci Przelewy24:
 ## Compliance i dane
 
 - Wymagana zgoda uzytkownika na przetwarzanie wizerunku.
-- Zalecane: retencja obrazow, procedura usuwania danych, log audit trail i polityka RODO.
+- Retencja: przeslane selfie i zdjecia produktu nie sa zapisywane; obrazy wynikowe do 1 h, cache generacji do 24 h; selfie w przegladarce do 30 dni.
+- Usuwanie danych: przycisk "Usun moje dane" w panelu (`POST /profile/delete-data`). Szczegoly w `PRIVACY_POLICY.md` i `public/privacy-policy/`.
+- Zalecane: log audit trail i przeglad prawny polityki prywatnosci.
+
+## Testy
+
+```bash
+cd backend && make test        # pytest
+cd extension && npm test       # Vitest
+```
+
+Z katalogu glownego `npm test` uruchamia testy rozszerzenia.
+
+## Porównanie promptów (A/B)
+
+`backend/scripts/compare_prompts.py` generuje te same przypadki starym (`scripts/legacy_openvto_prompt.py`) i obecnym promptem i zapisuje raport HTML obok siebie. Wymaga tylko `GEMINI_API_KEY`:
+
+```bash
+cd backend
+GEMINI_API_KEY=... .venv/bin/python scripts/compare_prompts.py scripts/ab_cases.example.json --out ab-report
+```
+
+Format przypadków: `scripts/ab_cases.example.json` (ścieżki do zdjęć względem pliku JSON).

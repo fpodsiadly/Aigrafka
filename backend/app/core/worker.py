@@ -10,6 +10,7 @@ from app.ai.branding import apply_brand_mark
 from app.ai.gemini_client import MODEL_CONTENT_KEY, GeminiClient, VariantFollowUp
 from app.ai.product_image import close_product_image_client, fetch_product_image
 from app.ai.prompts.openvto_prompt import build_openvto_prompt, build_variant_follow_up_prompt
+from app.ai.size_fit import describe_size_fit
 from app.core.cache import get_cached_generation, set_cached_generation
 from app.core.config import get_settings
 from app.core.db import add_tokens, close_engine
@@ -94,6 +95,7 @@ async def _run_variant_with_retry(
     follow_up: VariantFollowUp | None = None,
     follow_up_model: str | None = None,
     owner_id: str | None = None,
+    use_cache: bool = True,
 ) -> dict:
     settings = get_settings()
     last_error: str | None = None
@@ -105,8 +107,11 @@ async def _run_variant_with_retry(
         # Cache is keyed per model so fallback results are reused correctly;
         # follow-up turns get their own key as their output depends on variant 1.
         cache_model_key = f"{model}:follow-up" if follow_up is not None else model
+        cache_prompt = prompt if follow_up is None else f"{prompt}\n{follow_up.prompt}"
         cache_started = perf_counter()
-        cached = await get_cached_generation(
+        # use_cache=False ("generate more") always renders a new image; the
+        # result is still written to the cache below.
+        cached = use_cache and await get_cached_generation(
             selfie_bytes,
             product_image_bytes,
             category,
@@ -119,13 +124,15 @@ async def _run_variant_with_retry(
             variant_count,
             cache_model_key,
             settings.gemini_image_size,
+            cache_prompt,
         )
         if telemetry is not None:
             telemetry["redis_ms"] = telemetry.get("redis_ms", 0.0) + (perf_counter() - cache_started) * 1000.0
         if cached:
             if telemetry is not None:
                 telemetry["cache_hit"] = True
-            return cached
+            # Marked so the caller does not bill a variant that cost nothing.
+            return {**cached, "cached": True}
 
         try:
             client = GeminiClient(model=model)
@@ -159,6 +166,7 @@ async def _run_variant_with_retry(
                     settings.gemini_image_size,
                     _without_model_content(result),
                     owner_id=owner_id,
+                    prompt=cache_prompt,
                 )
                 if telemetry is not None:
                     telemetry["redis_ms"] = telemetry.get("redis_ms", 0.0) + (
@@ -189,15 +197,18 @@ async def generate_from_payload(
 ) -> dict:
     user_id = payload.get("user_id")
     charged_tokens = payload.get("charged_tokens", 0)
-    refunded = False
+    refunded_tokens = 0
 
-    async def _refund_tokens() -> None:
-        nonlocal refunded
-        if refunded or not user_id or charged_tokens <= 0:
+    async def _refund_tokens(amount: int | None = None) -> None:
+        """Return `amount` tokens (default: everything not refunded yet), never more than charged."""
+        nonlocal refunded_tokens
+        remaining = charged_tokens - refunded_tokens
+        amount = remaining if amount is None else min(amount, remaining)
+        if not user_id or amount <= 0:
             return
-        await add_tokens(user_id, charged_tokens)
+        await add_tokens(user_id, amount)
         track_token_refund()
-        refunded = True
+        refunded_tokens += amount
 
     try:
         product_url = payload.get("product_url")
@@ -208,9 +219,15 @@ async def generate_from_payload(
         waist_cm = payload.get("waist_cm")
         hips_cm = payload.get("hips_cm")
         variant_count = payload.get("variant_count", 1)
-        used_upload = payload.get("used_upload", False)
-        product_ref = payload.get("product_ref", "product")
+        product_name = payload.get("product_name")
+        product_details = payload.get("product_details")
+        size_fit = describe_size_fit(
+            payload.get("garment_size"),
+            {name: payload.get(f"size_{name}_range") for name in ("chest", "waist", "hips")},
+            {"chest": chest_cm, "waist": waist_cm, "hips": hips_cm},
+        )
         back_reference_available = payload.get("back_reference_available", False)
+        use_cache = not payload.get("fresh", False)
 
         selfie_bytes = payload.get("selfie_bytes")
         if selfie_bytes is None:
@@ -233,8 +250,6 @@ async def generate_from_payload(
 
         def _standalone_prompt(variant_number: int) -> str:
             return build_openvto_prompt(
-                product_ref,
-                is_upload=used_upload,
                 category=category,
                 fit_style=fit_style,
                 height_cm=height_cm,
@@ -244,6 +259,9 @@ async def generate_from_payload(
                 variants=variant_count,
                 variant_index=variant_number,
                 back_reference_available=back_reference_available,
+                product_name=product_name,
+                product_details=product_details,
+                size_fit=size_fit,
             )
 
         def _uses_back_reference(variant_number: int) -> bool:
@@ -267,12 +285,15 @@ async def generate_from_payload(
                 variant_count,
                 telemetry,
                 owner_id=user_id,
+                use_cache=use_cache,
             )
 
         async def _run_follow_up(variant_number: int, first_variant: dict) -> dict:
             follow_up = VariantFollowUp(
                 previous_content=first_variant[MODEL_CONTENT_KEY],
-                prompt=build_variant_follow_up_prompt(variant_number, variant_count, back_reference_available),
+                prompt=build_variant_follow_up_prompt(
+                    variant_number, variant_count, back_reference_available, category
+                ),
                 extra_image_bytes=secondary_product_image_bytes if _uses_back_reference(variant_number) else None,
             )
             result = await _run_variant_with_retry(
@@ -291,6 +312,7 @@ async def generate_from_payload(
                 follow_up=follow_up,
                 follow_up_model=first_variant.get("model"),
                 owner_id=user_id,
+                use_cache=use_cache,
             )
             if result.get("status") == "generated":
                 return result
@@ -345,19 +367,21 @@ async def generate_from_payload(
                     fallback_detail = v["error"]
                     break
 
-        # No usable image produced (fallback/refused/failed): refund the charge
-        # so users are not billed for results they cannot use.
-        if overall_status != "generated" and user_id and charged_tokens > 0:
+        # Bill only variants that were actually rendered for this request: a
+        # failed variant or one served from the cache is refunded.
+        unbilled_variants = sum(1 for v in variants if v.get("status") != "generated" or v.get("cached"))
+        if unbilled_variants and user_id and charged_tokens > 0:
             try:
-                await _refund_tokens()
+                await _refund_tokens(unbilled_variants * charged_tokens // max(1, variant_count))
             except Exception:
-                logger.exception("Failed to refund tokens for non-generated generation %s", operation_id)
+                logger.exception("Failed to refund tokens for unbilled variants of %s", operation_id)
 
         result = {
             "status": overall_status,
             "variants": variants,
             "model": successful[0].get("model") if successful else variants[0].get("model") if variants else None,
             "detail": fallback_detail,
+            "refunded_tokens": refunded_tokens,
         }
         track_job_status(overall_status)
         logger.info("Generation %s completed: %s", operation_id, overall_status)

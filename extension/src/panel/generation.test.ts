@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { describeFallback, describeGenerationError, pollGenerationJob, toVariantPreviews } from './generation';
+import {
+    describeFallback,
+    describeGenerationError,
+    describeSuccess,
+    pollGenerationJob,
+    toVariantPreviews,
+} from './generation';
 import { GenerateJobStatus } from './types';
 import { GENERATION_TIMEOUT_MESSAGE } from './utils';
 
@@ -16,10 +22,19 @@ describe('toVariantPreviews', () => {
     });
 });
 
+describe('describeSuccess', () => {
+    it('mentions refunded tokens only when there were any', () => {
+        expect(describeSuccess(2, 0)).toBe('Gotowe: 2 warianty.');
+        expect(describeSuccess(3, 1)).toContain('Zwrócono 1 token ');
+        expect(describeSuccess(3, 2)).toContain('Zwrócono 2 tokeny');
+    });
+});
+
 describe('error messages', () => {
     it('translates backend category errors', () => {
         expect(describeGenerationError('incompatible_category:masculine_intimate')).toContain('nie są dostępne dla mężczyzn');
         expect(describeGenerationError('category_required')).toBe('Wybierz kategorię produktu.');
+        expect(describeGenerationError('interrupted')).toContain('Tokeny zwrócono');
         expect(describeGenerationError('Something else')).toBe('Something else');
     });
 

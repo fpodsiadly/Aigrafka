@@ -1,4 +1,7 @@
 
+import type { ProductInfo } from './productInfo';
+import type { SizeChartRow } from './sizeChart';
+
 export interface BodyMetrics {
     height: string;
     chest: string;
@@ -16,6 +19,11 @@ export interface FormState extends BodyMetrics {
     accepted: boolean;
     variantCount: number;
     modelChoice: 'banana-pro-2';
+    // Name/description read from the shop page the product image was picked on.
+    productInfo: ProductInfo | null;
+    // Chosen garment size and the shop's size chart (if found on the page).
+    garmentSize: string;
+    sizeChart: SizeChartRow[] | null;
 }
 
 export type ProductImageKey = 'productImage1' | 'productImage2';
@@ -42,6 +50,7 @@ export interface GenerateResponse {
     model?: string | null;
     variants?: ApiVariant[];
     detail?: string | null;  // error detail when status != 'generated'
+    refunded_tokens?: number;  // tokens returned for failed or cached variants
     telemetry?: {
         upload_ms: number;
         rate_limit_ms: number;

@@ -12,6 +12,8 @@ import useGeneration from './hooks/useGeneration';
 import useProductImageInput from './hooks/useProductImageInput';
 import useResultActions from './hooks/useResultActions';
 import { getCategoryError, toCategoryText } from './garmentPolicy';
+import { extractProductInfo } from './productInfo';
+import { extractSizeChart, recommendSize } from './sizeChart';
 
 import AuthPanel from './components/AuthPanel';
 import FieldRow from './components/FieldRow';
@@ -86,8 +88,9 @@ const App: React.FC = () => {
 
     const { runGeneration, elapsedSec, waitingPulse } = useGeneration({ form, canSubmit, refreshAuthFromServer });
     const { handleShare, handleCopyImage, handleDownload } = useResultActions(form.productUrl);
-    const { handleFileSelect, handleDropProduct, handlePickAreaProduct } = useProductImageInput((key, file) =>
-        updateForm(key, file)
+    const { handleFileSelect, handleDropProduct, handlePickAreaProduct } = useProductImageInput(
+        (key, file) => updateForm(key, file),
+        captureProductInfoFromPage
     );
 
     const debouncedUpdateHeight = useDebouncedCallback((value: string) => updateForm('height', value), 300);
@@ -106,9 +109,32 @@ const App: React.FC = () => {
     const measurementsSessionKey = auth.userId ? `user:${auth.userId}` : 'guest';
     const logoSrc = chrome?.runtime?.getURL?.('icons/logo_white.svg') ?? logo;
     const canShare = Boolean(form.productUrl || previewUrl);
+    const recommendedSize = useMemo(
+        () => recommendSize(form.sizeChart, { chest: form.chest, waist: form.waist, hips: form.hips })?.size ?? null,
+        [form.sizeChart, form.chest, form.waist, form.hips]
+    );
 
     function updateForm<K extends keyof FormState>(key: K, value: FormState[K]) {
         setForm((prev) => ({ ...prev, [key]: value }));
+    }
+
+    // The panel runs inside the shop page, so the page itself describes the
+    // product and may hold its size chart. Fill category and size only when
+    // the user has not chosen them yet.
+    function captureProductInfoFromPage() {
+        const productInfo = extractProductInfo(document);
+        const sizeChart = extractSizeChart(document);
+        if (!productInfo && !sizeChart) return;
+        setForm((prev) => ({
+            ...prev,
+            productInfo: productInfo ?? prev.productInfo,
+            category: prev.category || productInfo?.category || '',
+            sizeChart: sizeChart ?? prev.sizeChart,
+            garmentSize:
+                prev.garmentSize ||
+                recommendSize(sizeChart, { chest: prev.chest, waist: prev.waist, hips: prev.hips })?.size ||
+                '',
+        }));
     }
 
     const handleMetricChange = useCallback(
@@ -262,7 +288,7 @@ const App: React.FC = () => {
 
     function handleGenerateMore() {
         setGenerationError('');
-        void runGeneration();
+        void runGeneration({ fresh: true });
     }
 
     // Start over with another product: the selfie and measurements stay, so the
@@ -273,6 +299,9 @@ const App: React.FC = () => {
             productImage1: null,
             productImage2: null,
             productUrl: '',
+            productInfo: null,
+            garmentSize: '',
+            sizeChart: null,
         }));
         setProductPreview1('');
         setProductPreview2('');
@@ -347,6 +376,12 @@ const App: React.FC = () => {
                                 onFileSelect={handleFileSelect}
                                 onDropProduct={handleDropProduct}
                                 onPickAreaProduct={handlePickAreaProduct}
+                                productInfo={form.productInfo}
+                                garmentSize={form.garmentSize}
+                                sizeOptions={form.sizeChart?.map((row) => row.size) ?? []}
+                                recommendedSize={recommendedSize}
+                                onGarmentSizeChange={(size) => updateForm('garmentSize', size)}
+                                onClearProductInfo={() => updateForm('productInfo', null)}
                                 onActiveTabUrl={() => {
                                     chrome.runtime.sendMessage(
                                         { type: 'AIGRAFKA_GET_ACTIVE_TAB_URL' },
@@ -357,6 +392,7 @@ const App: React.FC = () => {
                                             }
                                             if (response?.ok && response.url) {
                                                 updateForm('productUrl', response.url);
+                                                captureProductInfoFromPage();
                                                 return;
                                             }
                                             setStatusError(response?.error || 'Nie udało się odczytać aktywnej karty.');

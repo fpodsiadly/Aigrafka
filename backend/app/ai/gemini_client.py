@@ -42,9 +42,9 @@ def _build_request_parts(
 ) -> list[types.Part]:
     return [
         types.Part(text=prompt),
-        types.Part(text="REFERENCE IMAGE 1: user selfie and identity source."),
+        types.Part(text="Image 1 - the person (identity reference):"),
         types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=selfie_bytes)),
-        types.Part(text="REFERENCE IMAGE 2: garment source. Copy garment construction, colour, and pattern."),
+        types.Part(text="Image 2 - the garment (garment reference only):"),
         types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=product_image_bytes)),
     ]
 
@@ -61,7 +61,7 @@ def _build_contents(
 
     follow_up_parts = [types.Part(text=follow_up.prompt)]
     if follow_up.extra_image_bytes is not None:
-        follow_up_parts.append(types.Part(text="REFERENCE IMAGE 3: back side of the same garment."))
+        follow_up_parts.append(types.Part(text="Image 3 - the back of the same garment:"))
         follow_up_parts.append(types.Part(inline_data=types.Blob(mime_type="image/jpeg", data=follow_up.extra_image_bytes)))
     contents.append(follow_up.previous_content)
     contents.append(types.Content(role="user", parts=follow_up_parts))
@@ -124,16 +124,14 @@ class GeminiClient:
             image_config=image_config,
         )
 
-        # Run the sync SDK call off the event loop to respect async interface
-        def _do_generate() -> Any:
-            return self._client.models.generate_content(
-                model=self.model,
-                contents=contents,
-                config=config,
-            )
-
         try:
-            response = await asyncio.wait_for(asyncio.to_thread(_do_generate), timeout=self.timeout)
+            # Native async SDK call: on timeout/cancellation the HTTP request is
+            # aborted, unlike a sync call in a thread, which kept running (and
+            # billing) after wait_for gave up.
+            response = await asyncio.wait_for(
+                self._client.aio.models.generate_content(model=self.model, contents=contents, config=config),
+                timeout=self.timeout,
+            )
         except Exception as exc:
             logger.error("GeminiClient.generate_image exception model=%s error=%s", self.model, exc, exc_info=True)
             return {

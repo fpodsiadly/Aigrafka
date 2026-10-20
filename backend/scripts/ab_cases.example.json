@@ -1,0 +1,26 @@
+[
+  {
+    "name": "sweter-meski",
+    "selfie": "images/selfie-m.jpg",
+    "product": "images/sweter.jpg",
+    "category": "Sweter",
+    "fit_style": "masculine",
+    "height_cm": "180",
+    "chest_cm": "100",
+    "waist_cm": "86",
+    "hips_cm": "98",
+    "product_name": "Sweter Nordic",
+    "product_details": "Kolor: butelkowa zieleń. Materiał: wełna merino"
+  },
+  {
+    "name": "sukienka",
+    "selfie": "images/selfie-k.jpg",
+    "product": "images/sukienka.jpg",
+    "category": "Sukienka midi",
+    "fit_style": "feminine",
+    "height_cm": "168",
+    "chest_cm": "90",
+    "waist_cm": "70",
+    "hips_cm": "96"
+  }
+]

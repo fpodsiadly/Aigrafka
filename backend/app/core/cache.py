@@ -9,7 +9,7 @@ from app.core.redis_client import get_redis_client, invalidate_redis_client
 from app.core.user_data import track_user_data_key
 
 logger = logging.getLogger(__name__)
-CACHE_VERSION = "v5-postprocessed-brand-mark"
+CACHE_VERSION = "v6-narrative-prompt"
 
 
 def _build_generation_cache_key(
@@ -25,6 +25,7 @@ def _build_generation_cache_key(
     variant_count: int,
     model: str,
     image_size: str,
+    prompt: str = "",
 ) -> str:
     """Stable cache key based on image content + parameters."""
     data = {
@@ -41,6 +42,9 @@ def _build_generation_cache_key(
         "variant_count": variant_count,
         "model": model,
         "image_size": image_size,
+        # The prompt carries everything that shapes the render (product text,
+        # size, shot), so any change to it must miss the cache.
+        "prompt_hash": hashlib.sha256(prompt.encode()).hexdigest(),
     }
     raw = json.dumps(data, sort_keys=True, separators=(",", ":"))
     return f"gen_cache:{hashlib.sha256(raw.encode()).hexdigest()}"
@@ -59,6 +63,7 @@ async def get_cached_generation(
     variant_count: int,
     model: str,
     image_size: str,
+    prompt: str = "",
 ) -> dict | None:
     client = get_redis_client()
     if not client:
@@ -77,6 +82,7 @@ async def get_cached_generation(
         variant_count,
         model,
         image_size,
+        prompt,
     )
     try:
         cached = await asyncio.to_thread(client.get, key)
@@ -104,6 +110,7 @@ async def set_cached_generation(
     image_size: str,
     result: dict,
     owner_id: str | None = None,
+    prompt: str = "",
 ) -> None:
     client = get_redis_client()
     if not client:
@@ -123,6 +130,7 @@ async def set_cached_generation(
         variant_count,
         model,
         image_size,
+        prompt,
     )
     try:
         await asyncio.to_thread(client.setex, key, settings.generation_cache_ttl_seconds, json.dumps(result))

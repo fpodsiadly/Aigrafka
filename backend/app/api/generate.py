@@ -13,7 +13,7 @@ from app.ai.garment_policy import validate_garment_category
 from app.core.config import get_settings
 from app.core.db import deduct_tokens_if_possible
 from app.core.metrics import track_generate_request
-from app.core.queue import create_job, update_job_status
+from app.core.queue import create_job, renew_job_lease, update_job_status
 from app.core.rate_limit import enforce_generate_rate_limit
 from app.core.result_images import build_result_image_url, store_result_image
 from app.core.security import get_optional_user_id, is_demo_user_id
@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 # Strong references to in-flight async generations; asyncio only keeps weak
 # references to tasks, so an unreferenced task could be garbage-collected.
 _background_generations: set[asyncio.Task] = set()
+# Lease renewal period of in-process generations (see claim_orphaned_job).
+JOB_HEARTBEAT_SECONDS = 15
 
 settings = get_settings()
 MAX_UPLOAD_BYTES = settings.max_selfie_mb * 1024 * 1024
@@ -40,6 +42,13 @@ _TEXT_FIELD_LIMITS = {
     "fit_style": 32,
     "model_choice": 64,
     "mode": 16,
+    "fresh": 8,
+    "product_name": 300,
+    "product_details": 2000,
+    "garment_size": 32,
+    "size_chest_range": 32,
+    "size_waist_range": 32,
+    "size_hips_range": 32,
     "height_cm": 16,
     "chest_cm": 16,
     "waist_cm": 16,
@@ -134,7 +143,9 @@ async def _start_async_generation(payload: dict, base_url: str, variant_count: i
     polling via GET /jobs/{id}. Returns None when Redis is unavailable.
     """
     try:
-        job_id = await create_job({"user_id": payload.get("user_id")})
+        job_id = await create_job(
+            {"user_id": payload.get("user_id"), "charged_tokens": payload.get("charged_tokens", 0)}
+        )
     except Exception:
         logger.exception("Could not create async generation job")
         return None
@@ -157,6 +168,12 @@ async def _run_async_generation(job_id: str, payload: dict, base_url: str, varia
             partial[index] = variant
             await update_job_status(job_id, "running", result={"status": "running", "variants": partial})
 
+    async def heartbeat() -> None:
+        while True:
+            await asyncio.sleep(JOB_HEARTBEAT_SECONDS)
+            await asyncio.to_thread(renew_job_lease, job_id)
+
+    heartbeat_task = asyncio.create_task(heartbeat())
     try:
         await update_job_status(job_id, "running", result={"status": "running", "variants": partial})
         result = await generate_from_payload(
@@ -177,6 +194,8 @@ async def _run_async_generation(job_id: str, payload: dict, base_url: str, varia
             await update_job_status(job_id, "failed", error="Generation failed.")
         except Exception:
             logger.exception("Could not mark job %s as failed", job_id)
+    finally:
+        heartbeat_task.cancel()
 
 
 @router.post("/generate")
@@ -196,6 +215,13 @@ async def generate_tryon(
     product_image_1: UploadFile | None = File(None),
     product_image_2: UploadFile | None = File(None),
     mode: str | None = Form(None),
+    fresh: str | None = Form(None),
+    product_name: str | None = Form(None),
+    product_details: str | None = Form(None),
+    garment_size: str | None = Form(None),
+    size_chest_range: str | None = Form(None),
+    size_waist_range: str | None = Form(None),
+    size_hips_range: str | None = Form(None),
     user_id: str | None = Depends(get_optional_user_id),
 ) -> dict:
     total_started = getattr(request.state, "request_started_perf", perf_counter())
@@ -218,6 +244,19 @@ async def generate_tryon(
     fit_style = _bound_text(fit_style, "fit_style")
     model_choice = _bound_text(model_choice, "model_choice")
     mode = _bound_text(mode, "mode")
+    # "Generate more" asks for new renders instead of the cached ones.
+    fresh_requested = (_bound_text(fresh, "fresh") or "").lower() in {"1", "true"}
+    # Product name/description read from the shop page; cleaned again when
+    # inserted into the prompt.
+    product_name = _bound_text(product_name, "product_name")
+    product_details = _bound_text(product_details, "product_details")
+    # Chosen size and that size's body ranges from the shop size chart; parsed
+    # and validated when the fit description is built.
+    garment_size = _bound_text(garment_size, "garment_size")
+    size_ranges = {
+        f"size_{name}_range": _bound_text(value, f"size_{name}_range")
+        for name, value in (("chest", size_chest_range), ("waist", size_waist_range), ("hips", size_hips_range))
+    }
     height_cm = _bound_text(height_cm, "height_cm")
     chest_cm = _bound_text(chest_cm, "chest_cm")
     waist_cm = _bound_text(waist_cm, "waist_cm")
@@ -258,7 +297,6 @@ async def generate_tryon(
         normalized_index += 1
     if product_image_2 and product_image_2.filename:
         secondary_product_image_bytes = normalized_images[normalized_index]
-    used_upload = primary_product_image_bytes is not None or secondary_product_image_bytes is not None
 
     if primary_product_image_bytes is None and secondary_product_image_bytes is not None:
         primary_product_image_bytes = secondary_product_image_bytes
@@ -266,8 +304,6 @@ async def generate_tryon(
 
     if primary_product_image_bytes is None and not normalized_product_url:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Product image not provided")
-
-    product_ref = "uploaded product image" if used_upload else str(normalized_product_url)
 
     requested_variants = variants if variants is not None else settings.variants
     variant_count = max(1, min(requested_variants, 3))
@@ -298,9 +334,12 @@ async def generate_tryon(
         "model_choice": model_choice,
         "user_id": user_id,
         "charged_tokens": charged_tokens,
-        "used_upload": used_upload,
-        "product_ref": product_ref,
+        "product_name": product_name,
+        "product_details": product_details,
+        "garment_size": garment_size,
+        **size_ranges,
         "back_reference_available": back_reference_available,
+        "fresh": fresh_requested,
     }
 
     request_id = getattr(request.state, "request_id", "unknown")

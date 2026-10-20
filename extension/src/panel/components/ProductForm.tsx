@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { actionButtonStyle, inputStyle } from '../styles';
 import { GARMENT_CATEGORIES, MAX_CATEGORY_LENGTH, getCategoryError } from '../garmentPolicy';
 import { FormState, ProductImageKey } from '../types';
+import type { ProductInfo } from '../productInfo';
 import FieldRow from './FieldRow';
 
 interface ProductFormProps {
@@ -22,6 +23,12 @@ interface ProductFormProps {
     onDropProduct: (key: ProductImageKey, event: React.DragEvent<HTMLDivElement>) => void;
     onPickAreaProduct: (key: ProductImageKey) => void;
     onActiveTabUrl: () => void;
+    productInfo: ProductInfo | null;
+    onClearProductInfo: () => void;
+    garmentSize: string;
+    sizeOptions: string[];
+    recommendedSize: string | null;
+    onGarmentSizeChange: (size: string) => void;
 }
 
 const ProductForm: React.FC<ProductFormProps> = ({
@@ -39,6 +46,12 @@ const ProductForm: React.FC<ProductFormProps> = ({
     onDropProduct,
     onPickAreaProduct,
     onActiveTabUrl,
+    productInfo,
+    onClearProductInfo,
+    garmentSize,
+    sizeOptions,
+    recommendedSize,
+    onGarmentSizeChange,
 }) => {
     const [hoveredProductBtn, setHoveredProductBtn] = useState<ProductImageKey | null>(null);
     const [uploadMenuFor, setUploadMenuFor] = useState<ProductImageKey | null>(null);
@@ -286,6 +299,43 @@ const ProductForm: React.FC<ProductFormProps> = ({
                 )}
             </FieldRow>
 
+            <FieldRow label="Rozmiar:">
+                <input
+                    type="text"
+                    list="aigrafka-size-suggestions"
+                    maxLength={12}
+                    placeholder="np. M, 40, L/XL (opcjonalnie)"
+                    style={inputStyle}
+                    value={garmentSize}
+                    onChange={(e) => onGarmentSizeChange(e.target.value)}
+                    aria-label="Rozmiar produktu"
+                />
+                <datalist id="aigrafka-size-suggestions">
+                    {sizeOptions.map((size) => (
+                        <option key={size} value={size} />
+                    ))}
+                </datalist>
+                {recommendedSize && (
+                    <button
+                        type="button"
+                        onClick={() => onGarmentSizeChange(recommendedSize)}
+                        style={{
+                            marginTop: 4,
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            cursor: 'pointer',
+                            color: '#6f45cc',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            textAlign: 'left',
+                        }}
+                    >
+                        Polecany rozmiar wg tabeli sklepu i Twoich wymiarów: {recommendedSize}
+                    </button>
+                )}
+            </FieldRow>
+
             <FieldRow label="Zdjęcia produktu:">
                 <div style={{ display: 'flex', gap: 6, width: '100%' }}>
                     {renderImageSlot('productImage1', productPreview1, 'Pierwsze')}
@@ -297,6 +347,36 @@ const ProductForm: React.FC<ProductFormProps> = ({
                     )}
                 </div>
             </FieldRow>
+
+            {productInfo && (productInfo.name || productInfo.details) && (
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 6,
+                        marginTop: 6,
+                        padding: '6px 8px',
+                        borderRadius: 8,
+                        background: '#efe7ff',
+                        fontSize: 10,
+                        lineHeight: 1.3,
+                        color: '#3c2a66',
+                    }}
+                    title={productInfo.details}
+                >
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                        <strong>Rozpoznany produkt:</strong> {productInfo.name || productInfo.details.slice(0, 80)}
+                    </span>
+                    <button
+                        type="button"
+                        onClick={onClearProductInfo}
+                        aria-label="Nie używaj opisu produktu ze strony"
+                        style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit', fontWeight: 700 }}
+                    >
+                        ✕
+                    </button>
+                </div>
+            )}
         </>
     );
 };

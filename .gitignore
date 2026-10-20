@@ -46,3 +46,6 @@ backend/.venv/
 
 # TypeScript
 *.tsbuildinfo
+
+# Claude Code local settings
+.claude/settings.json

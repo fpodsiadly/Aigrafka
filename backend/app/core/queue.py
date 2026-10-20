@@ -144,6 +144,48 @@ def renew_job_lease(job_id: str) -> None:
         invalidate_redis_client()
 
 
+def _claim_orphaned_job_sync(job_id: str, stale_after_seconds: int) -> bool:
+    client = get_redis_client()
+    if not client:
+        return False
+    try:
+        data = client.hgetall(_job_key(job_id)) or {}
+        decoded = {
+            (k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
+            for k, v in data.items()
+        }
+        if decoded.get("status") not in {"pending", "running"}:
+            return False
+        last_alive = decoded.get("started_at") or decoded.get("enqueued_at") or "0"
+        try:
+            if int(time.time()) - int(last_alive) < stale_after_seconds:
+                return False
+        except ValueError:
+            pass
+        # HSETNX makes the claim atomic: concurrent polls refund the job once.
+        if not client.hsetnx(_job_key(job_id), "orphan_claimed", "1"):
+            return False
+        mapping = {"status": "failed", "error": "interrupted"}
+        try:
+            client.hset(_job_key(job_id), mapping=mapping)
+        except TypeError:
+            client.hset(_job_key(job_id), values=mapping)
+        return True
+    except Exception:
+        invalidate_redis_client()
+        raise
+
+
+async def claim_orphaned_job(job_id: str, stale_after_seconds: int) -> bool:
+    """Mark a pending/running job whose lease went stale as failed.
+
+    In-process generations renew their lease while alive; a stale lease means
+    the API process was restarted or crashed mid-generation. Returns True only
+    for the single caller that claimed the job (and must refund it).
+    """
+    return await asyncio.to_thread(_claim_orphaned_job_sync, job_id, stale_after_seconds)
+
+
 def dequeue_job(timeout: int = 5) -> str | None:
     client = get_redis_client()
     if not client:

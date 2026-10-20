@@ -8,7 +8,11 @@ import { isSafeExternalUrl } from '../utils';
 const MAX_PRODUCT_FILE_BYTES = 8 * 1024 * 1024;
 
 /** Product image input: file picker, drag & drop and picking an image on the page. */
-export default function useProductImageInput(onImage: (key: ProductImageKey, file: File | null) => void) {
+export default function useProductImageInput(
+    onImage: (key: ProductImageKey, file: File | null) => void,
+    // Called when the image was picked on the current page, i.e. this page is the product page.
+    onPickedOnPage: () => void
+) {
     const setStatusSuccess = useAppStore((state) => state.setStatusSuccess);
     const setStatusError = useAppStore((state) => state.setStatusError);
 
@@ -64,6 +68,7 @@ export default function useProductImageInput(onImage: (key: ProductImageKey, fil
             if (picked.imageUrl) {
                 try {
                     handleFileSelect(key, await fetchImageViaExtension(picked.imageUrl));
+                    onPickedOnPage();
                     setStatusSuccess('Dodano zdjęcie produktu w pełnej rozdzielczości.');
                     return;
                 } catch (error) {
@@ -73,6 +78,7 @@ export default function useProductImageInput(onImage: (key: ProductImageKey, fil
             const screenshot = await captureVisibleTab();
             const blob = await cropFromScreenshot(screenshot, picked.area);
             handleFileSelect(key, new File([blob], `produkt-${Date.now()}.png`, { type: 'image/png' }));
+            onPickedOnPage();
             setStatusSuccess('Dodano zdjęcie z zaznaczonego obszaru.');
         } catch (error) {
             console.error(error);

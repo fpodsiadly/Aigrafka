@@ -1,3 +1,4 @@
+import pytest
 from google.genai import types
 
 from app.ai.gemini_client import VariantFollowUp, _build_contents, _build_request_parts, _get_genai_client
@@ -8,9 +9,9 @@ def test_request_parts_label_and_attach_reference_images_without_brand_logo():
 
     assert len(parts) == 5
     assert parts[0].text == "prompt"
-    assert "user selfie" in parts[1].text
+    assert "the person" in parts[1].text
     assert parts[2].inline_data.data == b"selfie"
-    assert "garment source" in parts[3].text
+    assert "garment reference" in parts[3].text
     assert parts[4].inline_data.data == b"product"
 
 
@@ -30,7 +31,7 @@ def test_follow_up_contents_replay_previous_model_turn_and_attach_back_reference
     assert [content.role for content in contents] == ["user", "model", "user"]
     assert contents[1] is previous
     assert contents[2].parts[0].text == "turn right"
-    assert "back side" in contents[2].parts[1].text
+    assert "back of the same garment" in contents[2].parts[1].text
     assert contents[2].parts[2].inline_data.data == b"back"
 
 
@@ -44,3 +45,28 @@ def test_genai_client_is_reused_for_same_api_key(monkeypatch):
     assert _get_genai_client("key") is _get_genai_client("key")
     assert clients == ["key"]
     _get_genai_client.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_timed_out_request_is_cancelled_not_left_running():
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.ai.gemini_client import GeminiClient
+
+    cancelled = asyncio.Event()
+
+    async def hanging_generate_content(**_kwargs):
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    client = GeminiClient(api_key="test-key", timeout=0.05, model="gemini-nano-banana-2.1")
+    client._client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=hanging_generate_content)))
+
+    result = await client.generate_image("prompt", b"selfie", b"product")
+
+    assert result["status"] == "fallback"
+    assert cancelled.is_set()

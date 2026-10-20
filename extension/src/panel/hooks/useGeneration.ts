@@ -3,7 +3,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../../store/appStore';
 import { getGenerationJob, isGenerateJobAccepted, submitGenerate } from '../api';
 import { getCategoryError } from '../garmentPolicy';
-import { describeFallback, describeGenerationError, pollGenerationJob, toVariantPreviews } from '../generation';
+import {
+    describeFallback,
+    describeGenerationError,
+    describeSuccess,
+    pollGenerationJob,
+    toVariantPreviews,
+} from '../generation';
+import { findSizeRow } from '../sizeChart';
 import { FormState, GenerateResponse, VariantPreview } from '../types';
 import {
     base64ToObjectUrl,
@@ -21,8 +28,10 @@ interface UseGenerationArgs {
     refreshAuthFromServer: () => Promise<boolean>;
 }
 
-function buildGenerateFormData(form: FormState & { selfie: File }, productUrl: string): FormData {
+function buildGenerateFormData(form: FormState & { selfie: File }, productUrl: string, fresh: boolean): FormData {
     const formData = new FormData();
+    // "Generate more" must render new images instead of returning cached ones.
+    if (fresh) formData.append('fresh', 'true');
     if (productUrl) formData.append('product_url', productUrl);
     if (form.category) formData.append('category', form.category);
     if (form.fitStyle) formData.append('fit_style', form.fitStyle);
@@ -35,6 +44,15 @@ function buildGenerateFormData(form: FormState & { selfie: File }, productUrl: s
     formData.append('variants', String(form.variantCount));
     if (form.productImage1) formData.append('product_image_1', form.productImage1);
     if (form.productImage2) formData.append('product_image_2', form.productImage2);
+    if (form.productInfo?.name) formData.append('product_name', form.productInfo.name);
+    if (form.productInfo?.details) formData.append('product_details', form.productInfo.details);
+    if (form.garmentSize.trim()) {
+        formData.append('garment_size', form.garmentSize.trim());
+        const sizeRow = findSizeRow(form.sizeChart, form.garmentSize);
+        if (sizeRow?.chest) formData.append('size_chest_range', sizeRow.chest);
+        if (sizeRow?.waist) formData.append('size_waist_range', sizeRow.waist);
+        if (sizeRow?.hips) formData.append('size_hips_range', sizeRow.hips);
+    }
     return formData;
 }
 
@@ -100,7 +118,7 @@ export default function useGeneration({ form, canSubmit, refreshAuthFromServer }
         return () => window.clearInterval(interval);
     }, [isLoading]);
 
-    async function runGeneration() {
+    async function runGeneration({ fresh = false }: { fresh?: boolean } = {}) {
         if (isGeneratingRef.current) return;
         if (!canSubmit || !form.selfie) return;
 
@@ -127,7 +145,7 @@ export default function useGeneration({ form, canSubmit, refreshAuthFromServer }
         resetGenerationState();
         setGenerationError('');
         const startedAt = performance.now();
-        const formData = buildGenerateFormData({ ...form, selfie: form.selfie }, normalizedProductUrl);
+        const formData = buildGenerateFormData({ ...form, selfie: form.selfie }, normalizedProductUrl, fresh);
 
         let succeeded = false;
         let shownPartial = false;
@@ -200,7 +218,7 @@ export default function useGeneration({ form, canSubmit, refreshAuthFromServer }
                     setView('generating');
                 }
             } else {
-                setStatusSuccess(`Gotowe: ${variantCount} wariant${variantCount === 1 ? '' : 'y'}.`);
+                setStatusSuccess(describeSuccess(variantCount, data.refunded_tokens ?? 0));
                 succeeded = true;
             }
         } catch (error) {

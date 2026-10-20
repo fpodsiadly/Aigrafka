@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     job_result_ttl_seconds: int = Field(default=3600, ge=60, alias="JOB_RESULT_TTL_SECONDS")
     result_image_ttl_seconds: int = Field(default=3600, ge=60, le=86400, alias="RESULT_IMAGE_TTL_SECONDS")
     job_visibility_timeout_seconds: int = Field(default=900, ge=60, alias="JOB_VISIBILITY_TIMEOUT_SECONDS")
+    # An in-process generation renews its lease every few seconds; a job silent
+    # for this long was interrupted by a restart and is failed and refunded.
+    job_orphan_timeout_seconds: int = Field(default=120, ge=30, alias="JOB_ORPHAN_TIMEOUT_SECONDS")
     generation_cache_ttl_seconds: int = Field(default=86400, ge=60, alias="GENERATION_CACHE_TTL_SECONDS")
     product_image_cache_ttl_seconds: int = Field(default=300, ge=30, alias="PRODUCT_IMAGE_CACHE_TTL_SECONDS")
     trust_proxy_headers: bool = Field(default=False, alias="TRUST_PROXY_HEADERS")

@@ -27,6 +27,8 @@ uvicorn app.main:app --reload --port 8000
 - `make migrate` — database migrations
 - `make fmt`
 - `make lint`
+- `make test` — testy (pytest)
+- `python scripts/compare_prompts.py` — porównanie A/B starego i nowego promptu (opis w `../README.md`)
 
 ## Redis / wyniki generacji
 

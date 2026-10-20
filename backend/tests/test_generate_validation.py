@@ -95,6 +95,13 @@ async def test_generate_returns_signed_image_url_and_telemetry_without_job_round
         product_image_1=_jpeg_upload("product.jpg"),
         product_image_2=None,
         mode=None,
+        fresh=None,
+        product_name=None,
+        product_details=None,
+        garment_size=None,
+        size_chest_range=None,
+        size_waist_range=None,
+        size_hips_range=None,
         user_id=None,
     )
 
@@ -149,6 +156,13 @@ async def test_generate_async_mode_returns_job_id_with_202(monkeypatch):
         product_image_1=_jpeg_upload("product.jpg"),
         product_image_2=None,
         mode="async",
+        fresh=None,
+        product_name=None,
+        product_details=None,
+        garment_size=None,
+        size_chest_range=None,
+        size_waist_range=None,
+        size_hips_range=None,
         user_id=None,
     )
 

@@ -20,6 +20,9 @@ export function toVariantPreviews(variants: (ApiVariant | null)[], fallbackMimeT
 }
 
 export function describeGenerationError(message: string): string {
+    if (message === 'interrupted') {
+        return 'Generowanie zostało przerwane przez restart serwera. Tokeny zwrócono — spróbuj ponownie.';
+    }
     if (message.includes('Failed to fetch product page')) {
         return 'Sklep blokuje pobranie strony produktu. Wklej bezpośredni link do zdjęcia produktu (JPG/PNG) albo spróbuj innego URL produktu.';
     }
@@ -43,6 +46,13 @@ export function describeFallback(data: Pick<GenerateResponse, 'status' | 'detail
         return 'Usługa generowania jest chwilowo niedostępna. Spróbuj ponownie za kilka minut — tokeny za tę próbę nie zostały pobrane.';
     }
     return 'Generacja nieudana. Spróbuj ponownie — tokeny za tę próbę nie zostały pobrane.';
+}
+
+export function describeSuccess(variantCount: number, refundedTokens: number): string {
+    const ready = `Gotowe: ${variantCount} wariant${variantCount === 1 ? '' : 'y'}.`;
+    if (refundedTokens <= 0) return ready;
+    const tokens = refundedTokens === 1 ? 'token' : refundedTokens < 5 ? 'tokeny' : 'tokenów';
+    return `${ready} Zwrócono ${refundedTokens} ${tokens} za warianty, które się nie udały lub nie wymagały ponownego generowania.`;
 }
 
 interface PollOptions {
