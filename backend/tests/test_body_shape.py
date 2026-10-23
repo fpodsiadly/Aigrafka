@@ -12,6 +12,8 @@ from app.ai.body_shape import describe_body_shape, parse_measurement
         ("90", "76", "92", "rectangle"),
         ("88", "104", "90", "diamond"),
         ("102", "98", "98", "round/apple"),
+        ("94", "70", "100", "hourglass"),  # bust/hips 6 cm apart (< 3 in), waist 24 cm smaller
+        ("92", "80", "98", "rectangle"),  # waist gap below 8 in, bust/hips under 3 in apart
     ],
 )
 def test_describes_feminine_body_shapes(chest, waist, hips, expected):
@@ -21,11 +23,12 @@ def test_describes_feminine_body_shapes(chest, waist, hips, expected):
 @pytest.mark.parametrize(
     ("chest", "waist", "hips", "expected"),
     [
-        ("112", "88", "94", "inverted-triangle"),
-        ("104", "90", "96", "trapezoid"),
+        ("118", "82", "94", "inverted-triangle"),  # chest/waist 1.44
+        ("110", "84", "96", "trapezoid"),  # chest/waist 1.31
         ("100", "94", "98", "rectangle"),
         ("94", "92", "102", "triangle"),
         ("102", "104", "100", "oval"),
+        ("125", "100", "100", "slightly tapered"),  # chest/waist 1.25, between rectangle and trapezoid
     ],
 )
 def test_describes_masculine_body_shapes(chest, waist, hips, expected):

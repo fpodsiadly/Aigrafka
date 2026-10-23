@@ -47,30 +47,51 @@ def describe_body_shape(
     return _describe_neutral_shape(chest, waist, hips)
 
 
+# Thresholds from the body-shape reference table (defined in inches there).
+INCH_CM = 2.54
+SIMILAR_BUST_HIPS_CM = 3 * INCH_CM  # bust and hips "about equal"
+CLEAR_DIFFERENCE_CM = 3 * INCH_CM  # pear / inverted triangle: 3+ inches apart
+DEFINED_WAIST_CM = 8 * INCH_CM  # hourglass: waist 8+ inches smaller than bust and hips
+APPLE_WAIST_TO_HIP = 0.85
+OVAL_WAIST_TO_HIP = 0.95
+INVERTED_TRIANGLE_CHEST_TO_WAIST = 1.4
+TRAPEZOID_CHEST_TO_WAIST = 1.3
+RECTANGLE_MAX_SPREAD = 1.08  # widest / narrowest measurement
+
+
 def _describe_feminine_shape(chest: float, waist: float, hips: float) -> str:
     if waist > chest * 1.05 and waist > hips * 1.05:
-        return "diamond body shape: the waist is the fullest area, with a narrower chest and hips"
-    if waist >= max(chest, hips) * 0.9 and chest >= hips * 0.95:
-        return "round/apple body shape: a fuller midsection with comparatively less waist definition"
-    if abs(chest - hips) <= max(chest, hips) * 0.05 and waist <= min(chest, hips) * 0.75:
-        return "hourglass body shape: balanced chest and hips with a clearly defined waist"
-    if hips >= chest * 1.05:
-        return "pear/triangle body shape: hips are broader than the chest, with a comparatively narrower upper body"
-    if chest >= hips * 1.05:
-        return "inverted-triangle body shape: the upper body is broader than the hips"
-    return "rectangle body shape: chest and hips are balanced with gentle waist definition"
+        return "diamond body shape: the waist is the fullest area, with a narrower bust and hips"
+    # The table's "waist >= hips/bust": a high waist-to-hip ratio alone would label narrow-hipped
+    # inverted triangles as apples, so the waist must be close to the bust as well.
+    if waist / hips > APPLE_WAIST_TO_HIP and waist / chest > APPLE_WAIST_TO_HIP:
+        return (
+            "round/apple body shape: a fuller midsection with the waist close to the bust and hip width "
+            "and little waist definition"
+        )
+    if abs(chest - hips) < SIMILAR_BUST_HIPS_CM and min(chest, hips) - waist >= DEFINED_WAIST_CM:
+        return "hourglass body shape: bust and hips of similar width with a clearly narrower, defined waist"
+    if hips - chest >= CLEAR_DIFFERENCE_CM:
+        return "pear/triangle body shape: hips noticeably wider than the bust, with a defined waist"
+    if chest - hips >= CLEAR_DIFFERENCE_CM:
+        return "inverted-triangle body shape: bust and shoulders noticeably wider than the hips"
+    return "rectangle body shape: bust, waist and hips of similar width, giving a fairly straight silhouette"
 
 
 def _describe_masculine_shape(chest: float, waist: float, hips: float) -> str:
-    if waist >= max(chest, hips) * 0.95:
-        return "oval body shape: a fuller midsection with comparatively narrower upper and lower proportions"
-    if hips >= chest * 1.05:
-        return "triangle body shape: the lower body is broader than the chest"
-    if chest >= hips * 1.1 and waist <= chest * 0.85:
-        return "inverted-triangle body shape: a broad chest tapering clearly toward the waist and hips"
-    if chest >= hips * 1.05 and waist < chest * 0.95:
-        return "trapezoid body shape: the chest is moderately broader than the waist and hips"
-    return "rectangle body shape: chest, waist, and hips have relatively balanced proportions"
+    if waist >= chest * 0.98 and waist / hips >= OVAL_WAIST_TO_HIP:
+        return "oval body shape: a fuller abdomen, with the waist as wide as or wider than the chest and hips"
+    if max(hips, waist) > chest:
+        return "triangle body shape: hips and waist wider than the chest and shoulders"
+    chest_to_waist = chest / waist
+    if chest_to_waist > INVERTED_TRIANGLE_CHEST_TO_WAIST:
+        return "inverted-triangle body shape: a broad chest and shoulders tapering sharply to a narrow waist and hips"
+    if chest_to_waist >= TRAPEZOID_CHEST_TO_WAIST:
+        return "trapezoid (V-taper) body shape: chest and shoulders clearly broader than the waist"
+    if max(chest, waist, hips) / min(chest, waist, hips) <= RECTANGLE_MAX_SPREAD:
+        return "rectangle body shape: chest, waist and hips of nearly equal width"
+    # Between the table's rectangle and trapezoid (chest-to-waist below 1.3).
+    return "slightly tapered body shape: the chest moderately broader than the waist and hips"
 
 
 def _describe_neutral_shape(chest: float, waist: float, hips: float) -> str:
