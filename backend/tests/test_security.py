@@ -1,13 +1,6 @@
 
 from app.core.config import Settings
-from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
-
-
-def test_password_hash_roundtrip():
-    password = "secret123"
-    hashed = hash_password(password)
-    assert verify_password(password, hashed)
-    assert not verify_password("wrong", hashed)
+from app.core.security import create_access_token, decode_access_token
 
 
 def test_jwt_roundtrip(monkeypatch):

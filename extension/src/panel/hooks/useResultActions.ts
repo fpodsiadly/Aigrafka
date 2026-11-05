@@ -8,6 +8,12 @@ export function imageFileExtension(mimeType: string): string {
     return 'jpg';
 }
 
+// Result images are local blob: copies; such a URL is meaningless outside this tab,
+// so it must never be shared or copied as a link.
+export function shareableLink(url: string | null | undefined): string {
+    return url && !url.startsWith('blob:') && !url.startsWith('data:') ? url : '';
+}
+
 /** Share, copy and download actions for the selected generated variant. */
 export default function useResultActions(productUrl: string) {
     const variants = useAppStore((state) => state.variants);
@@ -17,7 +23,7 @@ export default function useResultActions(productUrl: string) {
     const setStatusError = useAppStore((state) => state.setStatusError);
 
     async function handleShare() {
-        const shareUrl = productUrl || previewUrl || undefined;
+        const shareUrl = productUrl || shareableLink(previewUrl) || undefined;
         const imageUrl = variants[selectedVariant]?.url || previewUrl || undefined;
         try {
             if (navigator.share) {
@@ -75,7 +81,7 @@ export default function useResultActions(productUrl: string) {
     }
 
     async function handleCopyLink() {
-        const text = productUrl || previewUrl || 'https://aigrafka.pl';
+        const text = productUrl || shareableLink(previewUrl) || 'https://aigrafka.pl';
         try {
             await navigator.clipboard.writeText(text);
             setStatusSuccess('Skopiowano link.');
@@ -119,6 +125,10 @@ export default function useResultActions(productUrl: string) {
             setStatusSuccess('Skopiowano obraz.');
         } catch (error) {
             console.error(error);
+            if (!shareableLink(target)) {
+                setStatusError('Nie udało się skopiować obrazu.');
+                return;
+            }
             try {
                 await navigator.clipboard.writeText(target);
                 setStatusError('Nie można skopiować obrazu. Skopiowano link.');

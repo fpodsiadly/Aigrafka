@@ -13,7 +13,6 @@ asyncpg==0.31.0
 psycopg2-binary==2.9.12
 alembic==1.18.5
 PyJWT==2.13.0
-bcrypt==5.0.0
 python-dotenv==1.2.2
 redis==8.0.1
 upstash-redis==1.7.0

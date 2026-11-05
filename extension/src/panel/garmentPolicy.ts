@@ -7,9 +7,9 @@ export interface GarmentCategory {
     readonly intimate?: boolean;
 }
 
-// Suggestions for the free-text category field. `value` is the key older
-// versions stored and sent; the backend still accepts it.
-export const GARMENT_CATEGORIES: readonly GarmentCategory[] = [
+// Category keys older versions stored and sent (the backend still accepts
+// them), with their Polish labels and policy flags.
+const GARMENT_CATEGORIES: readonly GarmentCategory[] = [
     { value: 'tshirt', label: 'Koszulka' },
     { value: 'shirt', label: 'Koszula' },
     { value: 'hoodie', label: 'Bluza z kapturem' },

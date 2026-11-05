@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 import { actionButtonStyle, inputStyle } from '../styles';
-import { GARMENT_CATEGORIES, MAX_CATEGORY_LENGTH, getCategoryError } from '../garmentPolicy';
-import { FormState, ProductImageKey } from '../types';
+import { MAX_CATEGORY_LENGTH } from '../garmentPolicy';
+import { ProductImageKey } from '../types';
 import type { ProductInfo } from '../productInfo';
 import FieldRow from './FieldRow';
 
@@ -12,7 +12,6 @@ interface ProductFormProps {
     inputProductUrl: string;
     inputCategory: string;
     categoryError: string | null;
-    fitStyle: FormState['fitStyle'];
     productImage1: File | null;
     productImage2: File | null;
     productPreview1: string;
@@ -31,7 +30,6 @@ const ProductForm: React.FC<ProductFormProps> = ({
     inputProductUrl,
     inputCategory,
     categoryError,
-    fitStyle,
     productImage1,
     productImage2,
     productPreview1,
@@ -266,7 +264,6 @@ const ProductForm: React.FC<ProductFormProps> = ({
             <FieldRow label="Kategoria produktu:">
                 <input
                     type="text"
-                    list="aigrafka-category-suggestions"
                     maxLength={MAX_CATEGORY_LENGTH}
                     placeholder="Wpisz, np. sweter, kurtka jeansowa"
                     style={{
@@ -277,13 +274,6 @@ const ProductForm: React.FC<ProductFormProps> = ({
                     onChange={(e) => onCategoryChange(e.target.value)}
                     aria-label="Kategoria produktu"
                 />
-                <datalist id="aigrafka-category-suggestions">
-                    {GARMENT_CATEGORIES.filter((category) => !getCategoryError(category.label, fitStyle)).map(
-                        (category) => (
-                            <option key={category.value} value={category.label} />
-                        )
-                    )}
-                </datalist>
                 {categoryError && (
                     <div role="alert" style={{ marginTop: 4, color: '#a61b1b', fontSize: 10, fontWeight: 700 }}>
                         {categoryError}

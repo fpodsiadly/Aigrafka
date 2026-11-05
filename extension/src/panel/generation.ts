@@ -55,6 +55,27 @@ export function describeSuccess(variantCount: number, refundedTokens: number): s
     return `${ready} Zwrócono ${refundedTokens} ${tokens} za warianty, które się nie udały lub nie wymagały ponownego generowania.`;
 }
 
+/**
+ * Copy remote result images into local blob URLs, so they stay valid after the
+ * server's short-lived links expire. Images that cannot be fetched keep their URL.
+ */
+export async function toLocalImages(
+    previews: VariantPreview[],
+    fetchImage: (url: string) => Promise<Blob>
+): Promise<VariantPreview[]> {
+    return Promise.all(
+        previews.map(async (preview) => {
+            if (preview.url.startsWith('blob:') || preview.url.startsWith('data:')) return preview;
+            try {
+                const blob = await fetchImage(preview.url);
+                return { ...preview, url: URL.createObjectURL(blob), mimeType: blob.type || preview.mimeType };
+            } catch {
+                return preview;
+            }
+        })
+    );
+}
+
 interface PollOptions {
     getJob: (jobId: string) => Promise<GenerateJobStatus>;
     // Called with the variants that are ready so far (null = still rendering).

@@ -8,8 +8,10 @@ import {
     describeGenerationError,
     describeSuccess,
     pollGenerationJob,
+    toLocalImages,
     toVariantPreviews,
 } from '../generation';
+import { fetchImageViaExtension } from '../capture';
 import { FormState, GenerateResponse, VariantPreview } from '../types';
 import {
     base64ToObjectUrl,
@@ -48,6 +50,21 @@ function buildGenerateFormData(form: FormState & { selfie: File }, productUrl: s
     return formData;
 }
 
+// Blob URLs of the variants held in the (global) store. Module-level rather than a
+// ref, and never revoked on unmount: closing and reopening the panel keeps the
+// store's variants, so their URLs must stay valid.
+let variantObjectUrls: string[] = [];
+
+/** Drop the generated images from memory, e.g. when the user deletes their data. */
+export function clearGenerationResults(): void {
+    variantObjectUrls.forEach(revokeObjectUrl);
+    variantObjectUrls = [];
+    const store = useAppStore.getState();
+    store.setVariants([]);
+    store.setPreviewUrl('');
+    store.setView('form');
+}
+
 export default function useGeneration({ form, canSubmit, refreshAuthFromServer }: UseGenerationArgs) {
     const auth = useAppStore((state) => state.auth);
     const view = useAppStore((state) => state.view);
@@ -67,25 +84,18 @@ export default function useGeneration({ form, canSubmit, refreshAuthFromServer }
 
     const [waitingPulse, setWaitingPulse] = useState<number>(0);
     const [elapsedSec, setElapsedSec] = useState<number>(0);
-    const objectUrlsRef = useRef<string[]>([]);
     const isGeneratingRef = useRef(false);
-
-    const revokeVariantUrls = useCallback(() => {
-        objectUrlsRef.current.forEach(revokeObjectUrl);
-        objectUrlsRef.current = [];
-    }, []);
 
     const showVariants = useCallback(
         (previews: VariantPreview[]) => {
-            // Release blob URLs from earlier previews before tracking the new ones.
-            revokeVariantUrls();
-            objectUrlsRef.current = previews.map((v) => v.url).filter((u) => u.startsWith('blob:'));
+            // Release blob URLs of the previous previews only when they are replaced.
+            const nextUrls = previews.map((v) => v.url).filter((u) => u.startsWith('blob:'));
+            variantObjectUrls.filter((url) => !nextUrls.includes(url)).forEach(revokeObjectUrl);
+            variantObjectUrls = nextUrls;
             setVariants(previews);
         },
-        [revokeVariantUrls, setVariants]
+        [setVariants]
     );
-
-    useEffect(() => revokeVariantUrls, [revokeVariantUrls]);
 
     useEffect(() => {
         if (selectedVariant > 0 && selectedVariant >= variants.length) {
@@ -171,8 +181,9 @@ export default function useGeneration({ form, canSubmit, refreshAuthFromServer }
                 });
             }
 
-            showVariants(normalizedVariants);
-            setPreviewUrl(normalizedVariants[0]?.url || placeholderPreview);
+            const localVariants = await toLocalImages(normalizedVariants, fetchImageViaExtension);
+            showVariants(localVariants);
+            setPreviewUrl(localVariants[0]?.url || placeholderPreview);
             setGenerationMeta({
                 model: data.model ?? undefined,
                 latencyMs: normalizedVariants[0]?.latencyMs,

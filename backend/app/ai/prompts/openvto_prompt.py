@@ -63,21 +63,25 @@ _FULL_LENGTH = (
     "Photographed from about 4 metres away, show the whole figure from head to shoes, centred in a vertical 3:4 "
     "frame with a little space above the head."
 )
-# An adult is about eight head heights tall.
+# An adult is about eight head heights tall; the model still draws the head too large,
+# so ask for it at 85% of that natural size.
 HEAD_HEIGHTS_PER_BODY = 8
+HEAD_SCALE = 0.85
 
 
 def _head_scale_text(height_cm: float | None) -> str:
     """Image 1 is a close-up; without this the model keeps its scale and the head comes out too large."""
     size = (
-        f", so for a person about {height_cm:g} cm tall the head is about "
-        f"{height_cm / HEAD_HEIGHTS_PER_BODY:.0f} cm from chin to crown"
+        f"; for a person about {height_cm:g} cm tall the head is about "
+        f"{height_cm / HEAD_HEIGHTS_PER_BODY * HEAD_SCALE:.0f} cm from chin to crown"
         if height_cm is not None
         else ""
     )
     return (
-        "Image 1 is a close-up, so scale the head down to realistic adult proportions: the full body is about "
-        f"{HEAD_HEIGHTS_PER_BODY} head heights tall{size}. The head is never enlarged relative to the shoulders and body."
+        "Image 1 is a close-up, so scale the head down: draw it about "
+        f"{(1 - HEAD_SCALE) * 100:.0f}% smaller than a typical adult head, "
+        f"so the full body is about {HEAD_HEIGHTS_PER_BODY / HEAD_SCALE:.1f} head heights tall{size}. "
+        "The head is never enlarged relative to the shoulders and body."
     )
 
 

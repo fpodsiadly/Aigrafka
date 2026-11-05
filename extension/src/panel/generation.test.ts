@@ -5,6 +5,7 @@ import {
     describeGenerationError,
     describeSuccess,
     pollGenerationJob,
+    toLocalImages,
     toVariantPreviews,
 } from './generation';
 import { GenerateJobStatus } from './types';
@@ -96,5 +97,29 @@ describe('pollGenerationJob', () => {
             })
         ).rejects.toThrow(GENERATION_TIMEOUT_MESSAGE);
         expect(getJob).toHaveBeenCalledTimes(3);
+    });
+});
+
+describe('toLocalImages', () => {
+    it('copies remote images into blob URLs and keeps local or unfetchable ones', async () => {
+        const fetchImage = vi.fn(async (url: string) => {
+            if (url.includes('broken')) throw new Error('404');
+            return new Blob(['img'], { type: 'image/webp' });
+        });
+
+        const local = await toLocalImages(
+            [
+                { url: 'https://api.test/images/a', mimeType: 'image/webp' },
+                { url: 'blob:already-local' },
+                { url: 'https://api.test/images/broken' },
+            ],
+            fetchImage
+        );
+
+        expect(local[0].url.startsWith('blob:')).toBe(true);
+        expect(local[0].mimeType).toBe('image/webp');
+        expect(local[1].url).toBe('blob:already-local');
+        expect(local[2].url).toBe('https://api.test/images/broken');
+        expect(fetchImage).toHaveBeenCalledTimes(2);
     });
 });

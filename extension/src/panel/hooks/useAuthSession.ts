@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { useAppStore } from '../../store/appStore';
+import { clearGenerationResults } from './useGeneration';
 import {
     authMe,
     deleteMyData,
@@ -202,6 +203,7 @@ export default function useAuthSession({ form, setForm }: UseAuthSessionArgs) {
             }
             await selfieStorage.clear();
             await storage.clear();
+            clearGenerationResults();
             setForm((prev) => ({ ...prev, selfie: null, height: '', chest: '', waist: '', hips: '' }));
             setStatusSuccess('Usunięto Twoje dane: selfie, wymiary i zapisane stylizacje.');
         } catch (error) {

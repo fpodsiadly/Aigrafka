@@ -23,7 +23,7 @@ AIgrafka to rozszerzenie przeglądarki do wirtualnej przymiarki ubrań z AI (vir
 
 - Wybor zdjecia produktu kliknieciem na stronie sklepu: pobierany jest oryginalny plik w pelnej rozdzielczosci (najwiekszy wariant `srcset`), a zrzut ekranu jest tylko rezerwa.
 - Rozpoznany produkt: nazwa, marka, kolor, material i opis ze strony (JSON-LD `Product` albo Open Graph) trafiaja do promptu; mozna je usunac.
-- Kategoria wpisywana recznie z podpowiedziami; dla kroju meskiego blokowane sa kategorie intymne i damskie (PL/EN slowa kluczowe, `garment_policy`).
+- Kategoria wpisywana recznie (zwykle pole tekstowe, bez listy); dla kroju meskiego blokowane sa kategorie intymne i damskie (PL/EN slowa kluczowe, `garment_policy`).
 - Selfie i wymiary zostaja zapamietane (selfie do 30 dni w pamieci rozszerzenia); "Zacznij od nowa" czysci tylko produkt.
 - "Usun moje dane" w stopce panelu kasuje selfie i wymiary w przegladarce oraz profil i zapisane stylizacje na serwerze.
 

@@ -352,7 +352,6 @@ const App: React.FC = () => {
                                 inputProductUrl={inputProductUrl}
                                 inputCategory={inputCategory}
                                 categoryError={inputCategory ? getCategoryError(inputCategory, form.fitStyle) : null}
-                                fitStyle={form.fitStyle}
                                 productImage1={form.productImage1}
                                 productImage2={form.productImage2}
                                 productPreview1={productPreview1}
