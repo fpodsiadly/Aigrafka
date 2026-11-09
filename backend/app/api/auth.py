@@ -16,14 +16,10 @@ from app.core.db import (
 from app.core.network import client_ip as _client_ip
 from app.core.rate_limit import enforce_auth_rate_limit
 from app.core.security import (
-    DEMO_EMAIL,
-    DEMO_USER_ID,
     bearer_required,
     create_access_token,
-    create_demo_access_token,
     decode_access_token,
     get_current_user_id,
-    is_demo_user_id,
     revoke_token,
 )
 
@@ -60,10 +56,6 @@ class GoogleClientIdResponse(BaseModel):
     client_id: str | None = None
 
 
-class DemoAccessResponse(BaseModel):
-    enabled: bool
-
-
 @router.post("/logout")
 def logout(credentials: HTTPAuthorizationCredentials = Depends(bearer_required)) -> dict[str, bool]:
     """Revoke the presented token so it cannot be reused (e.g. after compromise)."""
@@ -74,29 +66,10 @@ def logout(credentials: HTTPAuthorizationCredentials = Depends(bearer_required))
 
 @router.get("/me", response_model=MeResponse)
 async def me(user_id: str = Depends(get_current_user_id)) -> MeResponse:
-    if is_demo_user_id(user_id):
-        return MeResponse(user_id=DEMO_USER_ID, email=DEMO_EMAIL, tokens=999)
     user = await get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return MeResponse(user_id=str(user["id"]), email=str(user["email"]), tokens=int(user["tokens"]))
-
-
-@router.get("/demo", response_model=DemoAccessResponse)
-def demo_access_status() -> DemoAccessResponse:
-    return DemoAccessResponse(enabled=get_settings().demo_access_enabled)
-
-
-@router.post("/demo", response_model=AuthResponse)
-async def start_demo_access() -> AuthResponse:
-    if not get_settings().demo_access_enabled:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Demo access is disabled")
-    return AuthResponse(
-        access_token=create_demo_access_token(),
-        user_id=DEMO_USER_ID,
-        email=DEMO_EMAIL,
-        tokens=999,
-    )
 
 
 @router.post("/topup", response_model=MeResponse)

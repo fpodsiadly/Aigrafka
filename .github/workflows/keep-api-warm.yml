@@ -13,7 +13,5 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Ping primary API
-        run: curl --fail --silent --show-error --max-time 30 https://api.aigrafka.pl/health
-      - name: Ping backup API
+      - name: Ping Render API
         run: curl --fail --silent --show-error --max-time 30 https://aigrafka.onrender.com/health

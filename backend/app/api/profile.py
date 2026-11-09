@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.core.db import delete_profile, get_profile_by_user_id, upsert_profile
-from app.core.security import get_current_user_id, is_demo_user_id
+from app.core.security import get_current_user_id
 from app.core.user_data import delete_user_data_keys
 
 router = APIRouter(prefix="/profile", tags=["profile"])
@@ -47,9 +47,6 @@ async def delete_my_data(current_user_id: str = Depends(get_current_user_id)) ->
     The account itself (email, token balance, payment records) is kept: token
     purchases are financial records that must be retained.
     """
-    if is_demo_user_id(current_user_id):
-        return DeleteDataResponse(deleted=True, removedImages=0)
-
     try:
         removed_images = await delete_user_data_keys(current_user_id)
     except Exception as exc:
@@ -77,9 +74,6 @@ async def get_profile(user_id: str, current_user_id: str = Depends(get_current_u
 async def save_profile(body: UpsertProfileRequest, current_user_id: str = Depends(get_current_user_id)) -> ProfileResponse:
     if current_user_id != body.userId:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-    if is_demo_user_id(current_user_id):
-        return ProfileResponse(**body.model_dump())
-
     saved = await upsert_profile(
         user_id=body.userId,
         height=body.height,

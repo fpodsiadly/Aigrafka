@@ -2,7 +2,6 @@ import hmac
 import json
 import logging
 from hashlib import sha384
-from typing import Literal
 from uuid import uuid4
 
 import httpx
@@ -11,14 +10,22 @@ from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.core.db import credit_tokens_for_payment, get_user_by_id
-from app.core.security import get_current_user_id, is_demo_user_id
+from app.core.security import get_current_user_id
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 logger = logging.getLogger(__name__)
 
 
 class CheckoutRequest(BaseModel):
-    pack: Literal["starter", "pro"] = "starter"
+    # The buyer accepted the terms and agreed to immediate delivery of digital
+    # content (losing the 14-day withdrawal right); required before paying.
+    acceptedTerms: bool = False
+
+
+class PackResponse(BaseModel):
+    tokens: int
+    priceGrosze: int
+    currency: str
 
 
 class CheckoutResponse(BaseModel):
@@ -51,7 +58,6 @@ class WebhookResponse(BaseModel):
     provider: str | None = None
     tokens: int | None = None
     reason: str | None = None
-    demo: bool | None = None
 
 
 class P24Config(BaseModel):
@@ -73,9 +79,18 @@ def _sha384(input_text: str) -> str:
     return sha384(input_text.encode("utf-8")).hexdigest()
 
 
-def _build_session_id(user_id: str, pack: str) -> str:
-    raw = f"aigrafka:{user_id}:{pack}:{uuid4().hex}"
+def _build_session_id(user_id: str, tokens: int) -> str:
+    # The token count travels in the sessionId, which P24 signs and returns in
+    # the notification, so a later price/pack change cannot alter what was bought.
+    raw = f"aigrafka:{user_id}:{tokens}:{uuid4().hex}"
     return raw[:100]
+
+
+def _extract_tokens_from_session(session_id: str) -> int | None:
+    parts = session_id.split(":")
+    if len(parts) < 4 or not parts[2].isdigit():
+        return None
+    return int(parts[2])
 
 
 def _extract_user_id_from_session(session_id: str) -> str | None:
@@ -89,11 +104,9 @@ def _extract_user_id_from_session(session_id: str) -> str | None:
 
 
 def _map_amount_to_tokens(amount_grosze: int) -> int:
+    """Fallback for sessions created before the token count was put in the sessionId."""
     settings = get_settings()
-    starter_price = settings.p24_price_starter_grosze
-    if starter_price <= 0:
-        return 0
-    return max(0, round(5 * (amount_grosze / starter_price)))
+    return max(0, round(settings.p24_pack_tokens * amount_grosze / settings.p24_pack_price_grosze))
 
 
 def _get_p24_config() -> P24Config:
@@ -183,22 +196,31 @@ async def dev_add_tokens(user_id: str = Depends(get_current_user_id)) -> DevAddT
     return DevAddTokensResponse(ok=True, tokens=user["tokens"] if user else None)
 
 
+@router.get("/pack", response_model=PackResponse)
+def get_pack() -> PackResponse:
+    settings = get_settings()
+    return PackResponse(
+        tokens=settings.p24_pack_tokens,
+        priceGrosze=settings.p24_pack_price_grosze,
+        currency=settings.p24_currency,
+    )
+
+
 @router.post("/checkout", response_model=CheckoutResponse)
 async def create_checkout(body: CheckoutRequest, user_id: str = Depends(get_current_user_id)) -> CheckoutResponse:
-    if is_demo_user_id(user_id):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Demo access does not use payments")
+    if not body.acceptedTerms:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="terms_not_accepted")
     settings = get_settings()
     user = await get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    if settings.p24_demo_mode:
-        return CheckoutResponse(checkoutUrl="https://example.com/checkout-demo", sessionId="demo")
-
     config = _get_p24_config()
 
-    amount = settings.p24_price_pro_grosze if body.pack == "pro" else settings.p24_price_starter_grosze
-    session_id = _build_session_id(user_id, body.pack)
+    amount = settings.p24_pack_price_grosze
+    session_id = _build_session_id(user_id, settings.p24_pack_tokens)
+    # Proof of consent: the terms were accepted for this exact payment session.
+    logger.info("Checkout terms accepted user=%s session=%s", user_id, session_id)
     sign = _build_register_sign(session_id, amount, config.currency, config)
 
     url_return = settings.checkout_success_url or "https://aigrafka.pl"
@@ -210,7 +232,7 @@ async def create_checkout(body: CheckoutRequest, user_id: str = Depends(get_curr
         "sessionId": session_id,
         "amount": amount,
         "currency": config.currency,
-        "description": f"AIgrafka token pack: {body.pack}",
+        "description": f"AIgrafka: {settings.p24_pack_tokens} tokenów stylizacji",
         "email": str(user["email"]),
         "country": "PL",
         "language": "pl",
@@ -250,10 +272,6 @@ async def create_checkout(body: CheckoutRequest, user_id: str = Depends(get_curr
 
 @router.post("/webhook", response_model=WebhookResponse)
 async def p24_webhook(request: Request) -> WebhookResponse:
-    settings = get_settings()
-    if settings.p24_demo_mode:
-        return WebhookResponse(received=True, demo=True, provider="przelewy24")
-
     config = _get_p24_config()
 
     try:
@@ -301,7 +319,7 @@ async def p24_webhook(request: Request) -> WebhookResponse:
         logger.warning("No user mapping in sessionId=%s", payload.sessionId)
         return WebhookResponse(received=True, credited=False, reason="no-user")
 
-    tokens = _map_amount_to_tokens(payload.amount)
+    tokens = _extract_tokens_from_session(payload.sessionId) or _map_amount_to_tokens(payload.amount)
     if tokens <= 0:
         return WebhookResponse(received=True, credited=False, reason="zero-tokens")
 

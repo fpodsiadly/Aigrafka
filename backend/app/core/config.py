@@ -58,7 +58,6 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(..., alias="JWT_SECRET", min_length=32)
     jwt_exp_minutes: int = Field(default=60, alias="JWT_EXP_MINUTES", ge=5, le=60 * 24 * 30)
     dev_mode: bool = Field(default=False, alias="DEV_MODE")
-    demo_access_enabled: bool = Field(default=False, alias="DEMO_ACCESS_ENABLED")
     # Optional Fernet key. When set, job payloads (which carry base64 selfie /
     # product images) are encrypted before being written to Redis at rest.
     payload_encryption_key: str | None = Field(default=None, alias="PAYLOAD_ENCRYPTION_KEY")
@@ -77,9 +76,9 @@ class Settings(BaseSettings):
     p24_api_base: str | None = Field(default=None, alias="P24_API_BASE")
     p24_panel_base: str | None = Field(default=None, alias="P24_PANEL_BASE")
     p24_currency: str = Field(default="PLN", alias="P24_CURRENCY")
-    p24_price_starter_grosze: int = Field(default=1000, alias="P24_PRICE_STARTER_GROSZE", ge=1, le=10000000)
-    p24_price_pro_grosze: int = Field(default=2000, alias="P24_PRICE_PRO_GROSZE", ge=1, le=10000000)
-    p24_demo_mode: bool = Field(default=False, alias="P24_DEMO_MODE")
+    # The single token pack sold through Przelewy24.
+    p24_pack_tokens: int = Field(default=5, alias="P24_PACK_TOKENS", ge=1, le=10000)
+    p24_pack_price_grosze: int = Field(default=1000, alias="P24_PACK_PRICE_GROSZE", ge=1, le=10000000)
     p24_default_customer_email: str | None = Field(default=None, alias="P24_DEFAULT_CUSTOMER_EMAIL")
     checkout_success_url: str | None = Field(default=None, alias="CHECKOUT_SUCCESS_URL")
     checkout_status_url: str | None = Field(default=None, alias="CHECKOUT_STATUS_URL")

@@ -45,6 +45,10 @@ def _jpeg_upload(filename: str) -> UploadFile:
     return UploadFile(file=data, filename=filename, headers=Headers({"content-type": "image/jpeg"}))
 
 
+async def _enough_tokens(_user_id, _amount):
+    return 10
+
+
 @pytest.mark.asyncio
 async def test_generate_returns_signed_image_url_and_telemetry_without_job_round_trip(monkeypatch):
     import app.api.generate as generate
@@ -63,6 +67,7 @@ async def test_generate_returns_signed_image_url_and_telemetry_without_job_round
         return "image.token"
 
     monkeypatch.setattr(generate, "enforce_generate_rate_limit", allow)
+    monkeypatch.setattr(generate, "deduct_tokens_if_possible", _enough_tokens)
     monkeypatch.setattr(generate, "generate_from_payload", generated)
     monkeypatch.setattr(generate, "store_result_image", store)
 
@@ -102,7 +107,7 @@ async def test_generate_returns_signed_image_url_and_telemetry_without_job_round
         size_chest_range=None,
         size_waist_range=None,
         size_hips_range=None,
-        user_id=None,
+        user_id="user-1",
     )
 
     assert result["variants"][0]["image_url"].startswith("https://api.example.com/images/")
@@ -124,6 +129,7 @@ async def test_generate_async_mode_returns_job_id_with_202(monkeypatch):
         return "job-123"
 
     monkeypatch.setattr(generate, "enforce_generate_rate_limit", allow)
+    monkeypatch.setattr(generate, "deduct_tokens_if_possible", _enough_tokens)
     monkeypatch.setattr(generate, "_start_async_generation", start)
 
     request = Request(
@@ -163,9 +169,64 @@ async def test_generate_async_mode_returns_job_id_with_202(monkeypatch):
         size_chest_range=None,
         size_waist_range=None,
         size_hips_range=None,
-        user_id=None,
+        user_id="user-1",
     )
 
     assert response.status_code == 202
     assert result == {"job_id": "job-123", "status": "pending", "variant_count": 2}
     assert started == [("https://api.example.com/", 2)]
+
+
+@pytest.mark.asyncio
+async def test_generate_without_enough_tokens_returns_402(monkeypatch):
+    import app.api.generate as generate
+
+    async def allow(*_args):
+        return None
+
+    async def no_tokens(_user_id, _amount):
+        return None
+
+    monkeypatch.setattr(generate, "enforce_generate_rate_limit", allow)
+    monkeypatch.setattr(generate, "deduct_tokens_if_possible", no_tokens)
+    request = Request(
+        {"type": "http", "method": "POST", "scheme": "https", "server": ("api.example.com", 443), "path": "/generate", "headers": []}
+    )
+    request.state.request_started_perf = perf_counter()
+
+    with pytest.raises(HTTPException) as exc:
+        await generate_tryon(
+            request=request,
+            response=Response(),
+            product_url=None,
+            selfie=_jpeg_upload("selfie.jpg"),
+            category="hoodie",
+            fit_style="unisex",
+            height_cm=None,
+            chest_cm=None,
+            waist_cm=None,
+            hips_cm=None,
+            model_choice=None,
+            variants=2,
+            product_image_1=_jpeg_upload("product.jpg"),
+            product_image_2=None,
+            mode="async",
+            fresh=None,
+            product_name=None,
+            product_details=None,
+            garment_size=None,
+            size_chest_range=None,
+            size_waist_range=None,
+            size_hips_range=None,
+            user_id="user-1",
+        )
+
+    assert exc.value.status_code == 402
+
+
+def test_generate_requires_a_signed_in_user():
+    import inspect
+
+    from app.core.security import get_current_user_id
+
+    assert inspect.signature(generate_tryon).parameters["user_id"].default.dependency is get_current_user_id

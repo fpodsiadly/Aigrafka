@@ -10,8 +10,6 @@ from app.core.redis_client import get_redis_client
 
 bearer_required = HTTPBearer(auto_error=True)
 bearer_optional = HTTPBearer(auto_error=False)
-DEMO_USER_ID = "demo"
-DEMO_EMAIL = "demo@aigrafka.local"
 
 
 def create_access_token(user_id: str, email: str) -> str:
@@ -59,14 +57,6 @@ def revoke_token(payload: dict) -> None:
         client.setex(_revoked_key(jti), ttl, "1")
     except Exception:
         pass
-
-
-def create_demo_access_token() -> str:
-    return create_access_token(DEMO_USER_ID, DEMO_EMAIL)
-
-
-def is_demo_user_id(user_id: str | None) -> bool:
-    return user_id == DEMO_USER_ID
 
 
 def decode_access_token(token: str) -> dict:

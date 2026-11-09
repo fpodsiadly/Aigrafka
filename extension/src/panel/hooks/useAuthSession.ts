@@ -5,13 +5,10 @@ import { clearGenerationResults } from './useGeneration';
 import {
     authMe,
     deleteMyData,
-    devAddTokens,
-    getDemoAccessStatus,
     googleLogin,
     loadProfile,
     saveProfile,
     startCheckout,
-    startDemoAccess,
 } from '../api';
 import { FormState } from '../types';
 import { authStorage, selfieStorage, storage } from '../utils';
@@ -23,17 +20,17 @@ interface UseAuthSessionArgs {
 
 const LOGGED_OUT = { loggedIn: false, tokens: 0, accessToken: null, email: undefined, userId: undefined };
 
-/** Login (Google / demo), session refresh, profile sync and token top-up. */
+/** Google login, session refresh, profile sync and token purchase. */
 export default function useAuthSession({ form, setForm }: UseAuthSessionArgs) {
     const auth = useAppStore((state) => state.auth);
     const setAuth = useAppStore((state) => state.setAuth);
-    const setIsLoading = useAppStore((state) => state.setIsLoading);
     const setStatusSuccess = useAppStore((state) => state.setStatusSuccess);
     const setStatusError = useAppStore((state) => state.setStatusError);
 
     const [showAuthDialog, setShowAuthDialog] = useState<boolean>(false);
     const [authSubmitting, setAuthSubmitting] = useState<boolean>(false);
-    const [demoAccessEnabled, setDemoAccessEnabled] = useState<boolean>(false);
+    const [showPurchaseDialog, setShowPurchaseDialog] = useState<boolean>(false);
+    const [purchaseSubmitting, setPurchaseSubmitting] = useState<boolean>(false);
     const [profileReadyForUser, setProfileReadyForUser] = useState<string | null>(null);
 
     const isProfileHydrating = Boolean(auth.loggedIn && auth.userId && profileReadyForUser !== auth.userId);
@@ -90,21 +87,6 @@ export default function useAuthSession({ form, setForm }: UseAuthSessionArgs) {
         setShowAuthDialog(true);
     }, []);
 
-    const handleDemoAccess = useCallback(async () => {
-        setAuthSubmitting(true);
-        try {
-            const data = await startDemoAccess();
-            await authStorage.setToken(data.access_token);
-            setAuth({ loggedIn: true, tokens: data.tokens, accessToken: data.access_token, email: data.email, userId: data.user_id });
-            setShowAuthDialog(false);
-            setStatusSuccess('Włączono Tryb demo. Generacje nie wymagają płatności.');
-        } catch (error) {
-            setStatusError(error instanceof Error ? error.message : 'Tryb demo jest niedostępny.');
-        } finally {
-            setAuthSubmitting(false);
-        }
-    }, [setAuth, setStatusError, setStatusSuccess]);
-
     const closeAuthDialog = useCallback(() => {
         if (authSubmitting) return;
         setShowAuthDialog(false);
@@ -156,39 +138,34 @@ export default function useAuthSession({ form, setForm }: UseAuthSessionArgs) {
         setStatusSuccess('Wylogowano.');
     }, [setAuth, setForm, setStatusSuccess]);
 
-    async function handleTopUpTokens() {
+    function handleTopUpTokens() {
         if (!auth.loggedIn || !auth.accessToken) {
-            setStatusError('Najpierw zaloguj się, aby doładować tokeny.');
+            setShowAuthDialog(true);
             return;
         }
-        setIsLoading(true);
-        try {
-            try {
-                const data = await devAddTokens(auth.accessToken);
-                setAuth({ tokens: data.tokens ?? auth.tokens + 5 });
-                setStatusSuccess('Dodano 5 tokenów.');
-                return;
-            } catch (error) {
-                if (error instanceof Error && error.message.includes('403')) {
-                    // fall through to real checkout
-                } else {
-                    setStatusError('Błąd doładowania tokenów. Spróbuj ponownie.');
-                    return;
-                }
-            }
+        setShowPurchaseDialog(true);
+    }
 
-            try {
-                const response = await startCheckout(auth.accessToken, 'starter', auth.userId, auth.email);
-                if (!response?.ok) {
-                    throw new Error(response?.error || 'Nie udało się rozpocząć płatności.');
-                }
-                setStatusSuccess('Przekierowano do płatności Przelewy24.');
-            } catch (error) {
-                console.error(error);
-                setStatusError(error instanceof Error ? error.message : 'Nie udało się doładować tokenów.');
+    const closePurchaseDialog = useCallback(() => {
+        setShowPurchaseDialog(false);
+    }, []);
+
+    /** Called after the user accepted the purchase consents in the dialog. */
+    async function handleConfirmPurchase() {
+        if (!auth.accessToken) return;
+        setPurchaseSubmitting(true);
+        try {
+            const response = await startCheckout(auth.accessToken);
+            if (!response?.ok) {
+                throw new Error(response?.error || 'Nie udało się rozpocząć płatności.');
             }
+            setShowPurchaseDialog(false);
+            setStatusSuccess('Otworzono płatność Przelewy24. Tokeny pojawią się po jej zakończeniu.');
+        } catch (error) {
+            console.error(error);
+            setStatusError(error instanceof Error ? error.message : 'Nie udało się rozpocząć płatności.');
         } finally {
-            setIsLoading(false);
+            setPurchaseSubmitting(false);
         }
     }
 
@@ -198,7 +175,7 @@ export default function useAuthSession({ form, setForm }: UseAuthSessionArgs) {
      */
     async function handleDeleteMyData() {
         try {
-            if (auth.loggedIn && auth.accessToken && auth.userId !== 'demo') {
+            if (auth.loggedIn && auth.accessToken) {
                 await deleteMyData(auth.accessToken);
             }
             await selfieStorage.clear();
@@ -211,10 +188,6 @@ export default function useAuthSession({ form, setForm }: UseAuthSessionArgs) {
             setStatusError(error instanceof Error ? error.message : 'Nie udało się usunąć danych.');
         }
     }
-
-    useEffect(() => {
-        getDemoAccessStatus().then(setDemoAccessEnabled).catch(() => setDemoAccessEnabled(false));
-    }, []);
 
     useEffect(() => {
         authStorage.getToken().then((token) => {
@@ -277,14 +250,16 @@ export default function useAuthSession({ form, setForm }: UseAuthSessionArgs) {
         isProfileHydrating,
         showAuthDialog,
         authSubmitting,
-        demoAccessEnabled,
+        showPurchaseDialog,
+        purchaseSubmitting,
         refreshAuthFromServer,
         handleLogin,
-        handleDemoAccess,
         closeAuthDialog,
         handleGoogleLogin,
         handleLogout,
         handleTopUpTokens,
+        closePurchaseDialog,
+        handleConfirmPurchase,
         handleDeleteMyData,
     };
 }

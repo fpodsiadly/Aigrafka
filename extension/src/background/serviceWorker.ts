@@ -1,48 +1,11 @@
 import { isSafeExternalUrl } from '../panel/safeUrl';
 
-// Prefer the public API domain. Fall back to Render when DNS, proxy, or the
-// custom domain is unavailable. Resolve before requests instead of retrying a
-// failed POST, which could duplicate generation or payment operations.
-const primaryApiBase = import.meta.env.VITE_API_BASE ?? 'https://api.aigrafka.pl';
-const fallbackApiBase = 'https://aigrafka.onrender.com';
-const API_BASE_CACHE_MS = 60_000;
-let resolvedApiBase: string | null = null;
-let resolvedApiBaseExpiresAt = 0;
-let apiBaseResolution: Promise<string> | null = null;
-
-async function isHealthy(baseUrl: string): Promise<boolean> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 4_000);
-  try {
-    const response = await fetch(`${baseUrl}/health`, {
-      method: 'GET',
-      cache: 'no-store',
-      signal: controller.signal,
-    });
-    return response.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
+// The API is reached directly on Render. TODO(api-domain): switch the default
+// back to https://api.aigrafka.pl once its DNS points at Render (README → TODO).
+const apiBase = import.meta.env.VITE_API_BASE ?? 'https://aigrafka.onrender.com';
 
 async function resolveApiBase(): Promise<string> {
-  if (resolvedApiBase && Date.now() < resolvedApiBaseExpiresAt) return resolvedApiBase;
-  if (apiBaseResolution) return apiBaseResolution;
-
-  apiBaseResolution = (async () => {
-    const selected = await isHealthy(primaryApiBase) ? primaryApiBase : fallbackApiBase;
-    resolvedApiBase = selected;
-    resolvedApiBaseExpiresAt = Date.now() + API_BASE_CACHE_MS;
-    return selected;
-  })();
-
-  try {
-    return await apiBaseResolution;
-  } finally {
-    apiBaseResolution = null;
-  }
+  return apiBase;
 }
 
 async function getGoogleCredential(): Promise<string> {
@@ -183,7 +146,6 @@ async function fetchProductImage(rawUrl: unknown): Promise<{ ok: true; base64: s
 const ALLOWED_CHECKOUT_HOSTS = new Set([
   'secure.przelewy24.pl',
   'sandbox.przelewy24.pl',
-  'example.com', // demo mode placeholder
 ]);
 
 function isAllowedCheckoutUrl(rawUrl: unknown): boolean {
@@ -270,11 +232,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           'Content-Type': 'application/json',
           ...(message?.authToken ? { Authorization: `Bearer ${message.authToken}` } : {})
         },
-        body: JSON.stringify({
-          pack: message?.pack || 'starter',
-          userId: message?.userId,
-          email: message?.email
-        })
+        body: JSON.stringify({ acceptedTerms: message?.acceptedTerms === true })
       })
       .then(async resp => {
         if (!resp.ok) {

@@ -23,7 +23,7 @@ export const initialState: FormState = {
     ...initialMetrics
 };
 
-export const apiBase = import.meta.env.VITE_API_BASE ?? 'https://api.aigrafka.pl';
+export const apiBase = import.meta.env.VITE_API_BASE ?? 'https://aigrafka.onrender.com';
 const storageKey = '****************';
 const authTokenKey = '**********************';
 let inMemoryAuthToken: string | null = null;

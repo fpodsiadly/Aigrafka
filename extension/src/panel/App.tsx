@@ -20,6 +20,7 @@ import GenerationResult from './components/GenerationResult';
 import MetricsForm from './components/MetricsForm';
 import PanelFooter from './components/PanelFooter';
 import PanelHeader from './components/PanelHeader';
+import PurchaseDialog from './components/PurchaseDialog';
 import ProductForm from './components/ProductForm';
 import SelfieUpload from './components/SelfieUpload';
 import InfoTooltip from './components/InfoTooltip';
@@ -67,14 +68,16 @@ const App: React.FC = () => {
         isProfileHydrating,
         showAuthDialog,
         authSubmitting,
-        demoAccessEnabled,
+        showPurchaseDialog,
+        purchaseSubmitting,
         refreshAuthFromServer,
         handleLogin,
-        handleDemoAccess,
         closeAuthDialog,
         handleGoogleLogin,
         handleLogout,
         handleTopUpTokens,
+        closePurchaseDialog,
+        handleConfirmPurchase,
         handleDeleteMyData,
     } = useAuthSession({ form, setForm });
 
@@ -82,7 +85,8 @@ const App: React.FC = () => {
         const hasProductImage = Boolean(form.productImage1) || Boolean(form.productImage2);
         const hasSelfie = !!form.selfie;
         if (!form.accepted || !hasProductImage || !hasSelfie || getCategoryError(form.category, form.fitStyle)) return false;
-        return auth.loggedIn ? auth.tokens >= form.variantCount : true;
+        // Generating costs tokens, so it needs a signed-in user with enough of them.
+        return auth.loggedIn && auth.tokens >= form.variantCount;
     }, [form, auth]);
 
     const { runGeneration, elapsedSec, waitingPulse } = useGeneration({ form, canSubmit, refreshAuthFromServer });
@@ -386,33 +390,50 @@ const App: React.FC = () => {
                         <TokensCard
                             auth={auth}
                             isLoading={isLoading}
-                            demoAccessEnabled={demoAccessEnabled}
                             variantCount={form.variantCount}
                             accepted={form.accepted}
                             onTopUp={handleTopUpTokens}
                             onLogin={handleLogin}
-                            onDemoAccess={handleDemoAccess}
                             onVariantCountChange={(count) => updateForm('variantCount', count)}
                             onAcceptedChange={(accepted) => updateForm('accepted', accepted)}
                         />
 
-                        <button
-                            type="submit"
-                            style={{
-                                ...actionButtonStyle,
-                                width: '100%',
-                                padding: '11px 12px',
-                                background: canSubmit ? '#9b59ff' : '#b7b7b7',
-                                cursor: canSubmit ? 'pointer' : 'not-allowed',
-                                boxShadow: 'none',
-                                borderRadius: 10,
-                                fontSize: 13,
-                                fontWeight: 600,
-                            }}
-                            disabled={!canSubmit || isLoading}
-                        >
-                            {isLoading ? 'Generowanie...' : 'Generuj stylizacje!'}
-                        </button>
+                        {auth.loggedIn ? (
+                            <button
+                                type="submit"
+                                style={{
+                                    ...actionButtonStyle,
+                                    width: '100%',
+                                    padding: '11px 12px',
+                                    background: canSubmit ? '#9b59ff' : '#b7b7b7',
+                                    cursor: canSubmit ? 'pointer' : 'not-allowed',
+                                    boxShadow: 'none',
+                                    borderRadius: 10,
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                }}
+                                disabled={!canSubmit || isLoading}
+                            >
+                                {isLoading ? 'Generowanie...' : 'Generuj stylizacje!'}
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={handleLogin}
+                                style={{
+                                    ...actionButtonStyle,
+                                    width: '100%',
+                                    padding: '11px 12px',
+                                    background: '#9b59ff',
+                                    boxShadow: 'none',
+                                    borderRadius: 10,
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                }}
+                            >
+                                Zaloguj się przez Google, aby generować
+                            </button>
+                        )}
                     </form>
                 )}
 
@@ -452,10 +473,15 @@ const App: React.FC = () => {
             <AuthPanel
                 showAuthDialog={showAuthDialog}
                 authSubmitting={authSubmitting}
-                demoAccessEnabled={demoAccessEnabled}
                 onCloseDialog={closeAuthDialog}
                 onGoogleLogin={() => void handleGoogleLogin()}
-                onDemoAccess={handleDemoAccess}
+            />
+
+            <PurchaseDialog
+                open={showPurchaseDialog}
+                submitting={purchaseSubmitting}
+                onConfirm={() => void handleConfirmPurchase()}
+                onClose={closePurchaseDialog}
             />
         </div>
     );

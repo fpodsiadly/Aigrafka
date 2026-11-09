@@ -6,12 +6,10 @@ import { actionButtonStyle, badge, inputStyle } from '../styles';
 interface TokensCardProps {
     auth: AuthState;
     isLoading: boolean;
-    demoAccessEnabled: boolean;
     variantCount: number;
     accepted: boolean;
     onTopUp: () => void;
     onLogin: () => void;
-    onDemoAccess: () => void;
     onVariantCountChange: (count: number) => void;
     onAcceptedChange: (accepted: boolean) => void;
 }
@@ -30,12 +28,10 @@ const clampVariantCount = (count: number) => Math.min(3, Math.max(1, count));
 const TokensCard: React.FC<TokensCardProps> = ({
     auth,
     isLoading,
-    demoAccessEnabled,
     variantCount,
     accepted,
     onTopUp,
     onLogin,
-    onDemoAccess,
     onVariantCountChange,
     onAcceptedChange,
 }) => (
@@ -55,15 +51,10 @@ const TokensCard: React.FC<TokensCardProps> = ({
                                 background: '#dcecd6',
                                 borderColor: '#c5d9bf',
                             }}
-                            value={auth.userId === 'demo' ? 'demo' : auth.tokens}
+                            value={auth.tokens}
                             readOnly
                         />
-                        {auth.userId === 'demo' ? (
-                            <div style={{ flex: 1, fontSize: 10, fontWeight: 700, color: '#4f7f68', textAlign: 'center' }}>
-                                Tryb demo
-                            </div>
-                        ) : (
-                            <button
+                        <button
                                 type="button"
                                 onClick={onTopUp}
                                 disabled={isLoading}
@@ -79,7 +70,6 @@ const TokensCard: React.FC<TokensCardProps> = ({
                             >
                                 {isLoading ? '...' : 'Dokup tokeny'}
                             </button>
-                        )}
                     </>
                 ) : (
                     <>
@@ -90,15 +80,6 @@ const TokensCard: React.FC<TokensCardProps> = ({
                         >
                             Zaloguj się
                         </button>
-                        {demoAccessEnabled && (
-                            <button
-                                type="button"
-                                onClick={onDemoAccess}
-                                style={{ ...actionButtonStyle, flex: 1, padding: '7px 9px', fontSize: 10, background: '#4f7f68', boxShadow: 'none' }}
-                            >
-                                Tryb demo
-                            </button>
-                        )}
                     </>
                 )}
             </div>

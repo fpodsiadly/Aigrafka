@@ -7,6 +7,7 @@ import {
     GenerateResponse,
     ProfileResponse,
 } from './types';
+import type { TokenPack } from './purchase';
 
 export { apiBase };
 
@@ -114,18 +115,6 @@ function parseJson<T>(response: ApiResponse): T {
     return JSON.parse(response.text) as T;
 }
 
-export async function getDemoAccessStatus(): Promise<boolean> {
-    const response = await apiRequest('/auth/demo');
-    if (!response.ok) return false;
-    return parseJson<{ enabled: boolean }>(response).enabled;
-}
-
-export async function startDemoAccess(): Promise<AuthApiResponse> {
-    const response = await apiRequest('/auth/demo', { method: 'POST' });
-    if (!response.ok) throw new Error(formatApiError(response.text, 'Tryb demo jest niedostępny.'));
-    return parseJson<AuthApiResponse>(response);
-}
-
 function formatApiError(text: string, fallback: string): string {
     try {
         const parsed = JSON.parse(text) as { detail?: unknown };
@@ -212,31 +201,20 @@ export async function saveProfile(token: string, data: ProfileResponse): Promise
     if (!response.ok) throw new Error(formatApiError(response.text, 'Nie udało się zapisać profilu.'));
 }
 
-export async function devAddTokens(token: string): Promise<{ ok: boolean; tokens: number }> {
-    const response = await apiRequest('/payments/dev-add-tokens', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!response.ok) {
-        throw new Error(`Błąd doładowania tokenów (HTTP ${response.status}).`);
-    }
-    return parseJson<{ ok: boolean; tokens: number }>(response);
+export async function getPack(): Promise<TokenPack> {
+    const response = await apiRequest('/payments/pack');
+    if (!response.ok) throw new Error(formatApiError(response.text, 'Nie udało się pobrać ceny pakietu.'));
+    return parseJson<TokenPack>(response);
 }
 
-export async function startCheckout(
-    token: string,
-    pack: string,
-    userId: string | undefined,
-    email: string | undefined
-): Promise<{ ok?: boolean; error?: string }> {
+/** Open the Przelewy24 payment for the token pack; the caller collected the purchase consents. */
+export async function startCheckout(token: string): Promise<{ ok?: boolean; error?: string }> {
     return new Promise(resolve => {
         chrome.runtime?.sendMessage?.(
             {
                 type: 'OPEN_CHECKOUT',
-                pack,
                 authToken: token,
-                userId,
-                email,
+                acceptedTerms: true,
             },
             result => {
                 if (chrome.runtime?.lastError) {

@@ -16,7 +16,7 @@ from app.core.metrics import track_generate_request
 from app.core.queue import create_job, renew_job_lease, update_job_status
 from app.core.rate_limit import enforce_generate_rate_limit
 from app.core.result_images import build_result_image_url, store_result_image
-from app.core.security import get_optional_user_id, is_demo_user_id
+from app.core.security import get_current_user_id
 from app.core.worker import generate_from_payload
 
 router = APIRouter()
@@ -222,7 +222,8 @@ async def generate_tryon(
     size_chest_range: str | None = Form(None),
     size_waist_range: str | None = Form(None),
     size_hips_range: str | None = Form(None),
-    user_id: str | None = Depends(get_optional_user_id),
+    # Generating costs tokens, so it needs a signed-in (Google) user.
+    user_id: str = Depends(get_current_user_id),
 ) -> dict:
     total_started = getattr(request.state, "request_started_perf", perf_counter())
     telemetry = {
@@ -310,7 +311,7 @@ async def generate_tryon(
     back_reference_available = secondary_product_image_bytes is not None
 
     charged_tokens = 0
-    if user_id and not settings.dev_mode and not is_demo_user_id(user_id):
+    if not settings.dev_mode:
         charged_tokens = variant_count * settings.token_cost_per_stylization
         updated_tokens = await deduct_tokens_if_possible(user_id, charged_tokens)
         if updated_tokens is None:

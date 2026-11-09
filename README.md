@@ -64,7 +64,7 @@ npm run dev
 5. Ustaw `VITE_API_BASE` na backend lokalny lub produkcyjny:
 
 - lokalnie: `http://localhost:8000`
-- produkcyjnie: `https://api.aigrafka.pl`
+- produkcyjnie: `https://aigrafka.onrender.com` (domyslny adres w buildzie; `api.aigrafka.pl` - patrz TODO)
 
 6. Build extension do instalacji unpacked:
 
@@ -87,7 +87,7 @@ VITE_API_BASE=https://aigrafka.onrender.com npm run build
 
 ## Najwazniejsze endpointy (FastAPI)
 
-- `POST /generate` - generowanie stylizacji (multipart: selfie + produkt + opcje). Z `mode=async` zwraca `202` z `job_id`, a wynik (także częściowy, wariant po wariancie) jest dostępny pod `GET /jobs/{job_id}`; bez `mode` działa synchronicznie.
+- `POST /generate` - generowanie stylizacji (multipart: selfie + produkt + opcje). Wymaga zalogowania (Bearer, konto Google); kosztuje tokeny, przy ich braku zwraca `402`. Z `mode=async` zwraca `202` z `job_id`, a wynik (także częściowy, wariant po wariancie) jest dostępny pod `GET /jobs/{job_id}`; bez `mode` działa synchronicznie.
   Dodatkowe pola: `fresh=true` (nowe obrazy zamiast cache), `product_name` / `product_details` (opis produktu ze strony sklepu), `garment_size` oraz `size_chest_range` / `size_waist_range` / `size_hips_range` (zakresy wybranego rozmiaru z tabeli sklepu). Tokeny są pobierane tylko za warianty faktycznie wygenerowane — nieudane i wzięte z cache są zwracane (`refunded_tokens`). Błędy dostawcy wracają jako kody (`service_unavailable`, `generation_failed`, `content_policy`); pełna treść zostaje w logach.
 - `GET /jobs/{job_id}` - status i (częściowe) wyniki generowania asynchronicznego. Zadanie bez znaku życia dłużej niż `JOB_ORPHAN_TIMEOUT_SECONDS` (np. po restarcie serwera) jest oznaczane jako `failed` (`interrupted`) z jednorazowym zwrotem tokenów.
 - `POST /profile/delete-data` - usunięcie profilu sylwetki i wszystkich zapisanych stylizacji użytkownika (Bearer required).
@@ -100,7 +100,8 @@ To wartość zwracana przez `chrome.identity.getRedirectURL('google')`.
 - `GET /auth/me` - dane i saldo tokenow.
 - `POST /profile` - zapis profilu sylwetki.
 - `GET /profile` - odczyt profilu sylwetki.
-- `POST /payments/checkout` - rozpoczecie checkout Przelewy24 (Bearer required).
+- `GET /payments/pack` - pakiet tokenow (liczba tokenow, cena w groszach, waluta) do okna zakupu.
+- `POST /payments/checkout` - rozpoczecie checkout Przelewy24 (Bearer required, `{"acceptedTerms": true}` - bez zgod `400`). Liczba tokenow trafia do podpisanego `sessionId`.
 - `POST /payments/webhook` - callback i weryfikacja platnosci P24.
 - `GET /health` - health check pod deploy/cron.
 
@@ -147,9 +148,12 @@ Platnosci Przelewy24:
 - `P24_CRC`
 - `P24_API_USER`
 - `P24_API_SECRET`
-- `P24_ENV`
-- `CHECKOUT_SUCCESS_URL`
-- `CHECKOUT_STATUS_URL`
+- `P24_ENV` - `sandbox` (domyslnie) albo `prod`
+- `P24_PACK_TOKENS` / `P24_PACK_PRICE_GROSZE` - jedyny pakiet (domyslnie 5 tokenow za 1000 gr)
+- `CHECKOUT_SUCCESS_URL` - strona powrotu po platnosci
+- `CHECKOUT_STATUS_URL` - **obowiazkowe**: adres webhooka API, np. `https://aigrafka.onrender.com/payments/webhook`; bez niego P24 nie powiadomi backendu i tokeny nie wplyna
+
+Test dostepu do API P24: `curl -u "<POS_ID>:<KLUCZ_API>" https://sandbox.przelewy24.pl/api/v1/testAccess`.
 
 ## Deploy (Render)
 
@@ -200,3 +204,13 @@ GEMINI_API_KEY=... .venv/bin/python scripts/compare_prompts.py scripts/ab_cases.
 ```
 
 Format przypadków: `scripts/ab_cases.example.json` (ścieżki do zdjęć względem pliku JSON).
+
+## TODO
+
+- **Domena `api.aigrafka.pl` dla API.** Dzis nie ma rekordu DNS, wiec wtyczka laczy sie bezposrednio z `https://aigrafka.onrender.com`. Zeby przejsc na wlasna domene:
+  1. Render -> serwis API -> Settings -> Custom Domains: dodac `api.aigrafka.pl`.
+  2. U rejestratora domeny: rekord `CNAME api -> aigrafka.onrender.com`; poczekac, az Render potwierdzi domene i wystawi certyfikat.
+  3. Sprawdzic: `curl https://api.aigrafka.pl/health` zwraca `{"status":"ok"}`.
+  4. Zmienic domyslny adres API na `https://api.aigrafka.pl` w `extension/src/background/serviceWorker.ts` (znacznik `TODO(api-domain)`) i `extension/src/panel/utils.tsx`, przebudowac wtyczke.
+  5. Ustawic `CHECKOUT_STATUS_URL=https://api.aigrafka.pl/payments/webhook` na Renderze.
+  6. Dodac ping `https://api.aigrafka.pl/health` do `.github/workflows/keep-api-warm.yml`.

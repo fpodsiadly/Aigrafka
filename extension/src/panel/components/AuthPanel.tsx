@@ -5,19 +5,15 @@ import { actionButtonStyle, sectionTitleStyle } from '../styles';
 interface AuthPanelProps {
     showAuthDialog: boolean;
     authSubmitting: boolean;
-    demoAccessEnabled: boolean;
     onCloseDialog: () => void;
     onGoogleLogin: () => void;
-    onDemoAccess: () => void;
 }
 
 const AuthPanel: React.FC<AuthPanelProps> = ({
     showAuthDialog,
     authSubmitting,
-    demoAccessEnabled,
     onCloseDialog,
     onGoogleLogin,
-    onDemoAccess,
 }) => {
     if (!showAuthDialog) return null;
 
@@ -91,28 +87,6 @@ const AuthPanel: React.FC<AuthPanelProps> = ({
                     >
                         {authSubmitting ? 'Logowanie...' : 'Kontynuuj z Google'}
                     </button>
-
-                    {demoAccessEnabled && (
-                        <button
-                            type="button"
-                            onClick={onDemoAccess}
-                            style={{
-                                ...actionButtonStyle,
-                                background: '#4f7f68',
-                                boxShadow: 'none',
-                                padding: '9px 12px',
-                            }}
-                            disabled={authSubmitting}
-                        >
-                            Wypróbuj w trybie demo
-                        </button>
-                    )}
-
-                    {demoAccessEnabled && (
-                        <div style={{ color: '#5b5b5b', fontSize: 10, lineHeight: 1.35, textAlign: 'center' }}>
-                            Bez rejestracji i płatności. Dane demo nie są zapisywane na koncie.
-                        </div>
-                    )}
 
                 </div>
             </div>
